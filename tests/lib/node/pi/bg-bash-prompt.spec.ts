@@ -6,7 +6,13 @@
 
 import { expect, test } from 'vitest';
 
-import { formatBackgroundJobs, formatRegistryText } from '../../../../lib/node/pi/bg-bash-prompt.ts';
+import {
+  BG_SURFACED_TYPE,
+  formatBackgroundJobs,
+  formatRegistryText,
+  readSurfacedTerminalIds,
+  surfacedTerminalJobs,
+} from '../../../../lib/node/pi/bg-bash-prompt.ts';
 import { type BgBashState, type JobSummary } from '../../../../lib/node/pi/bg-bash-reducer.ts';
 
 function mkJob(overrides: Partial<JobSummary> = {}): JobSummary {
@@ -141,4 +147,22 @@ test('formatRegistryText: empty and populated', () => {
 
   expect(out).toMatch(/\[r1\]/);
   expect(out).toMatch(/\[x\]/);
+});
+
+test('terminal jobs are surfaced once; running jobs remain and undisplayed jobs are not acknowledged', () => {
+  const state = mkState([mkJob({ id: 'done', status: 'exited', exitCode: 0, endedAt: NOW }), mkJob({ id: 'running' })]);
+  const first = formatBackgroundJobs(state, { now: NOW })!;
+  const surfaced = new Set(surfacedTerminalJobs(state, first));
+  expect([...surfaced]).toEqual(['done']);
+  const second = formatBackgroundJobs(state, { now: NOW, surfacedTerminalIds: surfaced })!;
+  expect(second).not.toContain('[done]');
+  expect(second).toContain('[running]');
+  expect(surfacedTerminalJobs(state, 'unrelated text')).toEqual([]);
+  expect(formatBackgroundJobs(mkState([state.jobs[0]]), { surfacedTerminalIds: surfaced })).toBeNull();
+});
+
+test('terminal acknowledgements recover from the selected branch, including across compaction', () => {
+  const entry = { type: 'custom', customType: BG_SURFACED_TYPE, data: ['done', null] };
+  expect([...readSurfacedTerminalIds([entry, { type: 'compaction' }])]).toEqual(['done']);
+  expect([...readSurfacedTerminalIds([])]).toEqual([]);
 });

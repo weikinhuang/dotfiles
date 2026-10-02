@@ -30,9 +30,11 @@ serialized through a promise-chain mutex so concurrent `start` calls don't stack
   [`formatBackgroundJobs`](../../../lib/node/pi/bg-bash-prompt.ts) (soft cap `PI_BG_BASH_MAX_INJECTED_CHARS`,
   default 1500) is spliced as an ephemeral `<system-reminder id="bg-jobs">` into the last user/toolResult turn via
   [`applyContextReminder`](../../../lib/node/pi/context-reminder.ts), not appended to the system prompt. Pi's `context`
-  output builds only the outgoing payload and is never persisted, so the system-prompt prefix stays byte-stable - the
-  provider's prompt cache survives job start/exit churn - and nothing accumulates. When there are no running or recent
-  jobs, `formatBackgroundJobs` returns null and nothing is injected. (`uiRef` / statusline are still refreshed on
+  output is finalized by [`cache-reminders`](./cache-reminders.md), which captures one stable snapshot per run in a
+  distinct request item and preserves it across later calls. Terminal jobs are omitted from new snapshots once their
+  exact completion line has appeared in a snapshot, tool result, or completion nudge; branch-local acknowledgement
+  entries recover that state after resume and compaction. Manual `list` still shows the full registry. When there are no
+  running or unsurfaced terminal jobs, nothing is injected. (`uiRef` / statusline are still refreshed on
   `before_agent_start`, which now does only that.)
 
 ## Tool: `bg_bash`

@@ -59,7 +59,8 @@ function gatherBreakdown(pi: ExtensionAPI, ctx: ExtensionCommandContext, capture
     systemPromptOptions: options,
     allTools: pi.getAllTools().map((t) => ({ name: t.name, description: t.description, parameters: t.parameters })),
     activeToolNames: pi.getActiveTools(),
-    messages,
+    // System prompt has its own bucket; SDK 0.87 now includes it in session messages.
+    messages: messages.filter((message) => message.role !== 'system'),
     contextWindow: usage?.contextWindow ?? ctx.model?.contextWindow ?? 0,
     realTokens: usage?.tokens ?? null,
     modelId: ctx.model?.id,

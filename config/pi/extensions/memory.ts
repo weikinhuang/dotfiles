@@ -337,13 +337,21 @@ export default function memoryExtension(pi: ExtensionAPI): void {
   // the STATIC memory index into the cached system prompt. The static index
   // only changes on save/update/remove, so it does not bust the prompt-prefix
   // cache turn-to-turn.
-  pi.on('before_agent_start', (event) => {
+  pi.on('before_agent_start', () => {
     // Count this submit as user activity for the capture-assist gate.
     userTurnsSinceLastSave += 1;
+  });
+  // The final snapshot coordinator preserves the index in a distinct history item.
+  // Never rebuild the leading system prompt when memories or age labels change.
+  pi.on('context', (event) => {
     if (!autoInjectEnabled) return undefined;
     const block = formatMemoryIndex(state, { maxChars: maxInjectedChars, now: now(), staleDays });
     if (!block) return undefined;
-    return { systemPrompt: `${event.systemPrompt}\n\n${block}` };
+    const messages = applyContextReminder(event.messages as unknown as ReminderMessage[], {
+      id: 'memory-index',
+      body: block,
+    });
+    return { messages: messages as unknown as typeof event.messages };
   });
 
   // ── Capture-assist context-hook injection ────────────────────────────

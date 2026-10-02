@@ -22,10 +22,13 @@
 
 import { formatJobLine, partitionJobs } from './bg-bash-format.ts';
 import { type BgBashState, type JobSummary } from './bg-bash-reducer.ts';
+import { isRecord } from './shared/guards.ts';
 
 const DEFAULT_RECENT_CAP = 5;
 
 export interface FormatOptions {
+  /** Terminal jobs already shown via a snapshot, tool result, or completion nudge. */
+  surfacedTerminalIds?: ReadonlySet<string>;
   /** Soft cap on the rendered body in characters. Default 1500. */
   maxChars?: number;
   /** How many terminal jobs to include at most in the "Recent" list. Default 5. */
@@ -47,7 +50,13 @@ export function formatBackgroundJobs(state: BgBashState, opts: FormatOptions = {
   const cap = Math.max(200, opts.maxChars ?? 1500);
   const recentCap = Math.max(0, opts.recentCap ?? DEFAULT_RECENT_CAP);
 
-  const { running, recent } = partitionJobs(state, { recentCap });
+  const visible = {
+    ...state,
+    jobs: state.jobs.filter(
+      (job) => job.status === 'running' || job.status === 'signaled' || !opts.surfacedTerminalIds?.has(job.id),
+    ),
+  };
+  const { running, recent } = partitionJobs(visible, { recentCap });
   if (running.length === 0 && recent.length === 0) return null;
 
   const lines: string[] = ['## Background Jobs', ''];
@@ -112,4 +121,32 @@ export function formatBackgroundJobs(state: BgBashState, opts: FormatOptions = {
 export function formatRegistryText(state: BgBashState, now: number = Date.now()): string {
   if (state.jobs.length === 0) return '(no background jobs)';
   return state.jobs.map((j: JobSummary) => formatJobLine(j, now)).join('\n');
+}
+
+/** A terminal line is acknowledged only when its exact rendered line was actually delivered. */
+export function surfacedTerminalJobs(state: BgBashState, text: string): string[] {
+  return state.jobs
+    .filter(
+      (job) =>
+        !['running', 'signaled'].includes(job.status) &&
+        text.includes(formatJobLine(job, job.endedAt ?? job.startedAt)),
+    )
+    .map((job) => job.id);
+}
+
+export const BG_SURFACED_TYPE = 'bg-bash-surfaced';
+
+export function readSurfacedTerminalIds(entries: readonly unknown[]): Set<string> {
+  const ids = new Set<string>();
+  for (const entry of entries) {
+    if (
+      !isRecord(entry) ||
+      entry.type !== 'custom' ||
+      entry.customType !== BG_SURFACED_TYPE ||
+      !Array.isArray(entry.data)
+    )
+      continue;
+    for (const id of entry.data as unknown[]) if (typeof id === 'string') ids.add(id);
+  }
+  return ids;
 }

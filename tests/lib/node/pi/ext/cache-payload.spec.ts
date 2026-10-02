@@ -1,9 +1,10 @@
-import type { Context, Message, Model } from '@earendil-works/pi-ai';
+import { normalizeContext, type Message, type Model } from '@earendil-works/pi-ai';
 import { convertResponsesMessages } from '@earendil-works/pi-ai/api/openai-responses-shared';
 import { expect, test } from 'vitest';
 
 import { createCacheTracer } from '../../../../../lib/node/pi/cache-trace.ts';
 import { applyContextReminder, type ReminderMessage } from '../../../../../lib/node/pi/context-reminder.ts';
+import { createReminderLifecycle } from '../../../../../lib/node/pi/reminder-lifecycle.ts';
 
 export const model: Model<'azure-openai-responses'> = {
   id: 'fixture',
@@ -20,7 +21,7 @@ export const model: Model<'azure-openai-responses'> = {
 const identity = { provider: model.provider, model: model.id };
 
 export function responsesPayload(messages: ReminderMessage[]): { input: unknown[] } {
-  const context: Context = { messages: messages as unknown as Message[] };
+  const context = normalizeContext({ messages: messages as unknown as Message[] });
   return { input: convertResponsesMessages(model, context, new Set([model.provider])) };
 }
 
@@ -54,4 +55,19 @@ test('installed Responses converter reproduces a historical user item changing d
   expect(first.input[0]).not.toEqual(next.input[0]);
   expect(record.messages.at(-1)?.role).toBe('function_call_output');
   expect(record.messages.at(-1)?.reminderIds).toEqual(['todo-plan']);
+});
+
+test('installed Responses converter preserves the complete historical input prefix for ten snapshot calls', () => {
+  const lifecycle = createReminderLifecycle();
+  const messages = [...history];
+  let previous: unknown[] = [];
+  for (let i = 0; i < 10; i++) {
+    const projection = lifecycle.project(applyContextReminder(messages, { id: 'todo-plan', body: `state ${i}` }));
+    const payload = responsesPayload(projection.messages);
+    expect(payload.input.slice(0, previous.length)).toEqual(previous);
+    previous = payload.input;
+    messages.push(
+      ...toolLoop.map((message) => Object.assign({}, message, { timestamp: Number(message.timestamp) + i * 2 })),
+    );
+  }
 });

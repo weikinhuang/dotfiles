@@ -92,10 +92,13 @@ On `save`, the tool runs two non-blocking checks before writing:
 
 On `session_start` / `session_tree` the extension scans the global and project memory dirs - plus the current session's
 dir when a session id is resolved - rebuilds an in-memory index, and mirrors that index snapshot (not bodies) to a
-`memory-state` session entry so `/fork` and `/tree` show the correct view. On `before_agent_start` it appends a
-`## Memory` block with the per-type index (Global / Project / Session) to the system prompt, capped by
-`PI_MEMORY_MAX_INJECTED_CHARS` (default 3000). The model is expected to call `memory` action `read` when it needs a full
-body.
+`memory-state` session entry so `/fork` and `/tree` show the correct view. Its `context` producer emits a `## Memory`
+block with the per-type index (Global / Project / Session), capped by `PI_MEMORY_MAX_INJECTED_CHARS` (default 3000). The
+model is expected to call `memory` action `read` when it needs a full body.
+
+[`cache-reminders`](./cache-reminders.md) captures that index once per run in a distinct, persistent request projection.
+Index mutations and age annotations no longer rebuild the leading system prompt. Historical snapshots stay unchanged;
+new user turns, resume, branch navigation, and compaction recover current state through the existing disk index.
 
 **Stale annotation.** `project`-type entries older than `PI_MEMORY_STALE_DAYS` (default 30, measured from `updated`
 falling back to `created`, truncated to whole days) get a tiny `(Nd)` age marker appended in the injected index - a soft
@@ -126,8 +129,8 @@ to save; this adds _when_ + _which_.
 
 Pi's `session_before_compact` handler can only cancel or replace the compaction - it cannot inject conversation context
 
-- so the reminder rides the following turn via the `context` hook (a cache-safe seam: ephemeral, never persisted) to
-  reach the model itself, rather than only the UI.
+- so the reminder rides the following turn via the `context` producer and stable snapshot coordinator to reach the model
+  itself, rather than only the UI.
 
 **Delivery mode (`PI_MEMORY_CAPTURE_TURN`).** By default the nudge rides the next user turn as a `<system-reminder>` -
 invisible, cache-cheap, and effective on frontier models. Small/weak self-hosted models, however, attend to the primary
@@ -149,8 +152,8 @@ own model call remains a deferred option.
 ## Commands
 
 - `/memory` (or `/memory list`) - raw state dump of all indices (global + project + session).
-- `/memory preview` - shows the exact `## Memory` block that would be appended to the next turn's system prompt,
-  honouring `PI_MEMORY_MAX_INJECTED_CHARS` and `PI_MEMORY_DISABLE_AUTOINJECT`.
+- `/memory preview` - shows the exact `## Memory` block proposed for the next run's reminder snapshot, honouring
+  `PI_MEMORY_MAX_INJECTED_CHARS` and `PI_MEMORY_DISABLE_AUTOINJECT`.
 - `/memory dir` - prints the memory root, global dir, project dir, session dir, and the project slug (tagged
   `(PI_MEMORY_PROJECT_SLUG)` when overridden) + session id pi resolved.
 - `/memory rescan` - re-read disk. Useful if another process edited a memory file underneath pi.
@@ -162,7 +165,7 @@ own model call remains a deferred option.
 ## Environment variables
 
 - `PI_MEMORY_DISABLED=1` - skip the extension entirely.
-- `PI_MEMORY_DISABLE_AUTOINJECT=1` - keep the tool but don't append `## Memory` to the system prompt.
+- `PI_MEMORY_DISABLE_AUTOINJECT=1` - keep the tool but don't inject the `## Memory` index.
 - `PI_MEMORY_MAX_INJECTED_CHARS=N` - soft cap on the injected block (default `3000`, floor `500`). The budget is
   consumed in priority order (session → project → global) so the scopes most relevant to the current turn survive a
   tight cap; the rendered block still displays global → project → session.

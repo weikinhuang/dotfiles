@@ -1,5 +1,9 @@
 /**
- * Pure helper for cache-friendly, ephemeral "context reminder" injection.
+ * Pure helper for standalone reminder framing and ephemeral producer composition.
+ * This emitter alone is NOT cache-safe: a reminder removed from a historical
+ * tail changes that message on the next request, even when its body is static.
+ * `reminder-lifecycle.ts` and the `cache-reminders` final projection capture
+ * these blocks once per run and retain a distinct, stable request item.
  *
  * Background
  * ──────────
@@ -199,8 +203,8 @@ export function hasInjectableTail(messages: readonly ReminderMessage[]): boolean
  *
  * Deterministic: identical input + identical `spec` always yields an
  * identical result, and re-applying the same spec is a fixpoint - both
- * required so the only thing that changes the outgoing payload is a real
- * change in `body`, preserving the provider's prompt-prefix cache.
+ * required for deterministic producer composition. Cross-request prefix
+ * stability additionally requires the final reminder lifecycle projection.
  */
 export function applyContextReminder<M extends ReminderMessage>(messages: readonly M[], spec: ReminderSpec): M[] {
   const stripped = stripReminder(messages, spec.id);

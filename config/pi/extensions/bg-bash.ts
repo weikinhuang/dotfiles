@@ -95,7 +95,13 @@ import {
   tailLines,
   tailN,
 } from '../../../lib/node/pi/bg-bash-format.ts';
-import { formatBackgroundJobs } from '../../../lib/node/pi/bg-bash-prompt.ts';
+import {
+  BG_SURFACED_TYPE,
+  formatBackgroundJobs,
+  readSurfacedTerminalIds,
+  surfacedTerminalJobs,
+} from '../../../lib/node/pi/bg-bash-prompt.ts';
+import { extractContentText } from '../../../lib/node/pi/message-text.ts';
 import { applyContextReminder, type ReminderMessage } from '../../../lib/node/pi/context-reminder.ts';
 import { requestSandboxWrap } from '../../../lib/node/pi/sandbox/wrapper-slot.ts';
 import {
@@ -409,6 +415,26 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
   // flows rebind `ctx.ui`.
   let uiRef: ExtensionContext['ui'] | undefined;
   let lastStatusRunning = -1; // sentinel: forces the first paint
+  let surfacedTerminalIds = new Set<string>();
+  const acknowledgeTerminals = (text: string): void => {
+    const fresh = surfacedTerminalJobs(state, text).filter((id) => !surfacedTerminalIds.has(id));
+    if (fresh.length === 0) return;
+    for (const id of fresh) surfacedTerminalIds.add(id);
+    pi.appendEntry(BG_SURFACED_TYPE, fresh);
+  };
+  const unsubscribeSnapshots = pi.events.on('cache-reminders:captured', (data) => {
+    const snapshot = data as { specs?: { id: string; body: string }[] };
+    for (const spec of snapshot.specs ?? []) if (spec.id === 'bg-jobs') acknowledgeTerminals(spec.body);
+  });
+  pi.on('message_end', (event) => {
+    const message = event.message;
+    if (
+      (message.role === 'toolResult' && message.toolName === 'bg_bash') ||
+      (message.role === 'custom' && message.customType === BG_BASH_NUDGE_CUSTOM_TYPE)
+    ) {
+      acknowledgeTerminals(extractContentText(message.content));
+    }
+  });
 
   // ── Completion nudge ───────────────────────────────────────────────
   //
@@ -545,6 +571,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
     // registration-time load used process.cwd()).
     config = loadBgBashConfig(ctx.cwd);
     const branch = ctx.sessionManager.getBranch() as unknown as readonly BranchEntry[];
+    surfacedTerminalIds = readSurfacedTerminalIds(branch);
     const replayed = reduceBranch(branch);
     // Drop jobs we can't interact with: anything still `running` /
     // `signaled` in a replayed snapshot is a ghost (its child died with
@@ -1097,6 +1124,8 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
   });
 
   pi.on('session_shutdown', async () => {
+    unsubscribeSnapshots();
+    surfacedTerminalIds.clear();
     // Suppress completion nudges: the exits we're about to force are
     // shutdown-induced, not the job finishing on its own.
     shuttingDown = true;
@@ -1151,7 +1180,11 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
     // start/exit churn - and nothing accumulates. When there are no jobs
     // to report, formatBackgroundJobs returns null and we inject nothing.
     pi.on('context', (event) => {
-      const block = formatBackgroundJobs(state, { maxChars: config.maxInjectedChars, now: Date.now() });
+      const block = formatBackgroundJobs(state, {
+        maxChars: config.maxInjectedChars,
+        now: Date.now(),
+        surfacedTerminalIds,
+      });
       if (!block) return undefined;
       const messages = applyContextReminder(event.messages as unknown as ReminderMessage[], {
         id: 'bg-jobs',
