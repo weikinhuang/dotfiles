@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Inspect pi cache traces locally, without model calls.
+# SPDX-License-Identifier: MIT
+set -euo pipefail
+IFS=$'\n\t'
+
+case "${1:-}" in
+  -h | --help)
+    printf '%s\n' \
+      'Usage: ai-cache-trace <sidecar-or-session.jsonl> [options]' \
+      'Options: --json --run ID --diff --from N --to N --tools --show-system N -h --help' \
+      'Value options accept --flag=value. Default summary never prints raw system text.' \
+      'Text diffs require system/system-tools capture. No provider or network calls.'
+    exit 0
+    ;;
+esac
+
+if ! command -v node >/dev/null 2>&1; then
+  printf '%s\n' 'ai-cache-trace: node is required (Node 24+ with native TypeScript support)' >&2
+  exit 1
+fi
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+DOTFILES_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd -P)"
+exec node "${DOTFILES_ROOT}/lib/node/ai-tooling/cache-trace-cli.ts" "$@"

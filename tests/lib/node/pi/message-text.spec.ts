@@ -25,6 +25,24 @@ test('extractContentText: string content returned as-is (no trim by default)', (
   expect(extractContentText('  hi ')).toBe('  hi ');
 });
 
+test('extractContentText: provider text options are opt-in and type objects are never coerced', () => {
+  const parts = [{ type: 'input_text', text: 'provider' }, { text: 'bedrock' }, textPart('pi')];
+  expect(extractContentText(parts)).toBe('pi');
+  expect(extractContentText(parts, { types: ['input_text'], allowUntypedText: true })).toBe('provider\nbedrock');
+  expect(
+    extractContentText([
+      {
+        type: {
+          toString(): never {
+            throw new Error('must not coerce');
+          },
+        },
+        text: 'not text',
+      },
+    ]),
+  ).toBe('');
+});
+
 test('extractContentText: array joins text parts, dropping non-text and non-string text', () => {
   const content = [textPart('a'), { type: 'image' }, { type: 'text' }, textPart('b')];
   expect(extractContentText(content)).toBe('a\nb');

@@ -9,6 +9,7 @@ import { runSessionUsageCli, type SessionUsageAdapter } from '../../lib/node/ai-
 import { readJsonlLines } from '../../lib/node/ai-tooling/jsonl.ts';
 import { expandUserPath, resolveProjectPath } from '../../lib/node/ai-tooling/paths.ts';
 import { makeSessionPreview } from '../../lib/node/ai-tooling/preview.ts';
+import { isCacheTraceSidecar } from '../../lib/node/pi/cache-trace-config.ts';
 import {
   type ModelTokenBreakdown,
   type SessionDetail,
@@ -402,7 +403,7 @@ function listSubagentFiles(parentFilePath: string, parentSessionId: string): str
   if (!fs.existsSync(dir)) return [];
   return fs
     .readdirSync(dir)
-    .filter((f) => f.endsWith('.jsonl'))
+    .filter((f) => f.endsWith('.jsonl') && !isCacheTraceSidecar(f))
     .map((f) => path.join(dir, f));
 }
 
@@ -446,7 +447,7 @@ function listSessionFiles(sessionsDir: string): string[] {
     if (!projectEntry.isDirectory()) continue;
     const projectDir = path.join(sessionsDir, projectEntry.name);
     for (const f of fs.readdirSync(projectDir)) {
-      if (f.endsWith('.jsonl')) result.push(path.join(projectDir, f));
+      if (f.endsWith('.jsonl') && !isCacheTraceSidecar(f)) result.push(path.join(projectDir, f));
     }
   }
   return result;

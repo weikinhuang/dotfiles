@@ -19,7 +19,7 @@ conversation re-writes at the 1.25x cache-write rate every turn** - an O(n) cost
 One real Bedrock/opus session hit ~$32, 90% of it cache-write (4.6M write tokens), with `cacheRead` frozen at the static
 system+tools prefix from the first reminder onward.
 
-This is the documented trap in [`AGENTS.md`](./AGENTS.md) ("Auto-injecting state every turn"): the
+This is the documented trap in [`AGENTS.md`](./AGENTS.md) ("Cache-safe reminder delivery"): the
 volatile-state-on-the-tail design keeps the _system prompt_ byte-stable, but the single conversation breakpoint riding
 the same tail is the remaining hole. This extension closes it.
 
@@ -57,8 +57,9 @@ all of them.)
   signal is present, never touches `messages` cache markers. No overlap.
 - `persona` - model/tool overlay; does not rewrite message cache markers.
 
-This extension only mutates `payload.messages[].content` cache markers and only on anthropic-style payloads, so the
-three coexist. Order is not significant: it reads the assembled `messages` regardless of who else ran.
+Breakpoint relocation only mutates Anthropic-style content markers. Native key isolation is separately opt-in. Tracing
+reads the payload after this extension's changes; later payload handlers can still modify it, so tracing order does
+matter when diagnosing other handlers. No trace or warning text is sent to the provider.
 
 ## Detection (in `lib/node/pi/cache-breakpoint.ts`)
 
@@ -114,15 +115,15 @@ paid test needs explicit approval and a hard dollar cap.
   whose payload already contains a nonempty key and an `input` array. No key is added to unknown payloads, keyless
   requests, or explicit-only policies (which can mean cache writes are disabled). Never includes state, time, or call
   sequence. Default off: pi already emits a stable session key, and changing keys causes a one-time cache miss.
-- `PI_CACHE_TRACE=<path>` - opt-in JSONL diagnostics for all provider payloads, after breakpoint handling. Records
-  provider/model, sequence, item roles/indices, UTF-8 byte counts, SHA-256 hashes, reminder IDs, common item/byte
-  prefixes, and first divergent item. Assistant completion records contain only numeric usage and cost fields. Prompt
-  bodies, schemas, tool output, and response content are never logged. Comparison bytes are retained only in memory
-  until the next request or session teardown. Logging is best-effort and creates new files with mode `0600`. This is a
-  hook-payload serialization comparison, not a capture of SDK HTTP serialization. Later payload hooks can still change
-  the request. A falling cache-read count with unchanged hashes suggests eviction/routing; a historical item changing
-  identifies local mutation. Neither alone proves the cause of an untraced historical incident. The content-free
-  allowlist and comparisons live in [`cache-trace.ts`](../../../lib/node/pi/cache-trace.ts).
+- `PI_CACHE_TRACE=auto|off|<path>` - opt-in request/usage JSONL tracing. `auto` writes a `.cache-trace.jsonl` sidecar
+  beside the session transcript; `off` disables it. CLI equivalent: `--cache-trace`.
+- `PI_CACHE_TRACE_LEVEL=hash|system|system-tools` - hashes only by default; `system` additionally captures system text,
+  and `system-tools` also captures tool declarations. Text snapshots are stored once per distinct version in a run. CLI
+  equivalent: `--cache-trace-level`. Supplying a level alone implies `auto`; flags override environment values. Raw
+  levels are sensitive, explicit opt-ins, not redaction modes. Conversation, tool-result, response, and auth-header
+  content is never dumped. New and reused trace files use mode `0600`; symlinks and transcript-path outputs are refused.
+  See [`CACHE-TRACE.md`](../../../lib/node/ai-tooling/CACHE-TRACE.md) for the schema, privacy limits and offline
+  `ai-cache-trace` summary/diff commands. The parser never prints text in its default summary, even from raw captures.
 - `PI_CACHE_BREAKPOINT_DISABLED=1` - skip the extension entirely (guarded at the top of the factory, nothing registers).
 - `PI_CACHE_BREAKPOINT_TRACE=<path>` - append one line per request:
   `<changed|no-op> style=<bedrock|anthropic|none> reason=<reason>`, where `reason` is `aggregated` / `relocated` / a
@@ -131,5 +132,6 @@ paid test needs explicit approval and a hard dollar cap.
 
 ## Hot reload
 
-Pure shell + helper, no UI / timers / watchers. Editing either `cache-breakpoint.ts` or
-`lib/node/pi/cache-breakpoint.ts` is picked up by `/reload` (or on next `pi -p` launch); no session restart needed.
+No timers/watchers. Editing the extension or helpers is picked up by `/reload` or a fresh launch. Reload starts a new
+diagnostic run without erasing the sidecar. Set environment variables before launching pi; changing another shell's
+environment does not update the running process. Local warnings/status never enter model context.

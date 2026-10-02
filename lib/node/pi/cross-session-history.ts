@@ -18,6 +18,7 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { isCacheTraceSidecar } from './cache-trace-config.ts';
 
 /** Default max number of prompts to load. Editor caps internal history at 100. */
 export const DEFAULT_MAX_PROMPTS = 100;
@@ -153,7 +154,7 @@ export function listSessionFilesNewestFirst(sessionDir: string, excludeFile?: st
   const excludeAbs = excludeFile ? path.resolve(excludeFile) : undefined;
 
   for (const name of entries) {
-    if (!name.endsWith('.jsonl')) continue;
+    if (!name.endsWith('.jsonl') || isCacheTraceSidecar(name)) continue;
     const file = path.join(sessionDir, name);
     if (excludeAbs && path.resolve(file) === excludeAbs) continue;
     let mtimeMs = 0;

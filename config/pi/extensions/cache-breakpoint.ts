@@ -43,15 +43,40 @@
  */
 
 import { appendFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 
-import { type ExtensionAPI } from '@earendil-works/pi-coding-agent';
+import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 
 import { isolateResponsesCacheKey, relocateTailCacheBreakpoint } from '../../../lib/node/pi/cache-breakpoint.ts';
-import { appendCacheTrace, cacheResponseTrace, createCacheTracer } from '../../../lib/node/pi/cache-trace.ts';
+import { cacheTraceConfig, type CacheTraceLevel } from '../../../lib/node/pi/cache-trace-config.ts';
+import {
+  appendCacheTrace,
+  appendCacheTraceRecords,
+  cacheResponseTrace,
+  createCacheTracer,
+} from '../../../lib/node/pi/cache-trace.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
+
+function notifyTrace(ctx: ExtensionContext, message: string): void {
+  try {
+    if (ctx.hasUI) ctx.ui.notify(message, 'warning');
+    else console.error(`[cache-trace] ${message}`);
+  } catch {
+    /* Diagnostics must not affect execution. */
+  }
+}
 
 export default function cacheBreakpointExtension(pi: ExtensionAPI): void {
   if (envTruthy(process.env.PI_CACHE_BREAKPOINT_DISABLED)) return;
+
+  pi.registerFlag('cache-trace', {
+    description: 'Cache trace destination: auto sidecar, off, or a file path',
+    type: 'string',
+  });
+  pi.registerFlag('cache-trace-level', {
+    description: 'Cache logging: hash (private), system, or system-tools (sensitive text)',
+    type: 'string',
+  });
 
   const tracePath = process.env.PI_CACHE_BREAKPOINT_TRACE;
   const trace = (msg: string): void => {
@@ -61,20 +86,49 @@ export default function cacheBreakpointExtension(pi: ExtensionAPI): void {
     } catch {}
   };
 
-  const payloadTracePath = process.env.PI_CACHE_TRACE;
-  let payloadTracer = createCacheTracer();
+  let payloadTracePath: string | undefined;
+  let level: CacheTraceLevel = 'hash';
+  let runId = randomUUID();
+  let payloadTracer = createCacheTracer({ runId, level });
   let sequence = 0;
-  pi.on('session_start', () => {
-    payloadTracer = createCacheTracer();
+  let loggingFailed = false;
+  pi.on('session_start', (_event, ctx) => {
+    payloadTracePath = undefined;
+    loggingFailed = false;
+    try {
+      const config = cacheTraceConfig(
+        { destination: pi.getFlag('cache-trace'), level: pi.getFlag('cache-trace-level') },
+        process.env,
+        ctx.sessionManager.getSessionFile(),
+        ctx.cwd,
+      );
+      payloadTracePath = config.path;
+      level = config.level;
+      if (config.path && level !== 'hash')
+        notifyTrace(
+          ctx,
+          `Cache trace ${level} logging stores sensitive system text${level === 'system-tools' ? ' and tool definitions' : ''} locally at ${config.path}`,
+        );
+    } catch (error) {
+      notifyTrace(ctx, `Cache tracing disabled: ${error instanceof Error ? error.message : 'invalid configuration'}`);
+    }
+    runId = randomUUID();
+    payloadTracer = createCacheTracer({ runId, level });
     sequence = 0;
   });
   pi.on('session_shutdown', () => {
     payloadTracer = createCacheTracer();
+    payloadTracePath = undefined;
     sequence = 0;
   });
-  pi.on('message_end', (event) => {
+  pi.on('message_end', (event, ctx) => {
     if (payloadTracePath && sequence > 0 && event.message.role === 'assistant') {
-      appendCacheTrace(payloadTracePath, cacheResponseTrace(sequence, event.message.usage));
+      appendCacheTrace(
+        payloadTracePath,
+        cacheResponseTrace(sequence, event.message.usage, runId),
+        ctx.sessionManager.getSessionFile(),
+      );
+      sequence = 0;
     }
   });
 
@@ -91,13 +145,31 @@ export default function cacheBreakpointExtension(pi: ExtensionAPI): void {
         : { changed: false };
     trace(`${result.changed ? 'changed' : 'no-op'} style=${result.style ?? 'none'} reason=${result.reason}`);
     if (payloadTracePath) {
+      sequence = 0;
       try {
         const record = payloadTracer(event.payload, {
           provider: ctx.model?.provider ?? 'unknown',
           model: ctx.model?.id ?? 'unknown',
         });
-        sequence = record.sequence;
-        appendCacheTrace(payloadTracePath, record);
+        const { snapshots = [], ...metadata } = record;
+        const written = appendCacheTraceRecords(
+          payloadTracePath,
+          [
+            ...snapshots,
+            { ...metadata, sessionId: ctx.sessionManager.getSessionId(), leafId: ctx.sessionManager.getLeafId() },
+          ],
+          ctx.sessionManager.getSessionFile(),
+        );
+        if (written) sequence = record.sequence;
+        else {
+          sequence = 0;
+          // Missing snapshots must not be referenced after a failed append; start a new diagnostic run.
+          runId = randomUUID();
+          payloadTracer = createCacheTracer({ runId, level });
+          if (!loggingFailed)
+            notifyTrace(ctx, 'Cache trace could not be written; check path, permissions, and symlinks.');
+          loggingFailed = true;
+        }
       } catch {
         // Unserializable payloads must not break provider requests.
       }

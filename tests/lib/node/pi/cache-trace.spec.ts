@@ -1,4 +1,4 @@
-import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { readFileSync, mkdtempSync, rmSync, statSync, symlinkSync, linkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -87,6 +87,51 @@ test('numeric response allowlist and best-effort log never record extra response
     expect(readFileSync(path, 'utf8')).not.toContain('PRIVATE');
     expect(() => appendCacheTrace(join(dir, 'missing', 'trace'), {})).not.toThrow();
     expect(() => appendCacheTrace(undefined, {})).not.toThrow();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('raw levels deduplicate system/schema versions but never include conversation or auth text', () => {
+  const payload = {
+    instructions: 'PRIVATE system',
+    tools: [{ description: 'PRIVATE schema' }],
+    input: base,
+    api_key: 'PRIVATE key',
+  };
+  const hashOnly = createCacheTracer()(payload, identity);
+  expect(JSON.stringify(hashOnly)).not.toContain('PRIVATE');
+  const system = createCacheTracer({ level: 'system' });
+  const first = system(payload, identity);
+  expect(first.snapshots).toHaveLength(1);
+  expect(first.snapshots?.[0].text).toContain('PRIVATE system');
+  expect(JSON.stringify(first.snapshots)).not.toContain('PRIVATE schema');
+  expect(system(payload, identity).snapshots).toBeUndefined();
+  const changed = system({ ...payload, instructions: 'changed' }, identity);
+  expect(changed.system.changed).toBe(true);
+  expect(changed.tools.changed).toBe(false);
+  const all = createCacheTracer({ level: 'system-tools' })(payload, identity);
+  expect(all.snapshots).toHaveLength(2);
+  expect(JSON.stringify(all.snapshots)).not.toContain('PRIVATE prompt');
+  expect(JSON.stringify(all.snapshots)).not.toContain('PRIVATE key');
+});
+
+test('trace files are private even when reused, symlinks are refused and target data stays unchanged', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'pi-cache-private-'));
+  try {
+    const path = join(dir, 'trace');
+    writeFileSync(path, '', { mode: 0o644 });
+    expect(appendCacheTrace(path, { kind: 'fixture' })).toBe(true);
+    expect(statSync(path).mode & 0o777).toBe(0o600);
+    const link = join(dir, 'symlink');
+    symlinkSync(path, link);
+    const before = readFileSync(path, 'utf8');
+    expect(appendCacheTrace(link, { private: 'not-written' })).toBe(false);
+    expect(readFileSync(path, 'utf8')).toBe(before);
+    const alias = join(dir, 'hardlink');
+    linkSync(path, alias);
+    expect(appendCacheTrace(alias, { private: 'not-written' }, path)).toBe(false);
+    expect(readFileSync(path, 'utf8')).toBe(before);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

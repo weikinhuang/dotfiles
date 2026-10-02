@@ -14,9 +14,16 @@
  */
 
 /** Append the text of every `{ type: 'text', text }` part in `content` to `out`. */
-function collectTextParts(content: readonly unknown[], out: string[]): void {
+function collectTextParts(
+  content: readonly unknown[],
+  out: string[],
+  types: readonly string[] = ['text'],
+  allowUntypedText = false,
+): void {
   for (const part of content) {
-    if (part && typeof part === 'object' && (part as { type?: unknown }).type === 'text') {
+    if (!part || typeof part !== 'object') continue;
+    const type = (part as { type?: unknown }).type;
+    if ((typeof type === 'string' && types.includes(type)) || (allowUntypedText && type === undefined)) {
       const text = (part as { text?: unknown }).text;
       if (typeof text === 'string') out.push(text);
     }
@@ -25,6 +32,9 @@ function collectTextParts(content: readonly unknown[], out: string[]): void {
 
 /** Options for {@link extractContentText}. */
 export interface ContentTextOptions {
+  /** Provider-specific text types; defaults preserve the pi content contract. */
+  types?: readonly string[];
+  allowUntypedText?: boolean;
   /** Separator joining array text parts. Defaults to a newline. */
   sep?: string;
   /** Trim the final result. Defaults to `false`. */
@@ -48,7 +58,7 @@ export function extractContentText(content: unknown, opts: ContentTextOptions = 
     text = content;
   } else if (Array.isArray(content)) {
     const parts: string[] = [];
-    collectTextParts(content, parts);
+    collectTextParts(content, parts, opts.types, opts.allowUntypedText);
     text = parts.join(sep);
   }
   return opts.trim ? text.trim() : text;

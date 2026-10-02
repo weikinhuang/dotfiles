@@ -1,10 +1,29 @@
 import { describe, expect, test } from 'vitest';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
-import { type Candidate, pickSession } from '../../../../lib/node/ai-tooling/session-locator.ts';
+import { type Candidate, collectCandidates, pickSession } from '../../../../lib/node/ai-tooling/session-locator.ts';
 
 function cand(id: string, mtimeMs: number): Candidate {
   return { id, filePath: `/sessions/${id}.jsonl`, mtimeMs };
 }
+
+test('pi sidecars never become session candidates or latest-session selections', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'trace-locator-'));
+  try {
+    const project = join(dir, 'project');
+    mkdirSync(project);
+    const session = join(project, 'stamp_id.jsonl');
+    writeFileSync(session, '{}\n');
+    writeFileSync(join(project, 'stamp_id.cache-trace.jsonl'), '{}\n');
+    const candidates = collectCandidates('pi', dir, project, false);
+    expect(candidates).toHaveLength(1);
+    expect(pickSession(candidates)).toEqual({ ok: true, filePath: session });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 describe('pickSession', () => {
   test('returns not-found for an empty candidate set', () => {

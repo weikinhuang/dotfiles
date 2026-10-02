@@ -97,12 +97,15 @@ EOF
 {"type":"message","id":"m2","parentId":"m1","timestamp":"2026-05-01T19:00:02.000Z","message":{"role":"assistant","model":"claude-opus-4","provider":"anthropic","content":[{"type":"text","text":"done"}],"usage":{"input":10,"output":5,"cacheRead":0,"cacheWrite":0,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0.001}}}}
 EOF
   # Two child session files under the parent's subagents dir.
+  # Sidecars must not become sessions or inflate the child count.
+  printf '%s\n' '{"kind":"request","sequence":1}' >"${SESSIONS_DIR}/--proj--/newer.cache-trace.jsonl"
   write_subagent "--proj--" "019dd000-aaaa-7000-0000-000000000001" "019dd000-bbbb-7000-0000-000000000002" <<'EOF'
 {"type":"session","version":3,"id":"019dd000-bbbb-7000-0000-000000000002","timestamp":"2026-05-01T19:01:00.000Z","cwd":"/proj"}
 EOF
   write_subagent "--proj--" "019dd000-aaaa-7000-0000-000000000001" "019dd000-cccc-7000-0000-000000000003" "2026-05-01T19-02-00-000Z" <<'EOF'
 {"type":"session","version":3,"id":"019dd000-cccc-7000-0000-000000000003","timestamp":"2026-05-01T19:02:00.000Z","cwd":"/proj"}
 EOF
+  printf '%s\n' '{"kind":"request","sequence":1}' >"${SESSIONS_DIR}/--proj--/019dd000-aaaa-7000-0000-000000000001/subagents/child.cache-trace.jsonl"
 
   run "${TOOL}" pi list --project /proj --json
   assert_success

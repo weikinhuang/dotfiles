@@ -161,6 +161,7 @@ describe('listSessionFilesNewestFirst', () => {
     writeFileSync(a, '{}');
     writeFileSync(b, '{}');
     writeFileSync(c, 'not a session');
+    writeFileSync(join(dir, 'latest.cache-trace.jsonl'), '{"kind":"request"}\n');
     // Force b's mtime newer than a.
     const past = new Date(Date.now() - 60_000);
     const now = new Date();

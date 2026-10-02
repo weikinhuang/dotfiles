@@ -11,6 +11,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
+import { isCacheTraceSidecar } from '../pi/cache-trace-config.ts';
 import { type Harness } from './analyze/turn-model.ts';
 import { expandUserPath } from './paths.ts';
 
@@ -77,7 +78,7 @@ function listJsonlOneLevel(rootDir: string): string[] {
     if (!entry.isDirectory()) continue;
     const projectDir = path.join(rootDir, entry.name);
     for (const f of fs.readdirSync(projectDir)) {
-      if (f.endsWith('.jsonl')) out.push(path.join(projectDir, f));
+      if (f.endsWith('.jsonl') && !isCacheTraceSidecar(f)) out.push(path.join(projectDir, f));
     }
   }
   return out;
