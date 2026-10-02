@@ -28,7 +28,7 @@ export interface TurnTokens {
   output: number;
   // Anthropic cache_read_input_tokens / OpenAI cached_tokens.
   cacheReadInput: number;
-  // Anthropic cache_creation_input_tokens; always 0 for OpenAI-style.
+  // Observed cache creation/write tokens, including newer OpenAI/Azure Responses models.
   cacheWriteInput: number;
 }
 

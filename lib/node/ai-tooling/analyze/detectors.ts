@@ -1,7 +1,7 @@
 // Pure, harness-agnostic cost / caching pathology detectors.
 //
 // Each detector is `(session, cfg) => Finding[]` and branches only on a
-// turn's `cachingModel` - never on `session.harness`. They walk the
+// observed cache accounting - never on `session.harness`. They walk the
 // normalized per-turn series and attribute dollars to the offending turn
 // range. v1 ships the four detectors that explained every real cost
 // explosion we investigated: cache-poisoning, cache-write-dominant,
@@ -62,9 +62,11 @@ export interface DetectorConfig {
   // cache-poisoning: median (cacheWrite / context) over the run must reach
   // this to flag (separates costly poison from cheap stable plateaus).
   poisonWriteShare: number;
+  poisonContextGrowthRatio: number;
+  collapseReadRatio: number;
   // cache-write-dominant: session cacheWrite cost / total cost threshold.
   writeDominantRatio: number;
-  // ttl-expiry: idle gap (s) above which a cacheRead->0 drop is treated as a
+  // ttl-expiry: idle gap (s) above which a read-prefix collapse is treated as a
   // cache-TTL expiry rather than a content mutation.
   ttlSec: number;
   // large-context-carry: per-turn context tokens above which the context is
@@ -77,6 +79,8 @@ export const DEFAULT_DETECTOR_CONFIG: DetectorConfig = {
   poisonMinRun: 4,
   poisonFreezeRelTol: 0.02,
   poisonWriteShare: 0.5,
+  poisonContextGrowthRatio: 0.1,
+  collapseReadRatio: 0.5,
   writeDominantRatio: 0.7,
   ttlSec: 300,
   largeContextTokens: 150_000,
@@ -120,8 +124,26 @@ function fmtK(n: number): string {
   return n >= 1000 ? `${Math.round(n / 1000)}k` : String(Math.round(n));
 }
 
+function observedWrites(turn: NormalizedTurn): boolean {
+  return turn.tokens.cacheWriteInput > 0 || (turn.cost?.cacheWrite ?? 0) > 0;
+}
+
+function readCollapsed(previous: NormalizedTurn, current: NormalizedTurn, cfg: DetectorConfig): boolean {
+  return (
+    previous.tokens.cacheReadInput > 0 &&
+    current.tokens.cacheReadInput <= previous.tokens.cacheReadInput * cfg.collapseReadRatio &&
+    turnContextTokens(current) >= previous.tokens.cacheReadInput * 0.5
+  );
+}
+
+function rewriteAccounting(turn: NormalizedTurn): { tokens: number; dollars: number } {
+  return observedWrites(turn)
+    ? { tokens: turn.tokens.cacheWriteInput, dollars: turn.cost?.cacheWrite ?? 0 }
+    : { tokens: turn.tokens.input, dollars: turn.cost?.input ?? 0 };
+}
+
 // ---------------------------------------------------------------------------
-// cache-poisoning (anthropic-style only)
+// cache-poisoning (observed cache writes, regardless of provider)
 // ---------------------------------------------------------------------------
 //
 // Signature: cacheRead pinned to a near-constant value across many turns
@@ -136,7 +158,7 @@ export function detectCachePoisoning(session: NormalizedSession, cfg: DetectorCo
   let i = 0;
 
   while (i < turns.length) {
-    if (turns[i].cachingModel !== 'anthropic') {
+    if (!observedWrites(turns[i])) {
       i++;
       continue;
     }
@@ -145,7 +167,7 @@ export function detectCachePoisoning(session: NormalizedSession, cfg: DetectorCo
     let runMin = turns[i].tokens.cacheReadInput;
     let runMax = runMin;
     let j = i;
-    while (j + 1 < turns.length && turns[j + 1].cachingModel === 'anthropic') {
+    while (j + 1 < turns.length && observedWrites(turns[j + 1]) && turns[j + 1].model === turns[i].model) {
       const next = turns[j + 1].tokens.cacheReadInput;
       const newMin = Math.min(runMin, next);
       const newMax = Math.max(runMax, next);
@@ -166,8 +188,12 @@ export function detectCachePoisoning(session: NormalizedSession, cfg: DetectorCo
         shares.push(ctx > 0 ? turns[k].tokens.cacheWriteInput / ctx : 0);
       }
       const medShare = median(shares);
-      if (medShare >= cfg.poisonWriteShare) {
+      const initialContext = turnContextTokens(turns[i]);
+      const growth = initialContext > 0 ? (turnContextTokens(turns[j]) - initialContext) / initialContext : 0;
+      if (medShare >= cfg.poisonWriteShare || growth >= cfg.poisonContextGrowthRatio) {
         const dollars = sumCacheWriteCost(turns, i, j);
+        let rewritten = 0;
+        for (let k = i; k <= j; k++) rewritten += turns[k].tokens.cacheWriteInput;
         const frozenAt = Math.round((runMin + runMax) / 2);
         findings.push({
           detector: 'cache-poisoning',
@@ -176,10 +202,11 @@ export function detectCachePoisoning(session: NormalizedSession, cfg: DetectorCo
           dollarsAttributed: dollars,
           explanation:
             `cacheRead frozen at ~${fmtK(frozenAt)} tokens across ${runLen} turns while ` +
-            `cacheWrite re-wrote a median ${(medShare * 100).toFixed(0)}% of context each turn`,
+            `cacheWrite re-wrote a median ${(medShare * 100).toFixed(0)}% of context each turn; ` +
+            `${fmtK(rewritten)} rewritten tokens, $${dollars.toFixed(2)} cache-write spend attributed to this range`,
           remediation:
-            'a per-turn-changing block sits inside the cached prefix; move volatile/ephemeral ' +
-            'content off the cache breakpoint (see cache-breakpoint extension)',
+            'likely historical-prefix mutation or routing/eviction; trace serialized request hashes, ' +
+            'retain stable reminder snapshots, or start a fresh session; counters alone do not prove the cause',
         });
       }
       // Whole plateau evaluated as one unit; jump past it either way.
@@ -193,7 +220,7 @@ export function detectCachePoisoning(session: NormalizedSession, cfg: DetectorCo
 }
 
 // ---------------------------------------------------------------------------
-// cache-write-dominant (anthropic-style only)
+// cache-write-dominant (observed cache-write dollars)
 // ---------------------------------------------------------------------------
 //
 // Session-level: when most spend is re-writing the cache, something is wrong
@@ -201,17 +228,16 @@ export function detectCachePoisoning(session: NormalizedSession, cfg: DetectorCo
 // localizes the offending turns; this is the blunt session-wide ratio.
 
 export function detectCacheWriteDominant(session: NormalizedSession, cfg: DetectorConfig): Finding[] {
-  const anthropicTurns = session.turns.filter((t) => t.cachingModel === 'anthropic');
-  if (anthropicTurns.length === 0) return [];
+  if (!session.turns.some(observedWrites)) return [];
 
-  const totals = sessionCostTotals({ ...session, turns: anthropicTurns });
+  const totals = sessionCostTotals(session);
   if (totals.total <= 0) return [];
 
   const ratio = totals.cacheWrite / totals.total;
   if (ratio < cfg.writeDominantRatio) return [];
 
-  const first = anthropicTurns[0];
-  const last = anthropicTurns[anthropicTurns.length - 1];
+  const first = session.turns[0];
+  const last = session.turns[session.turns.length - 1];
   return [
     {
       detector: 'cache-write-dominant',
@@ -221,7 +247,7 @@ export function detectCacheWriteDominant(session: NormalizedSession, cfg: Detect
         endIndex: last.index,
         startTime: first.timestamp || undefined,
         endTime: last.timestamp || undefined,
-        turnCount: anthropicTurns.length,
+        turnCount: session.turns.length,
       },
       dollarsAttributed: totals.cacheWrite,
       explanation: `${(ratio * 100).toFixed(0)}% of session cost ($${totals.cacheWrite.toFixed(2)} of $${totals.total.toFixed(2)}) is cache-write`,
@@ -246,19 +272,13 @@ export function detectTtlExpiry(session: NormalizedSession, cfg: DetectorConfig)
   for (let i = 1; i < turns.length; i++) {
     const turn = turns[i];
     const prev = turns[i - 1];
-    if (turn.cachingModel === 'none') continue;
-    if (prev.tokens.cacheReadInput <= 0) continue; // predecessor wasn't warm
-    if (turn.tokens.cacheReadInput > 0) continue; // this turn still hit cache
+    if (!readCollapsed(prev, turn, cfg)) continue;
     const gap = turn.gapSecFromPrev;
-    if (gap === undefined || gap < cfg.ttlSec) continue; // mutation bust, not TTL
-
-    // Did anything actually re-write? Anthropic: cacheWrite slice. OpenAI:
-    // the (now uncached) fresh input is reprocessed.
-    const anthropic = turn.cachingModel === 'anthropic';
-    const rewroteTokens = anthropic ? turn.tokens.cacheWriteInput : turn.tokens.input;
+    if (gap === undefined || gap < cfg.ttlSec) continue;
+    const accounting = rewriteAccounting(turn);
+    const rewroteTokens = accounting.tokens;
     if (rewroteTokens <= 0) continue;
-    const dollars = anthropic ? (turn.cost?.cacheWrite ?? 0) : (turn.cost?.input ?? 0);
-
+    const dollars = accounting.dollars;
     const mins = Math.round(gap / 60);
     findings.push({
       detector: 'ttl-expiry',
@@ -266,10 +286,10 @@ export function detectTtlExpiry(session: NormalizedSession, cfg: DetectorConfig)
       range: rangeOf(turns, i, i),
       dollarsAttributed: dollars,
       explanation:
-        `cacheRead dropped to 0 after a ${mins}m idle gap; ${fmtK(rewroteTokens)} tokens of ` +
+        `cacheRead dropped from ~${fmtK(prev.tokens.cacheReadInput)} to ${fmtK(turn.tokens.cacheReadInput)} after a ${mins}m idle gap; ${fmtK(rewroteTokens)} tokens of ` +
         'prefix re-written once',
       remediation:
-        'idle gap blew the cache TTL; unavoidable, or use 1h cache retention if you ' + 'pause-and-resume often',
+        'idle gap suggests TTL expiry or routing; verify the provider lifetime and payload hashes before blaming mutation',
     });
   }
 
@@ -295,18 +315,13 @@ export function detectCacheBust(session: NormalizedSession, cfg: DetectorConfig)
   for (let i = 1; i < turns.length; i++) {
     const turn = turns[i];
     const prev = turns[i - 1];
-    if (turn.cachingModel === 'none') continue;
-    if (prev.tokens.cacheReadInput <= 0) continue; // predecessor wasn't warm
-    if (turn.tokens.cacheReadInput > 0) continue; // this turn still hit cache
+    if (!readCollapsed(prev, turn, cfg)) continue;
     const gap = turn.gapSecFromPrev;
-    // An unknown or TTL-sized gap is handled by detectTtlExpiry; here we only
-    // want busts that happened well within the cache lifetime.
     if (gap === undefined || gap >= cfg.ttlSec) continue;
-
-    const anthropic = turn.cachingModel === 'anthropic';
-    const rewroteTokens = anthropic ? turn.tokens.cacheWriteInput : turn.tokens.input;
+    const accounting = rewriteAccounting(turn);
+    const rewroteTokens = accounting.tokens;
     if (rewroteTokens <= 0) continue;
-    const dollars = anthropic ? (turn.cost?.cacheWrite ?? 0) : (turn.cost?.input ?? 0);
+    const dollars = accounting.dollars;
 
     findings.push({
       detector: 'cache-bust',
@@ -314,7 +329,7 @@ export function detectCacheBust(session: NormalizedSession, cfg: DetectorConfig)
       range: rangeOf(turns, i, i),
       dollarsAttributed: dollars,
       explanation:
-        `cacheRead dropped to 0 only ${Math.round(gap)}s after the previous turn (within the cache TTL); ` +
+        `cacheRead dropped from ~${fmtK(prev.tokens.cacheReadInput)} to ${fmtK(turn.tokens.cacheReadInput)} only ${Math.round(gap)}s after the previous turn (within the configured cache TTL); ` +
         `${fmtK(rewroteTokens)} tokens of prefix re-written`,
       remediation:
         'a mid-session cache bust not explained by idle time; check for in-place history edits ' +

@@ -4,8 +4,8 @@ A cross-harness diagnostic that ingests one session log from any supported harne
 opencode), reconstructs the per-turn token/cost series, and flags **cost explosions** and **prompt-caching pathologies**
 with the offending turn range, dollars attributed, and a remediation hint.
 
-It is the **detection** counterpart to the pi-only `cache-breakpoint` extension (which _fixes_ the tail-poisoning trap):
-this tool _diagnoses_ any session - including non-pi ones - and tells you _why_ it was expensive.
+It is the **detection** counterpart to pi's cache diagnostics and stable reminder snapshots. It reports observed
+expense, not a proven causal diagnosis: payload tracing distinguishes mutation from eviction or routing.
 
 Invoke it via the [`ai-cost-doctor`](../../../dotenv/bin/ai-cost-doctor) bin wrapper, which execs the executable
 [`session-doctor.ts`](./session-doctor.ts) entry. It mirrors the ergonomics of `ai-tool-usage <tool> session <id>`: the
@@ -31,14 +31,14 @@ Reuses the shared `ai-tooling` harness (`pricing.ts`, `jsonl.ts`, `format.ts`, `
 parallel CLI stack. All logic is pure and unit-tested; `session-doctor.ts` is the thin I/O shell (file / DB reading, arg
 parsing, printing).
 
-| Module                      | Role                                                                                          |
-| --------------------------- | --------------------------------------------------------------------------------------------- |
-| `analyze/turn-model.ts`     | Provider-neutral `NormalizedTurn` / `NormalizedSession` model + `classifyCachingModel`.       |
-| `analyze/detectors.ts`      | The four pure detectors (below) + `runDetectors`. Branch on `cachingModel`, never on harness. |
-| `analyze/pricing-fill.ts`   | Backfills per-turn cost from tokens (claude/codex/copilot/opencode) via LiteLLM pricing.      |
-| `analyze/report.ts`         | Renders the text report + `--json` object.                                                    |
-| `analyze/detect-harness.ts` | Auto-detects the harness from the path extension + first JSONL lines.                         |
-| `adapters/*-adapter.ts`     | Raw per-harness records → `NormalizedSession` (pure).                                         |
+| Module                      | Role                                                                                           |
+| --------------------------- | ---------------------------------------------------------------------------------------------- |
+| `analyze/turn-model.ts`     | Provider-neutral `NormalizedTurn` / `NormalizedSession` model + `classifyCachingModel`.        |
+| `analyze/detectors.ts`      | Pure detectors + `runDetectors`. Observed cache-write usage overrides provider classification. |
+| `analyze/pricing-fill.ts`   | Backfills per-turn cost from tokens (claude/codex/copilot/opencode) via LiteLLM pricing.       |
+| `analyze/report.ts`         | Renders the text report + `--json` object.                                                     |
+| `analyze/detect-harness.ts` | Auto-detects the harness from the path extension + first JSONL lines.                          |
+| `adapters/*-adapter.ts`     | Raw per-harness records → `NormalizedSession` (pure).                                          |
 
 ### The normalized model
 
@@ -59,21 +59,31 @@ the data: model names are user-chosen, so any model first classed `none` that is
 (`cacheRead > 0`) is upgraded to `openai` for its whole run. That is how a local OpenAI-compatible backend
 (llama.cpp/ollama/vllm/lmstudio, which report `cached_tokens` with no cache-write metric) gets read-side detection,
 while a genuinely cache-blind backend stays `none`. The decision is per-model, not per-turn, so the cold eviction turn
-(where `cacheRead` drops back to 0) stays `openai` and the read-side detectors still see it. Detectors key off
-`cachingModel`, so the same logic works for a Claude model served via Bedrock (pi) or via the Anthropic API (claude)
-without any harness branching.
+(where `cacheRead` drops back to 0) stays `openai` and the read-side detectors still see it. Detectors key off observed
+tokens and cost for write-side pathologies, regardless of `cachingModel`. Newer OpenAI/Azure Responses models can report
+real cache-write usage; classification must not hide it. There is no harness-specific detector branching.
 
 ## v1 detectors
 
-| id                     | signature                                                                                | remediation                                                                 |
-| ---------------------- | ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| `cache-poisoning`      | `cacheRead` frozen across ≥4 turns while `cacheWrite` re-writes a median >50% of context | move volatile/ephemeral content off the cache breakpoint                    |
-| `cache-write-dominant` | session cacheWrite cost / total cost > 0.7                                               | most spend is re-writing cache; check for poisoning or TTL churn            |
-| `ttl-expiry`           | `cacheRead` → 0 after an idle gap longer than the cache TTL (5 min)                      | idle gap blew the TTL; unavoidable, or use 1 h retention if you pause often |
-| `large-context-carry`  | per-turn context sustained > 150k tokens over ≥8 turns                                   | context is large; `/compact` or branch a fresh session                      |
+| id                     | signature                                                                                   | remediation                                                              |
+| ---------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `cache-poisoning`      | Positive `cacheRead` frozen across ≥4 calls, with ≥50% median writes or ≥10% context growth | Trace history hashes; retain stable snapshots or start fresh             |
+| `cache-write-dominant` | session cacheWrite cost / total cost > 0.7                                                  | most spend is re-writing cache; check for poisoning or TTL churn         |
+| `ttl-expiry`           | Read prefix collapses to ≤50% after a gap ≥ configured TTL                                  | Verify provider lifetime and hashes; idle expiry/routing is a hypothesis |
+| `cache-bust`           | Same collapse within configured TTL, including a positive 64k → 17k collapse                | Check history mutation, compaction, model changes, or routing            |
+| `large-context-carry`  | per-turn context sustained > 150k tokens over ≥8 turns                                      | context is large; `/compact` or branch a fresh session                   |
 
 Thresholds live in `DEFAULT_DETECTOR_CONFIG`. Detectors are **overlapping lenses** (a poisoned stretch is also counted
 by `cache-write-dominant`), so the report lists per-finding dollars without summing them.
+
+Library callers can override `collapseReadRatio` (default `0.5`) and `poisonContextGrowthRatio` (default `0.1`) through
+`DetectorConfig`. The default `ttlSec` is a 300-second heuristic, not a discovered provider TTL. Current GPT-5.6
+documentation specifies a 30-minute minimum lifetime, so choose the provider's actual value when interpreting idle
+findings. A collapse with a drastically shrunken context is excluded from rewrite attribution. Frozen-prefix reports
+include rewritten tokens, affected range, and observed cache-write dollars.
+
+The token/cost-only `01a0fd44` regression reports critical write dominance, the roughly 64k plateau, a positive-prefix
+collapse to roughly 17k, and range-attributed write spend. It contains no private prompt/tool content.
 
 ## Per-turn drill-down (`--turns` / `-t`)
 

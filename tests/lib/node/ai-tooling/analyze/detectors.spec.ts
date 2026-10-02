@@ -73,6 +73,33 @@ function mkSession(turns: NormalizedTurn[], harness: NormalizedSession['harness'
 
 const CFG = DEFAULT_DETECTOR_CONFIG;
 
+test.each(['openai', 'none'] as const)('observed writes are authoritative for %s classifications', (cachingModel) => {
+  const turns = Array.from({ length: 6 }, (_, index) =>
+    mkTurn(index, { cachingModel, cacheRead: 16816, cacheWrite: 86410 + index * 2000 }),
+  );
+  expect(detectCachePoisoning(mkSession(turns), CFG)[0].severity).toBe('critical');
+  expect(detectCacheWriteDominant(mkSession(turns), CFG)[0].severity).toBe('critical');
+});
+
+test('positive-prefix collapse uses observed OpenAI cache-write dollars and separates the TTL lens', () => {
+  const turns = [
+    mkTurn(0, { cachingModel: 'openai', cacheRead: 63958, cacheWrite: 39000 }),
+    mkTurn(1, { cachingModel: 'openai', cacheRead: 16816, cacheWrite: 86410, gap: 30 }),
+  ];
+  expect(detectCacheBust(mkSession(turns), CFG)[0].dollarsAttributed).toBe(turns[1].cost?.cacheWrite);
+  expect(detectTtlExpiry(mkSession(turns), CFG)).toEqual([]);
+  expect(detectCacheBust(mkSession(turns), { ...CFG, collapseReadRatio: 0.2 })).toEqual([]);
+  turns[1].gapSecFromPrev = 1800;
+  expect(detectCacheBust(mkSession(turns), CFG)).toEqual([]);
+  expect(detectTtlExpiry(mkSession(turns), CFG)).toHaveLength(1);
+});
+
+test('write dominance uses all session costs, not only a classified subset', () => {
+  const write = mkTurn(0, { cachingModel: 'openai', cacheWrite: 100000 });
+  const output = mkTurn(1, { cachingModel: 'none', output: 1000000 });
+  expect(detectCacheWriteDominant(mkSession([write, output]), CFG)).toEqual([]);
+});
+
 describe('detectCachePoisoning', () => {
   test('flags a frozen-cacheRead run with cacheWrite dominating context', () => {
     // 6 turns: cacheRead pinned at 40000, cacheWrite ~100000 (>50% of context).
