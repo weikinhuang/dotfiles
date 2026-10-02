@@ -82,6 +82,12 @@ arrays. Declare hooks in `~/.bash_local` or `~/.bash_local.d/*.sh`.
 `./dev/lint-shell.sh` (shfmt + shellcheck) is the source of truth. Naming conventions that tooling can't enforce
 (`__dot_*` / `internal::…`, cache-write routing) live in [dotenv/AGENTS.md](./dotenv/AGENTS.md).
 
+### Agent orchestration
+
+Batch independent gates in one background job; collect all exit codes. Prefer `nudge: true` or one `wait` to polling.
+Use cheap isolated discovery returning a file map; reserve parent calls for decisions/edits. Collapse consumed large
+results once before verification, accepting a cache miss. Start fresh implementation after large discovery-only work.
+
 ### Customization model
 
 Users customize via `~/.bash_local` and `~/.bash_local.d/*.sh` (sourced before repo built-ins). `DOT_*` config knobs are
