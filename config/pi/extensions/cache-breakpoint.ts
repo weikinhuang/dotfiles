@@ -8,7 +8,7 @@
  * `cachePoint` breakpoint on the last user/toolResult message
  * (`packages/ai/src/api/anthropic-messages.ts`,
  * `packages/ai/src/api/bedrock-converse-stream.ts`). Several extensions
- * (todo, scratchpad, bg-bash, context-budget, roleplay) splice an
+ * (todo, scratchpad, bg-bash, roleplay) splice an
  * ephemeral `<system-reminder>` onto that same last message every turn
  * via `context-reminder.ts`. Because the reminder is regenerated fresh
  * each request and never persisted, the cached prefix always ends with

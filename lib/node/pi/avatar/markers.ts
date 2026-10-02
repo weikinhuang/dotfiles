@@ -5,7 +5,7 @@
  * The model emits a self-closing `[emote:happy]` marker inline in its
  * prose to drive the avatar's emotion overlay (no tool call). This
  * module strips the markers out of the visible text and reports which
- * emotions were named, mirroring the `color-tags` rewrite/scrub model:
+ * emotions were named with a rewrite/scrub model:
  *
  *   - `message_update` calls {@link parseEmoteMarkers} to strip markers
  *     from the live render and switch the avatar to the last-named
@@ -27,13 +27,12 @@ import { appendSectionByHeading } from '../prompt-section.ts';
  * alphanumeric and may then contain `-`/`_`. Case-insensitive; partial
  * markers (`[emote:ha` mid-stream) deliberately do NOT match, so they
  * stay visible for one frame and get stripped once the stream completes
- * them - same trade-off the color-tags rewriter makes.
+ * them - a deliberate streaming trade-off.
  *
  * Markers inside a Markdown code fence / inline code span are LITERALS
  * the user wants shown (docs / examples of this very syntax), so both
  * {@link parseEmoteMarkers} and {@link stripEmoteMarkers} slice the text
- * with `splitCodeSegments` and act on prose runs only - mirroring the
- * `color-tags` rewriter.
+ * with `splitCodeSegments` and act on prose runs only.
  */
 const EMOTE_MARKER = /\[emote:\s*([a-z0-9][a-z0-9_-]*)\]/gi;
 

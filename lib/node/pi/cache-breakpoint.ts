@@ -12,8 +12,8 @@
  * last block) and `packages/ai/src/api/bedrock-converse-stream.ts`
  * (a `cachePoint` block pushed onto the last user message).
  *
- * Several extensions (todo, scratchpad, bg-bash, context-budget,
- * roleplay) splice an EPHEMERAL `<system-reminder id="…">` block onto
+ * Several extensions (todo, scratchpad, bg-bash, roleplay) splice an
+ * EPHEMERAL `<system-reminder id="…">` block onto
  * that same last message every turn via the shared
  * `context-reminder.ts` helper. The reminder is regenerated fresh each
  * request and never persisted, so next turn that message is in history

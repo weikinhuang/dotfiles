@@ -87,22 +87,21 @@ not a style choice.**
   Use a **unique `id`** per extension - the helper strips only blocks carrying that id, so injectors coexist. If the old
   `before_agent_start` handler also did per-turn side effects (refresh a captured `ctx.ui`, update a statusline), keep a
   side-effect-only `before_agent_start` and move **only** the injection to `context` (see `bg-bash.ts`, `comfyui.ts`).
-  The `context`-hook `ctx` is the full `ExtensionContext` (e.g. `getContextUsage()` is available - see
-  `context-budget.ts`). Anchors: `todo`, `bg-bash`, `comfyui`, `scratchpad`, `context-budget`, `roleplay` (its
-  keyword-fired lore is computed once per turn in `before_agent_start` but injected here as `roleplay-lore` because its
-  membership is volatile per-turn; the stable scene + cast index stay in the system prompt).
+  The `context`-hook `ctx` is the full `ExtensionContext`. Anchors: `todo`, `bg-bash`, `comfyui`, `scratchpad`,
+  `roleplay` (its keyword-fired lore is computed once per turn in `before_agent_start` but injected here as
+  `roleplay-lore` because its membership is volatile per-turn; the stable scene + cast index stay in the system prompt).
 
 - **Large + stable / always-present state** (e.g. saved memories) and **static prompt addenda** (persona, preset,
-  color-tags, small-model addendum, avatar emote prompt) → keep appending to the **system prompt** via
-  `before_agent_start` (return a `{ systemPrompt }` that concatenates the block onto `event.systemPrompt`). These sit in
-  the cached prefix and are billed at the cache-read rate every unchanged turn; the bust-on-change downside rarely
-  fires. **Do NOT move `memory` to the `context` hook** - an always-present block on the (uncached) tail is re-billed at
-  full rate every turn, the opposite of the win.
+  small-model addendum, avatar emote prompt) → keep appending to the **system prompt** via `before_agent_start` (return
+  a `{ systemPrompt }` that concatenates the block onto `event.systemPrompt`). These sit in the cached prefix and are
+  billed at the cache-read rate every unchanged turn; the bust-on-change downside rarely fires. **Do NOT move `memory`
+  to the `context` hook** - an always-present block on the (uncached) tail is re-billed at full rate every turn, the
+  opposite of the win.
 
 The trap the `context` hook avoids: a volatile block in the system prompt rebuilds the prompt prefix on every mutation,
-busting the cache for the whole request. `context-budget` was the worst case (its line embeds a live token count, so it
-changed ~every turn past 50% usage). Rule of thumb: **if the block changes more often than the system prompt otherwise
-would, it belongs on the tail.**
+busting the cache for the whole request. A live usage line is especially costly because its token count changes almost
+every turn. Rule of thumb: **if the block changes more often than the system prompt otherwise would, it belongs on the
+tail.**
 
 ### Large/persistent tool results (images) are a conversation-body cost trap
 
@@ -228,7 +227,7 @@ Three cross-cutting rules for every `pi.registerCommand` handler.
 
 1. **Show status / list when a sensible default exists.** A bare `/<cmd>` prints the thing the user most likely wants to
    see. Anchors: `/memory`, `/scratchpad`, `/preset`, `/persona`, `/agents`, `/sandbox`, `/hooks`, `/filesystem`,
-   `/todos`, `/avatar`, `/context-budget` all list or show status with no args.
+   `/todos`, `/avatar`, `/context` all list or show status with no args.
 2. **Show USAGE when there is no sensible default.** A command whose whole job is to take an argument (add a rule,
    schedule a prompt) prints its USAGE string on empty args instead of erroring. Anchors: `/btw`, `/schedule`,
    `/bash-allow`, `/bash-deny`, `/sandbox-allow`, `/sandbox-deny`, `/sandbox-allow-write`.

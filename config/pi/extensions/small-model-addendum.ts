@@ -4,7 +4,7 @@
  * Weak, self-hosted models (qwen3-30B-A3B, gpt-oss-20B, and similar
  * ~3–30B class chat models) need repeated reinforcement of the
  * behaviors the rest of this toolkit encourages. `todo`, `scratchpad`,
- * `verify-before-claim`, `context-budget`, etc. all inject
+ * `verify-before-claim`, etc. all inject
  * their own hints, but when the active model is small those hints
  * compete with every other signal in the system prompt and get tuned
  * out. This extension closes the gap by appending a short, directive

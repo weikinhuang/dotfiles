@@ -6,7 +6,7 @@
  *
  * Why
  * ───
- * Several extensions (todo, scratchpad, bg-bash, context-budget, roleplay)
+ * Several extensions (todo, scratchpad, bg-bash, roleplay)
  * splice an ephemeral `<system-reminder id="…">…</system-reminder>` block
  * into the LAST user / toolResult message every turn (see
  * `context-reminder.ts`). The `<system-reminder>` framing is a convention
@@ -15,9 +15,8 @@
  *
  * A non-Claude model (a local llama.cpp / vLLM server, GPT, Gemini, Qwen,
  * …) has no such prior. It still reads the text, but it can misattribute
- * authorship - treating a harness budget line as "the user is asking about
- * the budget", or trying to act on injected state as if it were an
- * instruction. This module supplies the missing prior as a SHORT, STATIC
+ * authorship and treat injected state as if it were a user instruction.
+ * This module supplies the missing prior as a SHORT, STATIC
  * system-prompt primer.
  *
  * Cache safety

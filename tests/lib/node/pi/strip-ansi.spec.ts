@@ -1,11 +1,13 @@
 /**
- * Tests for lib/node/pi/color-tags/strip-ansi.ts.
+ * Tests for lib/node/pi/strip-ansi.ts.
  */
 
 import { describe, expect, test } from 'vitest';
 
-import { CLOSE_FG, ESC } from '../../../../../lib/node/pi/color-tags/resolve-color.ts';
-import { stripAnsi } from '../../../../../lib/node/pi/color-tags/strip-ansi.ts';
+import { stripAnsi } from '../../../../lib/node/pi/strip-ansi.ts';
+
+const ESC = '\u001b';
+const CLOSE_FG = `${ESC}[39m`;
 
 describe('stripAnsi', () => {
   test('removes a simple SGR color sequence', () => {

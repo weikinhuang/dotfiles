@@ -1,8 +1,8 @@
 /**
- * Markdown code-region segmenter shared by the inline-marker rewriters
- * (`color-tags`, `avatar` emotes).
+ * Markdown code-region segmenter for inline-marker rewriters such as
+ * avatar emotes.
  *
- * Inline markers like `[c:NAME]content[/c]` or `[emote:NAME]` that fall
+ * Inline markers like `[emote:NAME]` that fall
  * inside a fenced code block (```` ``` ```` / `~~~`) or an inline code
  * span (`` `...` ``) are LITERALS the user wants verbatim -
  * documentation and examples that show the marker syntax, snippets that

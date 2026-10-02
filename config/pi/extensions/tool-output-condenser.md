@@ -16,8 +16,8 @@ lines (198.5KB). Full output saved to: /tmp/pi-bash-condensed-XXXX/output.txt - 
 ## Why it compounds
 
 Smaller session ⇒ less frequent compaction ⇒ the [`todo`](./todo.md) / [`scratchpad`](./scratchpad.md) auto-injection
-stays visible across more turns; the [`context-budget`](./context-budget.md) line stays in the neutral band longer. For
-weak models chained across many bash calls this is one of the biggest per-turn wins available.
+stays visible across more turns. For weak models chained across many bash calls this is one of the biggest per-turn wins
+available.
 
 ## Design notes
 

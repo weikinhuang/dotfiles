@@ -47,17 +47,16 @@ The model emits a self-closing `[emote:happy]` marker inline in its reply. The m
 A marker that falls inside a Markdown code fence (` ``` `/`~~~`) or an inline code span (`` `...` ``) is treated as a
 **literal** - it is neither stripped nor fired - so documentation and examples that show the `[emote:NAME]` syntax (this
 doc, the system-prompt addendum) render verbatim. The parser slices the text into code / prose runs with the shared
-[`code-mask.ts`](../../../lib/node/pi/code-mask.ts) helper (the same one the [`color-tags`](./color-tags.md) rewriter
-uses) and acts on prose runs only.
+[`code-mask.ts`](../../../lib/node/pi/code-mask.ts) helper and acts on prose runs only.
 
 A system-prompt addendum (`before_agent_start`) teaches the model the syntax and the emotion vocabulary discovered in
-the active set. This reuses the exact three-hook pattern from [`color-tags`](./color-tags.md). The addendum is injected
-**only under an active `roleplay: true` persona** (the same gate the [`roleplay`](./roleplay.md) extension uses):
-emotion overlays are pure roleplay flavor, so a coding or no-persona session pays no extra prompt tokens and the model
-is never nudged to emit `[emote:]` markers. The activity states above are event-driven and always animate regardless of
-persona. Emotions are any frame name in the kaomoji set (or any sprite subdirectory in a PNG set) that is not one of the
-activity states above - the shipped kaomoji set defines a wide range (`happy`, `sad`, `angry`, `love`, `cry`, `cool`,
-`smug`, `excited`, `mischievous`, `victory`, `mindblown`, `starstruck`, and many more).
+the active set. It uses the same three-hook rewrite/scrub pattern described above. The addendum is injected **only under
+an active `roleplay: true` persona** (the same gate the [`roleplay`](./roleplay.md) extension uses): emotion overlays
+are pure roleplay flavor, so a coding or no-persona session pays no extra prompt tokens and the model is never nudged to
+emit `[emote:]` markers. The activity states above are event-driven and always animate regardless of persona. Emotions
+are any frame name in the kaomoji set (or any sprite subdirectory in a PNG set) that is not one of the activity states
+above - the shipped kaomoji set defines a wide range (`happy`, `sad`, `angry`, `love`, `cry`, `cool`, `smug`, `excited`,
+`mischievous`, `victory`, `mindblown`, `starstruck`, and many more).
 
 ### Emote signal (persistence + cross-extension event)
 

@@ -37,8 +37,8 @@
  */
 
 import { mergeAbortSignals } from '../abort-merge.ts';
-import { stripAnsi } from '../color-tags/strip-ansi.ts';
 import { collapseWhitespace } from '../shared.ts';
+import { stripAnsi } from '../strip-ansi.ts';
 
 /** Fallback head rendered before any phrase lands and on every failure path. */
 export const FALLBACK_PHRASE = 'Thinking...';
@@ -361,7 +361,7 @@ export function validatePhrase(raw: string, opts: ValidatePhraseOptions = {}): s
   if (/\r|\n/.test(trimmed)) return null;
   // Reject a smuggled ANSI SGR sequence (`\x1b[…m`); the bare ESC byte is also
   // caught by the control-char tester below, but this rejects a full colour
-  // escape up front. Reuses the color-tags stripper so the two stay in sync.
+  // escape up front.
   if (stripAnsi(trimmed) !== trimmed) return null;
   // Build a fresh non-global tester so `lastIndex` state on the shared
   // module-level regex doesn't leak across calls.

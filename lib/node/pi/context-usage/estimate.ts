@@ -252,7 +252,7 @@ function buildSystemPromptNode(input: BreakdownInput): CategoryNode {
       id: 'sys.injected',
       label: 'Injected addenda',
       tokens: charsToTokens(injectedChars),
-      detail: 'per-turn: todo / scratchpad / memory / context-budget …',
+      detail: 'per-turn: todo / scratchpad / memory …',
       children: sections.length > 1 ? sections : undefined,
     });
   }

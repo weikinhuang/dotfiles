@@ -1,9 +1,9 @@
 # `context-usage.ts`
 
 `/context` opens an interactive, drill-down breakdown of everything occupying the model's context window. Pi's footer
-and the [`context-budget`](./context-budget.md) advisory only report an aggregate `N% used`; neither tells you _what_ is
-eating the window. `/context` answers that - which `AGENTS.md`, which tool schema, which bash dump, how much retained
-reasoning - as a Claude-Code-`/context`-style visual map you can walk into.
+only reports an aggregate `N% used`; it does not tell you _what_ is eating the window. `/context` answers that - which
+`AGENTS.md`, which tool schema, which bash dump, how much retained reasoning - as a Claude-Code-`/context`-style visual
+map you can walk into.
 
 Read-only and non-destructive: it never mutates context. To actually shed content use
 [`context-trim`](./context-trim.md) (`/context-trim`), [`tool-collapse`](./tool-collapse.md) (`/context-collapse`), or
@@ -44,14 +44,13 @@ the whole context window, so the slack is the free tail.
 ### Injected addenda (load-order caveat)
 
 The **Injected addenda** bucket is the per-turn content extensions append to the system prompt in `before_agent_start`
-(todo / scratchpad / memory / context-budget). The installed pi (0.79.0) does not export `buildSystemPrompt`, so the
-base prompt can't be reconstructed directly. Instead the extension captures the prompt as seen by its own
-`before_agent_start` handler and diffs the effective prompt against it. Because handlers run in extension load order,
-that captured base already includes injections from extensions loaded **before** `context-usage`, so the bucket reflects
-injections from extensions loaded **after** it (in practice the big ones - todo / scratchpad / memory). The diff is
-never wrong-signed; when no turn has run yet there is no bucket. When pi exports `buildSystemPrompt` (newer versions)
-this becomes an exact split, and the addenda are further broken down into labeled blank-line sections via
-`splitInjectedAddenda`.
+(todo / scratchpad / memory). The installed pi (0.79.0) does not export `buildSystemPrompt`, so the base prompt can't be
+reconstructed directly. Instead the extension captures the prompt as seen by its own `before_agent_start` handler and
+diffs the effective prompt against it. Because handlers run in extension load order, that captured base already includes
+injections from extensions loaded **before** `context-usage`, so the bucket reflects injections from extensions loaded
+**after** it (in practice the big ones - todo / scratchpad / memory). The diff is never wrong-signed; when no turn has
+run yet there is no bucket. When pi exports `buildSystemPrompt` (newer versions) this becomes an exact split, and the
+addenda are further broken down into labeled blank-line sections via `splitInjectedAddenda`.
 
 ### Retained reasoning
 

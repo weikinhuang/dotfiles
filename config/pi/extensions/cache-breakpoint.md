@@ -10,15 +10,14 @@ last tool, and the **last user/toolResult message** ("to cache conversation hist
 `packages/ai/src/api/anthropic-messages.ts`; on Bedrock a `cachePoint` block pushed onto the last user message in
 `packages/ai/src/api/bedrock-converse-stream.ts`).
 
-Several extensions (`todo`, `scratchpad`, `bg-bash`, `context-budget`, `roleplay`) splice an ephemeral
-`<system-reminder id="…">` onto that same last message every turn via
-[`context-reminder.ts`](../../../lib/node/pi/context-reminder.ts). The reminder is regenerated fresh each request and
-**never persisted**, so next turn that message is in history without it. Because the only conversation breakpoint sits
-on that message, the cached prefix always ends with content the next turn no longer reproduces -> the conversation cache
-never gets a read hit. `cacheRead` collapses to just system+tools and the **entire conversation re-writes at the 1.25x
-cache-write rate every turn** - an O(n) cost blow-up that grows with the session. One real Bedrock/opus session hit
-~$32, 90% of it cache-write (4.6M write tokens), with `cacheRead` frozen at the static system+tools prefix from the
-first reminder onward.
+Several extensions (`todo`, `scratchpad`, `bg-bash`, `roleplay`) splice an ephemeral `<system-reminder id="…">` onto
+that same last message every turn via [`context-reminder.ts`](../../../lib/node/pi/context-reminder.ts). The reminder is
+regenerated fresh each request and **never persisted**, so next turn that message is in history without it. Because the
+only conversation breakpoint sits on that message, the cached prefix always ends with content the next turn no longer
+reproduces -> the conversation cache never gets a read hit. `cacheRead` collapses to just system+tools and the **entire
+conversation re-writes at the 1.25x cache-write rate every turn** - an O(n) cost blow-up that grows with the session.
+One real Bedrock/opus session hit ~$32, 90% of it cache-write (4.6M write tokens), with `cacheRead` frozen at the static
+system+tools prefix from the first reminder onward.
 
 This is the documented trap in [`AGENTS.md`](./AGENTS.md) ("Auto-injecting state every turn"): the
 volatile-state-on-the-tail design keeps the _system prompt_ byte-stable, but the single conversation breakpoint riding

@@ -9,7 +9,6 @@ import {
   parseClampedPositiveInt,
   parseNonNegativeInt,
   parseOptionalPositiveInt,
-  parsePercent,
   parsePositiveInt,
 } from '../../../../lib/node/pi/parse-env.ts';
 
@@ -129,32 +128,4 @@ test('parseClampedPositiveInt: falls back on missing / invalid input', () => {
   expect(parseClampedPositiveInt(undefined, 9)).toBe(9);
   expect(parseClampedPositiveInt('', 9)).toBe(9);
   expect(parseClampedPositiveInt('abc', 9)).toBe(9);
-});
-
-// ──────────────────────────────────────────────────────────────────────
-// parsePercent
-// ──────────────────────────────────────────────────────────────────────
-
-test('parsePercent: returns value when in [0, 100]', () => {
-  expect(parsePercent('0', 50)).toBe(0);
-  expect(parsePercent('50', 0)).toBe(50);
-  expect(parsePercent('100', 0)).toBe(100);
-  expect(parsePercent('72.5', 0)).toBe(72.5);
-});
-
-test('parsePercent: falls back outside [0, 100]', () => {
-  expect(parsePercent('-1', 50)).toBe(50);
-  expect(parsePercent('101', 50)).toBe(50);
-});
-
-test('parsePercent: falls back on missing / invalid input', () => {
-  expect(parsePercent(undefined, 50)).toBe(50);
-  expect(parsePercent('', 50)).toBe(50);
-  expect(parsePercent('abc', 50)).toBe(50);
-});
-
-test('parsePercent: null fallback returns null on miss', () => {
-  expect(parsePercent(undefined, null)).toBeNull();
-  expect(parsePercent('not-a-number', null)).toBeNull();
-  expect(parsePercent('42', null)).toBe(42);
 });

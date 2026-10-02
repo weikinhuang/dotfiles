@@ -6,12 +6,12 @@ servers, GPT, Gemini, Qwen, …) that lack the training prior Claude has for tha
 
 ## Why
 
-`todo`, `scratchpad`, `bg-bash`, `context-budget`, and `roleplay` splice an ephemeral
-`<system-reminder id="…">…</system-reminder>` block into the last user / tool-result message every turn (see
+`todo`, `scratchpad`, `bg-bash`, and `roleplay` splice an ephemeral `<system-reminder id="…">…</system-reminder>` block
+into the last user / tool-result message every turn (see
 [`context-reminder.ts`](../../../lib/node/pi/context-reminder.ts)). Claude models read that framing as ephemeral,
-harness-authored current state. A non-Claude model still reads the text but can misattribute authorship - treating a
-harness budget line as "the user is asking about the budget", or trying to act on injected state as if it were an
-instruction. This extension supplies the missing prior so the content is interpreted as system context, not user input.
+harness-authored current state. A non-Claude model still reads the text but can misattribute authorship, treating
+injected state as a user instruction. This extension supplies the missing prior so the content is interpreted as system
+context, not user input.
 
 The primer is **constant**, so it sits in the cached system-prompt prefix and never busts it. This is the opposite of
 the trap the per-turn reminders avoid: there it is the per-turn _mutation_ of the system prompt that is cache-hostile,

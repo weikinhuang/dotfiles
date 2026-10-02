@@ -3,7 +3,7 @@
  * breadcrumbs, legend rows, and inline bars. No pi imports.
  *
  * Token counts reuse `fmtSi` from `token-format.ts` so `/context` renders
- * numbers the same way as the statusline and `/context-budget`.
+ * numbers the same way as the statusline.
  */
 
 import { fmtSi } from '../token-format.ts';

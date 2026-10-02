@@ -1,12 +1,12 @@
 /**
- * ANSI SGR stripper for the `color-tags` extension's history scrub.
+ * ANSI SGR stripper shared by pi helpers.
  *
  * Pure module - no pi imports. The regex matches CSI sequences ending
- * in `m` (`\x1b[…m`), narrow enough that tool output containing other
- * ANSI controls (cursor moves etc.) is left alone.
+ * in `m` (`\x1b[…m`), narrow enough that text containing other ANSI
+ * controls (cursor moves etc.) is left alone.
  */
 
-import { ESC } from './resolve-color.ts';
+const ESC = '\u001b';
 
 const SGR_PATTERN = new RegExp(`${ESC}\\[[0-9;]*m`, 'g');
 

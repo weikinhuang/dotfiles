@@ -11,8 +11,8 @@
  *      `[emote:happy]` marker inline in its reply; the marker is stripped
  *      from the visible text (and scrubbed from history) and switches the
  *      avatar to that emotion sprite for `emoteHoldMs`, overriding the
- *      activity animation. This reuses the `color-tags` rewrite/scrub
- *      pattern (`before_agent_start` + `message_update` + `context`).
+ *      activity animation. It uses a three-hook rewrite/scrub pattern
+ *      (`before_agent_start` + `message_update` + `context`).
  *      When an assistant message finalizes (`message_end`) the stripped
  *      emotes are persisted as an `avatar-emote` custom session entry (so
  *      a transcript still shows which emotion a reply carried) AND

@@ -4,7 +4,7 @@
  *
  * Why
  * ───
- * todo, scratchpad, bg-bash, context-budget, and roleplay splice an
+ * todo, scratchpad, bg-bash, and roleplay splice an
  * ephemeral `<system-reminder id="…">…</system-reminder>` block into the
  * last user / toolResult message every turn (see
  * `lib/node/pi/context-reminder.ts`). Claude models are trained to read

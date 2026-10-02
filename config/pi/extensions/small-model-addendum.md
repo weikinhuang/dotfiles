@@ -3,8 +3,7 @@
 Appends a short, directive reminder block to the system prompt on every turn - but only when the active provider/model
 is on a configured allow-list. Aimed at weak self-hosted models (qwen3-30B-A3B, gpt-oss-20B, other ~3–30B chat models)
 that need repeated reinforcement of the behaviours other extensions encourage (`todo`, `scratchpad`,
-`verify-before-claim`, `context-budget`, …) - their hints compete with every other signal in the prompt and get tuned
-out on small models.
+`verify-before-claim`, …) - their hints compete with every other signal in the prompt and get tuned out on small models.
 
 ## What it does
 
