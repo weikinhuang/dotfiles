@@ -14,6 +14,7 @@ import { expect, test } from 'vitest';
 
 import {
   applyContextReminder,
+  contextRemindersEnabled,
   frameReminder,
   type ReminderMessage,
   stripReminder,
@@ -66,6 +67,13 @@ test('frameReminder: wraps body in an id-tagged system-reminder', () => {
   expect(frameReminder('todo-plan', 'do the thing')).toBe(
     '<system-reminder id="todo-plan">\ndo the thing\n</system-reminder>',
   );
+});
+
+test('contextRemindersEnabled: default-on and one complete disable, with no legacy opt-in flag', () => {
+  expect(contextRemindersEnabled({})).toBe(true);
+  expect(contextRemindersEnabled({ PI_CACHE_REMINDERS_ENABLED: '0' })).toBe(true);
+  expect(contextRemindersEnabled({ PI_CACHE_REMINDERS_DISABLED: 'yes' })).toBe(false);
+  expect(contextRemindersEnabled({ PI_CACHE_REMINDERS_DISABLED: '0' })).toBe(true);
 });
 
 // ──────────────────────────────────────────────────────────────────────

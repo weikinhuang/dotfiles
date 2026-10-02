@@ -65,14 +65,15 @@ Dynamic state belongs in standalone blocks emitted by
 when empty. Keep side effects in `before_agent_start`; never rebuild the leading system prompt or tool schemas for
 changing todo/job/note state. The memory index follows the same snapshot path, not a system addendum.
 
-The emitter alone is **not cache-safe**: even a static body disappears from an older message on the next call. During
-rollout, `PI_CACHE_REMINDERS_ENABLED=1` is required to enable the coordinator; legacy delivery is otherwise unchanged.
-Do not enable new default behavior without measured validation. [`cache-reminders`](./cache-reminders.md) finalizes all
-producers in `context_with_system`, capturing the composed bytes once per run, sorting IDs, and projecting a distinct
-anchored snapshot instead of rewriting user/tool content. Snapshot data is persisted on the selected branch; earlier
-snapshots remain byte-identical until compaction. Tool results communicate changes within the run. New user runs,
-resume/tree navigation, and successful compaction refresh state; do not refresh after each tool call. Other
-final-context hooks must preserve these historical items.
+The emitter alone is **not cache-safe**: even a static body disappears from an older message on the next call.
+[`cache-reminders`](./cache-reminders.md) is default-on and finalizes all producers in `context_with_system`, capturing
+the composed bytes once per run, sorting IDs, and projecting a distinct anchored snapshot instead of rewriting user/tool
+content. Snapshot data is persisted on the selected branch; earlier snapshots remain byte-identical until compaction.
+Tool results communicate changes within the run. New user runs, resume/tree navigation, and successful compaction
+refresh state; do not refresh after each tool call. Other final-context hooks must preserve these historical items.
+Producers must honor the shared `contextRemindersEnabled(process.env)` gate: `PI_CACHE_REMINDERS_DISABLED=1` suppresses
+auto-reminders, never restores legacy delivery. When loading a producer explicitly, also load the coordinator; bypassing
+the normal extension stack is not a supported reminder transport.
 
 Use the existing consumer reducers/disk stores for state recovery; do not replace them with a transient closure.
 Background terminal completions need persisted acknowledgement and must not appear in every new snapshot. Keep truly

@@ -249,13 +249,12 @@ in the system prompt (where each shift would bust the whole prompt-prefix cache,
 llama.cpp). Instead `before_agent_start` computes it once (running the timing pass exactly once per turn) and stashes it
 in a `pendingLore` slot; the `context` event injects that slot as an ephemeral `<system-reminder id="roleplay-lore">` on
 the trailing message via [`context-reminder.ts`](../../../lib/node/pi/context-reminder.ts), like `roleplay-repetition` /
-`roleplay-event`. With `PI_CACHE_REMINDERS_ENABLED=1`, [`cache-reminders`](./cache-reminders.md) captures these
-standalone blocks once per run, sorts their IDs, and projects a distinct branch-recoverable snapshot with byte-stable
-historical items. Mid-run state updates do not rewrite that snapshot. On later user runs only newly firing state is
-captured; historical event/lore snapshots remain context history, not newly queued events. Scene folds, rolling context
-reduction, and bare depth-insertion messages remain separate mechanisms and can still change a prefix. See the delivery
-rule in [`AGENTS.md`](./AGENTS.md) § "Cache-safe reminder delivery". Returns nothing when the cast is empty and no lore
-fired.
+`roleplay-event`. The default-on [`cache-reminders`](./cache-reminders.md) coordinator captures these standalone blocks
+once per run, sorts their IDs, and projects a distinct branch-recoverable snapshot with byte-stable historical items.
+Mid-run state updates do not rewrite that snapshot. On later user runs only newly firing state is captured; historical
+event/lore snapshots remain context history, not newly queued events. Scene folds, rolling context reduction, and bare
+depth-insertion messages remain separate mechanisms and can still change a prefix. See the delivery rule in
+[`AGENTS.md`](./AGENTS.md) § "Cache-safe reminder delivery". Returns nothing when the cast is empty and no lore fired.
 
 ## Scene: folding full character sheets (`characters` / `pov` / `pinned`)
 
@@ -677,6 +676,8 @@ is optional - with none set the event generator inherits the parent session mode
 ## Environment variables
 
 - `PI_ROLEPLAY_DISABLED=1` - skip the extension entirely (no tool, no command, no injection).
+- `PI_CACHE_REMINDERS_DISABLED=1` - suppress managed lore/depth/repetition/event reminders globally, without restoring
+  legacy tail delivery. Scene/index prompts and context-window management remain independent.
 - `PI_ROLEPLAY_DISABLE_AUTOINJECT=1` - keep the tool but skip the `## Roleplay` block.
 - `PI_ROLEPLAY_DISABLE_LOREBOOK=1` - keep the cast-index injection but skip keyword-triggered lore.
 - `PI_ROLEPLAY_DISABLE_DEPTH_INJECT=1` - skip the `context`-event depth injection (author's note + depth-tagged lore).

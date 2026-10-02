@@ -9,6 +9,10 @@ This is a custom tool, not a replacement for pi's built-in (provider-routed) ima
 extension-pluggable image-provider hook, so a tool is the integration point, the same shape pi's own
 `antigravity-image-gen.ts` example uses.
 
+Pending-job reminders use the default-on [`cache-reminders`](./cache-reminders.md) lifecycle.
+`PI_CACHE_REMINDERS_DISABLED=1` suppresses those reminders without disabling image tools, ephemeral-image collapse,
+scene-context capture, or manual job collection; it does not restore legacy tail delivery.
+
 [`comfyui.ts`](./comfyui.ts) is a thin factory: the registration gate, the workflow capability matrix, and the tool /
 command / hook registration. The session-scoped state and the two tool bodies live next door in
 [`../../../lib/node/pi/ext/comfyui/`](../../../lib/node/pi/ext/comfyui) - the `ext/` carve-out for helpers that must

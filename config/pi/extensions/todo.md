@@ -19,11 +19,11 @@ Builds on pi's stock `examples/extensions/todo.ts` with three weak-model afforda
    (capped) + `blocked` - no `cancelled` bucket and no how-to footer (that guidance lives in the tool's
    `promptGuidelines`, a cached prompt location; cancelled items stay visible in the `/todos` overlay). Why the
    `context` producer avoids rebuilding the leading system prompt, but ephemeral tail delivery alone changes earlier
-   messages on later calls. With `PI_CACHE_REMINDERS_ENABLED=1`, [`cache-reminders`](./cache-reminders.md) captures the
-   proposed plan once per run in a distinct, branch-recoverable snapshot and preserves earlier snapshots unchanged. Tool
-   results communicate mid-run transitions immediately; new user runs, resume, branch navigation, and compaction restore
-   current state. When only completed/cancelled items remain, no new reminder is emitted. Small historical snapshots
-   remain until compaction.
+   messages on later calls. The default-on [`cache-reminders`](./cache-reminders.md) coordinator captures the proposed
+   plan once per run in a distinct, branch-recoverable snapshot and preserves earlier snapshots unchanged. Tool results
+   communicate mid-run transitions immediately; new user runs, resume, branch navigation, and compaction restore current
+   state. When only completed/cancelled items remain, no new reminder is emitted. Small historical snapshots remain
+   until compaction.
 3. **Completion-claim guardrail** (`agent_end`). If the assistant signs off as "done" (heuristic in
    [`looksLikeCompletionClaim`](../../../lib/node/pi/todo-prompt.ts)) while `in_progress` / `review` / `pending` items
    still exist, a follow-up user message is injected nudging it to finish, `block`, or `cancel` the open items.
@@ -150,6 +150,7 @@ v1 because the note carries the why-it-closed reason and that signal is worth se
 - `PI_TODO_DISABLE_GUARDRAIL=1` - keep the tool and the injection but don't fire the `agent_end` "you claimed done but
   items are still open" steer.
 - `PI_TODO_MAX_INJECTED=N` - cap on `pending` items rendered in the injected block (default `10`, floor `1`).
+- `PI_CACHE_REMINDERS_DISABLED=1` - suppress managed reminders globally; never fall back to ephemeral tail delivery.
 
 ## Helpers
 

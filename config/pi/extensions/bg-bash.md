@@ -133,6 +133,8 @@ via `markLiveJobsTerminated` so the next runtime sees them as historical rather 
 ## Environment variables
 
 - `PI_BG_BASH_DISABLED=1` - skip the extension entirely.
+- `PI_CACHE_REMINDERS_DISABLED=1` - suppress managed job reminders globally, without changing manual tools or
+  independently configured completion nudges. No legacy tail transport is restored.
 - `PI_BG_BASH_DISABLE_AUTOINJECT=1` - keep the tool but don't inject `## Background Jobs` (disables the `context`-hook
   injection; the tool, statusline, and overlay still work).
 - `PI_BG_BASH_DISABLE_NUDGE=1` - disable the [completion nudge](#completion-nudge) feature entirely; the `nudge` param /

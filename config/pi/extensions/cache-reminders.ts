@@ -1,8 +1,7 @@
 /** Final provider-neutral projection, after all producers and context-window transforms. */
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
 
-import type { ReminderMessage } from '../../../lib/node/pi/context-reminder.ts';
-import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
+import { contextRemindersEnabled, type ReminderMessage } from '../../../lib/node/pi/context-reminder.ts';
 import {
   createReminderLifecycle,
   readReminderSnapshots,
@@ -10,7 +9,7 @@ import {
 } from '../../../lib/node/pi/reminder-lifecycle.ts';
 
 export default function cacheReminders(pi: ExtensionAPI): void {
-  if (envTruthy(process.env.PI_CACHE_REMINDERS_DISABLED) || !envTruthy(process.env.PI_CACHE_REMINDERS_ENABLED)) return;
+  if (!contextRemindersEnabled(process.env)) return;
   const lifecycle = createReminderLifecycle();
   pi.on('before_agent_start', () => {
     lifecycle.refresh();

@@ -135,6 +135,7 @@ import {
 import { buildExcludeSet, detectRepetition, formatRepetitionNudge } from '../../../lib/node/pi/roleplay/repetition.ts';
 import {
   applyContextReminder,
+  contextRemindersEnabled,
   hasInjectableTail,
   type ReminderMessage,
 } from '../../../lib/node/pi/context-reminder.ts';
@@ -360,11 +361,12 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   if (envTruthy(process.env.PI_ROLEPLAY_DISABLED)) return;
 
   const autoInjectEnabled = !envTruthy(process.env.PI_ROLEPLAY_DISABLE_AUTOINJECT);
-  const lorebookEnabled = !envTruthy(process.env.PI_ROLEPLAY_DISABLE_LOREBOOK);
-  const depthInjectEnabled = !envTruthy(process.env.PI_ROLEPLAY_DISABLE_DEPTH_INJECT);
+  const remindersEnabled = contextRemindersEnabled(process.env);
+  const lorebookEnabled = !envTruthy(process.env.PI_ROLEPLAY_DISABLE_LOREBOOK) && remindersEnabled;
+  const depthInjectEnabled = !envTruthy(process.env.PI_ROLEPLAY_DISABLE_DEPTH_INJECT) && remindersEnabled;
   const summarizeEnabled = !envTruthy(process.env.PI_ROLEPLAY_DISABLE_SUMMARIZE);
-  const repetitionEnabled = !envTruthy(process.env.PI_ROLEPLAY_DISABLE_REPETITION);
-  const eventsEnabled = !envTruthy(process.env.PI_ROLEPLAY_DISABLE_EVENTS);
+  const repetitionEnabled = !envTruthy(process.env.PI_ROLEPLAY_DISABLE_REPETITION) && remindersEnabled;
+  const eventsEnabled = !envTruthy(process.env.PI_ROLEPLAY_DISABLE_EVENTS) && remindersEnabled;
   const avatarDriveEnabled = !envTruthy(process.env.PI_ROLEPLAY_DISABLE_AVATAR);
   const sceneGenEnabled = !envTruthy(process.env.PI_ROLEPLAY_DISABLE_SCENEGEN);
   const envCharBudget = parseClampedPositiveInt(process.env.PI_ROLEPLAY_MAX_INJECTED_CHARS, 0, 1) || undefined;

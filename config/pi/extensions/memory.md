@@ -96,10 +96,10 @@ dir when a session id is resolved - rebuilds an in-memory index, and mirrors tha
 block with the per-type index (Global / Project / Session), capped by `PI_MEMORY_MAX_INJECTED_CHARS` (default 3000). The
 model is expected to call `memory` action `read` when it needs a full body.
 
-With `PI_CACHE_REMINDERS_ENABLED=1`, [`cache-reminders`](./cache-reminders.md) captures that index once per run in a
-distinct, persistent request projection. Default-off rollout retains the legacy system-prompt index until opted in.
-Index mutations and age annotations no longer rebuild the leading system prompt. Historical snapshots stay unchanged;
-new user turns, resume, branch navigation, and compaction recover current state through the existing disk index.
+[`cache-reminders`](./cache-reminders.md) captures that index once per run in a distinct, persistent request projection
+by default. The legacy system-prompt index path is removed. Index mutations and age annotations no longer rebuild the
+leading system prompt. Historical snapshots stay unchanged; new user turns, resume, branch navigation, and compaction
+recover current state through the existing disk index.
 
 **Stale annotation.** `project`-type entries older than `PI_MEMORY_STALE_DAYS` (default 30, measured from `updated`
 falling back to `created`, truncated to whole days) get a tiny `(Nd)` age marker appended in the injected index - a soft
@@ -166,8 +166,10 @@ own model call remains a deferred option.
 ## Environment variables
 
 - `PI_MEMORY_DISABLED=1` - skip the extension entirely.
-- `PI_MEMORY_DISABLE_AUTOINJECT=1` - keep the tool but don't inject the `## Memory` index (legacy system prompt or
-  opt-in snapshot). Capture-assist has its independent switch below.
+- `PI_MEMORY_DISABLE_AUTOINJECT=1` - keep the tool but don't inject the `## Memory` index snapshot. Capture-assist has
+  its independent switch below.
+- `PI_CACHE_REMINDERS_DISABLED=1` - suppress the index and framed capture reminders globally, with no system-prompt
+  fallback. The explicit persistent `PI_MEMORY_CAPTURE_TURN=1` directive remains independent.
 - `PI_MEMORY_MAX_INJECTED_CHARS=N` - soft cap on the injected block (default `3000`, floor `500`). The budget is
   consumed in priority order (session → project → global) so the scopes most relevant to the current turn survive a
   tight cap; the rendered block still displays global → project → session.

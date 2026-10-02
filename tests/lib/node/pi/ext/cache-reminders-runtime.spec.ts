@@ -8,20 +8,20 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-test('rollout is opt-in and full disable wins', () => {
+test('default delivery registers without an opt-in flag, and complete disable registers nothing', () => {
   const on = vi.fn();
-  vi.stubEnv('PI_CACHE_REMINDERS_ENABLED', '');
+  vi.stubEnv('PI_CACHE_REMINDERS_ENABLED', '0'); // Obsolete flags cannot restore legacy behavior.
   vi.stubEnv('PI_CACHE_REMINDERS_DISABLED', '');
   cacheReminders({ on } as unknown as ExtensionAPI);
-  expect(on).not.toHaveBeenCalled();
-  vi.stubEnv('PI_CACHE_REMINDERS_ENABLED', '1');
+  expect(on).toHaveBeenCalledWith('context_with_system', expect.any(Function));
+  on.mockClear();
   vi.stubEnv('PI_CACHE_REMINDERS_DISABLED', '1');
   cacheReminders({ on } as unknown as ExtensionAPI);
   expect(on).not.toHaveBeenCalled();
 });
 
 test('runtime captures once, persists branch data, and preserves the historical prefix after tool state changes', () => {
-  vi.stubEnv('PI_CACHE_REMINDERS_ENABLED', '1');
+  vi.stubEnv('PI_CACHE_REMINDERS_ENABLED', '');
   vi.stubEnv('PI_CACHE_REMINDERS_DISABLED', '');
   const handlers = new Map<string, (event: unknown, ctx: unknown) => { messages: ReminderMessage[] } | undefined>();
   const stored: unknown[] = [];

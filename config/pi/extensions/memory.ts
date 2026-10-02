@@ -84,7 +84,11 @@ import {
 } from '../../../lib/node/pi/memory-paths.ts';
 import { completeSubverbs } from '../../../lib/node/pi/commands/complete.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
-import { applyContextReminder, type ReminderMessage } from '../../../lib/node/pi/context-reminder.ts';
+import {
+  applyContextReminder,
+  contextRemindersEnabled,
+  type ReminderMessage,
+} from '../../../lib/node/pi/context-reminder.ts';
 import {
   buildCandidateNudge,
   CAPTURE_NUDGE,
@@ -255,9 +259,8 @@ function liveSessionIds(ctx: ExtensionContext): Set<string> | null {
 export default function memoryExtension(pi: ExtensionAPI): void {
   if (envTruthy(process.env.PI_MEMORY_DISABLED)) return;
 
-  const autoInjectEnabled = process.env.PI_MEMORY_DISABLE_AUTOINJECT !== '1';
-  const snapshotEnabled =
-    envTruthy(process.env.PI_CACHE_REMINDERS_ENABLED) && !envTruthy(process.env.PI_CACHE_REMINDERS_DISABLED);
+  const remindersEnabled = contextRemindersEnabled(process.env);
+  const autoInjectEnabled = process.env.PI_MEMORY_DISABLE_AUTOINJECT !== '1' && remindersEnabled;
   const readOnly = envTruthy(process.env.PI_MEMORY_READONLY);
   const maxInjectedChars = parseClampedPositiveInt(
     process.env.PI_MEMORY_MAX_INJECTED_CHARS,
@@ -267,7 +270,8 @@ export default function memoryExtension(pi: ExtensionAPI): void {
   const staleDays = parsePositiveInt(process.env.PI_MEMORY_STALE_DAYS, DEFAULT_STALE_DAYS);
   // Capture-assist: a one-shot nudge fired after compaction.
   const captureDisabled = envTruthy(process.env.PI_MEMORY_DISABLE_CAPTURE);
-  const captureEnabled = !captureDisabled && !readOnly;
+  const captureEnabled =
+    !captureDisabled && !readOnly && (remindersEnabled || envTruthy(process.env.PI_MEMORY_CAPTURE_TURN));
   // Delivery mode: by default the nudge rides the next turn as a
   // <system-reminder> (invisible, cache-cheap, works on frontier models).
   // Eval on a small self-hosted model showed it ignores reminders riding a
@@ -335,18 +339,15 @@ export default function memoryExtension(pi: ExtensionAPI): void {
     rebuildFromDisk(ctx);
   });
 
-  // Keep legacy delivery until the stable lifecycle is explicitly enabled.
-  pi.on('before_agent_start', (event) => {
+  // Only count activity here. The index never rebuilds the leading system prompt.
+  pi.on('before_agent_start', () => {
     // Count this submit as user activity for the capture-assist gate.
     userTurnsSinceLastSave += 1;
-    if (snapshotEnabled || !autoInjectEnabled) return undefined;
-    const block = formatMemoryIndex(state, { maxChars: maxInjectedChars, now: now(), staleDays });
-    return block ? { systemPrompt: `${event.systemPrompt}\n\n${block}` } : undefined;
   });
   // The final snapshot coordinator preserves the index in a distinct history item.
   // Never rebuild the leading system prompt when memories or age labels change.
   pi.on('context', (event) => {
-    if (!autoInjectEnabled || !snapshotEnabled) return undefined;
+    if (!autoInjectEnabled) return undefined;
     const block = formatMemoryIndex(state, { maxChars: maxInjectedChars, now: now(), staleDays });
     if (!block) return undefined;
     const messages = applyContextReminder(event.messages as unknown as ReminderMessage[], {
@@ -360,7 +361,7 @@ export default function memoryExtension(pi: ExtensionAPI): void {
   // The capture nudge rides the turn as an ephemeral <system-reminder>
   // (never the system prompt, so the KV cache prefix stays byte-stable) and
   // fires once after a compaction (see below). Nothing pending injects nothing.
-  if (captureEnabled) {
+  if (captureEnabled && remindersEnabled) {
     pi.on('context', (event) => {
       let messages = event.messages as unknown as ReminderMessage[];
       let changed = false;
@@ -846,8 +847,8 @@ export default function memoryExtension(pi: ExtensionAPI): void {
       if (sub === 'preview') {
         if (!autoInjectEnabled) {
           ctx.ui.notify(
-            'Memory auto-injection is disabled (PI_MEMORY_DISABLE_AUTOINJECT=1). ' +
-              'Nothing would be added to the system prompt next turn.\n\n' +
+            'Memory auto-injection is disabled (PI_MEMORY_DISABLE_AUTOINJECT=1 or PI_CACHE_REMINDERS_DISABLED=1). ' +
+              'No memory-index snapshot would be emitted next run.\n\n' +
               formatText(state),
             'info',
           );
@@ -855,11 +856,11 @@ export default function memoryExtension(pi: ExtensionAPI): void {
         }
         const block = formatMemoryIndex(state, { maxChars: maxInjectedChars, now: now(), staleDays });
         if (!block) {
-          ctx.ui.notify("(no memories - nothing would be injected into the next turn's system prompt)", 'info');
+          ctx.ui.notify('(no memories - no memory-index snapshot would be emitted next run)', 'info');
           return;
         }
         ctx.ui.notify(
-          `Injected into the next turn's system prompt (cap ${maxInjectedChars} chars, rendered ${block.length}):\n\n${block}`,
+          `Proposed for the next run's reminder snapshot (cap ${maxInjectedChars} chars, rendered ${block.length}):\n\n${block}`,
           'info',
         );
         return;

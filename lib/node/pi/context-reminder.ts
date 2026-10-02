@@ -63,6 +63,12 @@
  */
 
 import { isTextPart } from './shared/guards.ts';
+import { envTruthy } from './parse-env.ts';
+
+/** Default-on delivery; disabling it also suppresses producers, never restores legacy transport. */
+export function contextRemindersEnabled(env: Record<string, string | undefined>): boolean {
+  return !envTruthy(env.PI_CACHE_REMINDERS_DISABLED);
+}
 
 // ──────────────────────────────────────────────────────────────────────
 // Structural message shapes (duck-typed subset of pi's AgentMessage)

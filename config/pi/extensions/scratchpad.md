@@ -23,13 +23,12 @@ Notes are trimmed on write; attempting to `update` a note with an empty body ret
 
 1. **Active-notes auto-injection** (via the `context` hook). The notebook is rendered under a `## Working Notes` header
    with a soft character cap (default 2000) and spliced as an ephemeral `<system-reminder id="scratchpad">` into the
-   last user/toolResult turn as producer output, not the system prompt. With `PI_CACHE_REMINDERS_ENABLED=1`,
-   [`cache-reminders`](./cache-reminders.md) captures it once per run in a stable, branch-recoverable request item.
-   Default-off rollout retains legacy ephemeral delivery until opted in. Note edits are communicated by tool results
-   without rewriting earlier snapshot bytes; an empty notebook emits no new snapshot. Historical snapshots stay
-   unchanged until compaction. Notes are grouped by heading in first-seen order; ungrouped notes render first under an
-   implicit “Notes” header. When the cap is hit we emit a trailer telling the model to call `scratchpad` with action
-   `list` for the rest.
+   last user/toolResult turn as producer output, not the system prompt. The default-on
+   [`cache-reminders`](./cache-reminders.md) coordinator captures it once per run in a stable, branch-recoverable
+   request item. There is no legacy transport fallback. Note edits are communicated by tool results without rewriting
+   earlier snapshot bytes; an empty notebook emits no new snapshot. Historical snapshots stay unchanged until
+   compaction. Notes are grouped by heading in first-seen order; ungrouped notes render first under an implicit “Notes”
+   header. When the cap is hit we emit a trailer telling the model to call `scratchpad` with action `list` for the rest.
 
 2. **Compaction resilience.** Each successful tool call mirrors the post-action state to a
    `customType: 'scratchpad-state'` session entry in addition to `toolResult.details`. Pi’s `/compact` can summarize old
@@ -84,6 +83,7 @@ Notes are trimmed on write; attempting to `update` a note with an empty body ret
 - `PI_SCRATCHPAD_DISABLE_AUTOINJECT=1` - keep the tool but don’t inject the notebook each turn (disables the
   `context`-hook injection).
 - `PI_SCRATCHPAD_MAX_INJECTED_CHARS=N` - soft cap on the injected block in characters (default `2000`, floor `200`).
+- `PI_CACHE_REMINDERS_DISABLED=1` - suppress managed reminders globally without removing the notebook tool.
 
 ## Hot reload
 

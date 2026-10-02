@@ -60,7 +60,11 @@ import { Type } from 'typebox';
 
 import { completeSubverbs } from '../../../lib/node/pi/commands/complete.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
-import { applyContextReminder, type ReminderMessage } from '../../../lib/node/pi/context-reminder.ts';
+import {
+  applyContextReminder,
+  contextRemindersEnabled,
+  type ReminderMessage,
+} from '../../../lib/node/pi/context-reminder.ts';
 import { MIN_OVERLAY_ROWS, overlayViewportRows } from '../../../lib/node/pi/ext/overlay-window.ts';
 import { ScratchpadOverlay, type ScratchpadOverlayDeps } from '../../../lib/node/pi/ext/scratchpad-overlay.ts';
 import { formatWorkingNotes } from '../../../lib/node/pi/scratchpad-prompt.ts';
@@ -132,7 +136,8 @@ function renderNoteLine(n: ScratchNote, theme: Theme): string {
 export default function scratchpadExtension(pi: ExtensionAPI): void {
   if (envTruthy(process.env.PI_SCRATCHPAD_DISABLED)) return;
 
-  const autoInjectEnabled = process.env.PI_SCRATCHPAD_DISABLE_AUTOINJECT !== '1';
+  const autoInjectEnabled =
+    process.env.PI_SCRATCHPAD_DISABLE_AUTOINJECT !== '1' && contextRemindersEnabled(process.env);
   const maxInjectedChars = parseClampedPositiveInt(
     process.env.PI_SCRATCHPAD_MAX_INJECTED_CHARS,
     MAX_INJECTED_CHARS_DEFAULT,
@@ -340,7 +345,7 @@ export default function scratchpadExtension(pi: ExtensionAPI): void {
       if (sub === 'preview') {
         if (!autoInjectEnabled) {
           ctx.ui.notify(
-            'Scratchpad auto-injection is disabled (PI_SCRATCHPAD_DISABLE_AUTOINJECT=1). ' +
+            'Scratchpad auto-injection is disabled (PI_SCRATCHPAD_DISABLE_AUTOINJECT=1 or PI_CACHE_REMINDERS_DISABLED=1). ' +
               'Nothing would be injected next turn.\n\n' +
               `Current notebook (${state.notes.length} note(s)):\n${formatText(state)}`,
             'info',

@@ -23,7 +23,7 @@ import {
   reduceBranch,
 } from '../../context-edit/directive.ts';
 import type { LooseMessage } from '../../context-edit/target.ts';
-import { applyContextReminder, type ReminderMessage } from '../../context-reminder.ts';
+import { applyContextReminder, contextRemindersEnabled, type ReminderMessage } from '../../context-reminder.ts';
 import { type Conn } from '../../comfyui/client.ts';
 import { resolveAuthHeaders, resolveBaseUrl } from '../../comfyui/config.ts';
 import { COMFYUI_IMAGE_CHANNEL, type ImageGeneratedEvent } from '../../comfyui/events.ts';
@@ -101,6 +101,7 @@ export class ComfyuiRuntime {
   // clear the slot when none are running so quiet sessions stay clean.
   private uiRef: ExtensionContext['ui'] | undefined;
   private lastStatusRunning = -1;
+  private readonly remindersEnabled = contextRemindersEnabled(process.env);
 
   // `inFlight` guards a single job from being fetched twice at once - by
   // the auto-download timer and a concurrent manual `collect` - which would
@@ -378,7 +379,7 @@ export class ComfyuiRuntime {
     // 2. Remind the model about pending background jobs so even a weak
     //    model remembers to collect them.
     const block = formatRunningBlock(this.registry);
-    if (block) {
+    if (block && this.remindersEnabled) {
       messages = applyContextReminder(messages as unknown as ReminderMessage[], {
         id: 'comfyui-jobs',
         body: block,

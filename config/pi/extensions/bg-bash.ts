@@ -102,7 +102,11 @@ import {
   surfacedTerminalJobs,
 } from '../../../lib/node/pi/bg-bash-prompt.ts';
 import { extractContentText } from '../../../lib/node/pi/message-text.ts';
-import { applyContextReminder, type ReminderMessage } from '../../../lib/node/pi/context-reminder.ts';
+import {
+  applyContextReminder,
+  contextRemindersEnabled,
+  type ReminderMessage,
+} from '../../../lib/node/pi/context-reminder.ts';
 import { requestSandboxWrap } from '../../../lib/node/pi/sandbox/wrapper-slot.ts';
 import {
   bgBashStreamCursor,
@@ -377,7 +381,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
   // Aspect-level disable - whether to register the system-prompt
   // injection handler at all. Registration-time decision, so it stays an
   // env read rather than a config-file field.
-  const autoInjectEnabled = process.env.PI_BG_BASH_DISABLE_AUTOINJECT !== '1';
+  const autoInjectEnabled = process.env.PI_BG_BASH_DISABLE_AUTOINJECT !== '1' && contextRemindersEnabled(process.env);
 
   // Aspect-level disable for the completion nudge. When off, the `nudge`
   // param / config is simply ignored - jobs still run, the active-jobs

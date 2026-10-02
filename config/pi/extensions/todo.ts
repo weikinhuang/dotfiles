@@ -68,7 +68,11 @@ import { TODOS_USAGE } from '../../../lib/node/pi/todo/usage.ts';
 import { showModal } from '../../../lib/node/pi/ext/show-modal.ts';
 import { renderStatusGlyph, TodoOverlay } from '../../../lib/node/pi/ext/todo-overlay.ts';
 import { truncate } from '../../../lib/node/pi/shared.ts';
-import { applyContextReminder, type ReminderMessage } from '../../../lib/node/pi/context-reminder.ts';
+import {
+  applyContextReminder,
+  contextRemindersEnabled,
+  type ReminderMessage,
+} from '../../../lib/node/pi/context-reminder.ts';
 import { formatActivePlan, looksLikeCompletionClaim } from '../../../lib/node/pi/todo-prompt.ts';
 import {
   type BranchEntry as VerifyBranchEntry,
@@ -178,7 +182,7 @@ function lastUserMessageHasMarker(ctx: ExtensionContext, marker: string, customT
 export default function todoExtension(pi: ExtensionAPI): void {
   if (envTruthy(process.env.PI_TODO_DISABLED)) return;
 
-  const autoInjectEnabled = process.env.PI_TODO_DISABLE_AUTOINJECT !== '1';
+  const autoInjectEnabled = process.env.PI_TODO_DISABLE_AUTOINJECT !== '1' && contextRemindersEnabled(process.env);
   const guardrailEnabled = process.env.PI_TODO_DISABLE_GUARDRAIL !== '1';
   const maxInjected = parsePositiveInt(process.env.PI_TODO_MAX_INJECTED, MAX_INJECTED_DEFAULT);
 
