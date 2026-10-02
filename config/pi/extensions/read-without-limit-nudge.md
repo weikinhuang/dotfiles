@@ -21,6 +21,9 @@ The nudge is appended as a second text part, leaving pi’s original content unt
 [`extensions/read-reread-detector.ts`](./read-reread-detector.md) (which also appends) and with
 [`extensions/tool-output-condenser.ts`](./tool-output-condenser.md) (which rewrites only the first text part).
 
+Nested reads made through `ctx.executeTool()` are left unchanged. The guidance is for the model issuing a direct tool
+call, not for a codemode script consuming file content as data.
+
 ## Environment variables
 
 - `PI_READ_LIMIT_NUDGE_DISABLED=1` - skip the extension entirely.

@@ -17,6 +17,10 @@ On every `tool_result` where the tool is `edit` and `isError: true`:
 4. Append the recovery block as a second text part so pi's original error stays at position 0. Composes cleanly with
    downstream `tool_result` handlers (e.g. [`tool-output-condenser.ts`](./tool-output-condenser.md)).
 
+Nested edits made through `ctx.executeTool()` are left unchanged. Pi v1's codemode error path already reports nested
+tool failures to the calling script, while this extension's recovery block is written for a model issuing `edit`
+directly.
+
 Auto-retry is deliberately **not** attempted - that hides the fault from
 [`verify-before-claim.ts`](./verify-before-claim.md) / [`stall-recovery.ts`](./stall-recovery.md) /
 [`todo.ts`](./todo.md) guardrails and masks "model didn't understand what it was doing" failures. Surfacing the actual

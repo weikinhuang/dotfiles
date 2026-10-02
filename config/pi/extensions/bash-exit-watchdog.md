@@ -7,7 +7,7 @@ command succeeded.
 
 ## What it does
 
-On every `tool_result` where `isError: true` and the tool was `bash`:
+On every direct model-issued `tool_result` where `isError: true` and the tool was `bash`:
 
 1. Parse the exit code out of the trailing marker via [`parseExitCode`](../../../lib/node/pi/bash/exit-watchdog.ts).
    Bail if zero / unparseable.
@@ -17,6 +17,9 @@ On every `tool_result` where `isError: true` and the tool was `bash`:
 3. If not suppressed, prepend an unmissable warning header to the first text part via
    [`formatWarning`](../../../lib/node/pi/bash/exit-watchdog.ts). Pi's original output is preserved below and the rest
    of the content parts are passed through untouched.
+
+Nested calls carrying `parentToolCallId` are left unchanged because their caller consumes the programmatic result. When
+direct-call text is rewritten, existing pi v1 `structuredContent` is preserved.
 
 The rewrite shape is `{ content: [{ type: 'text', text: '<warning>\n<original>' }, ...event.content.slice(1)] }`, which
 chains cleanly with [`tool-output-condenser.ts`](./tool-output-condenser.md) - condensation applies to the body, the

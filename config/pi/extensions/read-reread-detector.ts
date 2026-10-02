@@ -48,6 +48,7 @@ import { envTruthy, parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
 import { displayPath } from '../../../lib/node/pi/path-display.ts';
 import { type FileSignature, formatNudge, ReadHistory, type RereadProbe } from '../../../lib/node/pi/read-reread.ts';
 import { makeDiagnostics } from '../../../lib/node/pi/recovery-diagnostics.ts';
+import { isNestedToolEvent, preserveStructuredContent } from '../../../lib/node/pi/tool-events.ts';
 
 const DEFAULT_MAX_ENTRIES = 256;
 
@@ -80,6 +81,7 @@ export default function readRereadDetector(pi: ExtensionAPI): void {
   });
 
   pi.on('tool_result', (event, ctx) => {
+    if (isNestedToolEvent(event)) return undefined;
     if (!isReadToolResult(event)) return undefined;
     if (event.isError) return undefined; // only care about successful reads
 
@@ -119,6 +121,7 @@ export default function readRereadDetector(pi: ExtensionAPI): void {
 
     return {
       content: [...event.content, { type: 'text', text: `\n${nudge}` }],
+      ...preserveStructuredContent(event),
     };
   });
 

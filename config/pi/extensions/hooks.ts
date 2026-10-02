@@ -91,6 +91,7 @@ import { HOOKS_USAGE } from '../../../lib/node/pi/hooks/usage.ts';
 import { type HookResult, nodeChildProcessSpawn, runHook } from '../../../lib/node/pi/hooks/runner.ts';
 import { envTruthy, parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
 import { makeDiagnostics } from '../../../lib/node/pi/recovery-diagnostics.ts';
+import { preserveStructuredContent } from '../../../lib/node/pi/tool-events.ts';
 
 const DEFAULT_TIMEOUT_MS = 60000;
 
@@ -229,7 +230,10 @@ export default function hooks(pi: ExtensionAPI): void {
 
     if (appended.length === 0) return undefined;
 
-    return { content: appendToolResultContext(content, appended) as never };
+    return {
+      content: appendToolResultContext(content, appended) as never,
+      ...preserveStructuredContent(event),
+    };
   });
 
   // ──────────────────────────────────────────────────────────────────

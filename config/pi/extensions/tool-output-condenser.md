@@ -23,7 +23,11 @@ available.
 
 - Hooks `tool_result`, not `tool_call` - the command still executes with full output; only the **session-stored** copy
   is condensed.
+- Skips nested calls made through `ctx.executeTool()`. Their results belong to the calling tool rather than a standalone
+  session entry, and codemode must receive their full programmatic value.
 - Only text content parts are touched; image parts pass through unchanged.
+- Preserves `structuredContent` when rewriting direct-call text, so pi v1 programmatic consumers keep the original
+  machine-readable result.
 - Reuses pi’s existing `fullOutputPath` when the built-in bash tool already wrote one, so the model never sees two
   competing breadcrumbs.
 - Records condenser metadata on `details.condenser` (`truncated`, `originalBytes`, `originalLines`, `outputBytes`,

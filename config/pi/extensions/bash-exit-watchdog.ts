@@ -59,6 +59,7 @@ import {
 } from '../../../lib/node/pi/bash/exit-watchdog.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 import { createNotifyOnce } from '../../../lib/node/pi/notify-once.ts';
+import { isNestedToolEvent, preserveStructuredContent } from '../../../lib/node/pi/tool-events.ts';
 
 export default function bashExitWatchdog(pi: ExtensionAPI): void {
   if (envTruthy(process.env.PI_EXIT_WATCHDOG_DISABLED)) return;
@@ -99,6 +100,7 @@ export default function bashExitWatchdog(pi: ExtensionAPI): void {
   });
 
   pi.on('tool_result', (event, ctx) => {
+    if (isNestedToolEvent(event)) return undefined;
     if (!isBashToolResult(event)) return undefined;
     if (!event.isError) return undefined;
 
@@ -125,6 +127,7 @@ export default function bashExitWatchdog(pi: ExtensionAPI): void {
     const warning = formatWarning(exitCode, command);
     return {
       content: [{ type: 'text', text: `${warning}\n${original}` }, ...event.content.slice(1)],
+      ...preserveStructuredContent(event),
     };
   });
 

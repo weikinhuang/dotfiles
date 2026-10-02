@@ -56,6 +56,7 @@ import { locateAndFormat, parseEditFailure } from '../../../lib/node/pi/edit-rec
 import { boundedReadFile } from '../../../lib/node/pi/fs-safe.ts';
 import { envTruthy, parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
 import { makeDiagnostics } from '../../../lib/node/pi/recovery-diagnostics.ts';
+import { isNestedToolEvent, preserveStructuredContent } from '../../../lib/node/pi/tool-events.ts';
 
 const DEFAULT_MAX_BYTES = 262_144;
 const DEFAULT_CONTEXT_LINES = 2;
@@ -74,6 +75,7 @@ export default function editRecovery(pi: ExtensionAPI): void {
   });
 
   pi.on('tool_result', (event, ctx) => {
+    if (isNestedToolEvent(event)) return undefined;
     if (!isEditToolResult(event)) return undefined;
     if (!event.isError) return undefined;
 
@@ -137,6 +139,7 @@ export default function editRecovery(pi: ExtensionAPI): void {
     // (tool-output-condenser) see the augmented result next.
     return {
       content: [...event.content, { type: 'text', text: `\n${out.text}` }],
+      ...preserveStructuredContent(event),
     };
   });
 }

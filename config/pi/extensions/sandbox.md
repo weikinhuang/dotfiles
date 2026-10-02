@@ -207,6 +207,9 @@ State is published via [`session-flags.ts`](../../../lib/node/pi/session-flags.t
   wrap their bash calls through the same shared `SandboxManager` (subagents are in-process; the singleton + active
   config + UI bridge + wrapper slot are all shared). The factory mounts ONLY the `tool_call` handler - no slash
   commands, no statusline glue.
+- **Pi v1 nested tool calls**: calls made through `ctx.executeTool()` stay inside the same permission and sandbox
+  pipeline. When the result hook adds a policy hint to bash text, it preserves the original `structuredContent` so
+  codemode and other programmatic callers retain the machine-readable bash result.
 
 ## Environment variables
 

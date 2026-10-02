@@ -42,6 +42,7 @@ import { isFreshUserPrompt } from '../../../lib/node/pi/input-event.ts';
 import { buildNudge, makeKey, pushAndCheck } from '../../../lib/node/pi/loop-breaker.ts';
 import { envTruthy, parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
 import { makeDiagnostics } from '../../../lib/node/pi/recovery-diagnostics.ts';
+import { isNestedToolEvent } from '../../../lib/node/pi/tool-events.ts';
 
 const DEFAULT_THRESHOLD = 3;
 const DEFAULT_WINDOW = 6;
@@ -82,6 +83,7 @@ export default function loopBreaker(pi: ExtensionAPI): void {
   });
 
   pi.on('tool_call', (event, ctx) => {
+    if (isNestedToolEvent(event)) return undefined;
     const key = makeKey(event.toolName, event.input);
     const check = pushAndCheck(history, key, windowSize, threshold);
 

@@ -122,6 +122,10 @@ wrap, so setting it today is a no-op. The schema is locked so users can write it
 Within an event, hooks fire in array order: session-layer entries first, then project, then user. The order matches
 `bash-permissions`'s layer order so the `/hooks` listing reads the same way.
 
+Pi v1 nested calls made through `ctx.executeTool()` also pass through `PreToolUse` and `PostToolUse`, preserving the
+audit and policy contract for codemode and other orchestrating tools. If `PostToolUse` appends text to a result, the
+extension also returns the original `structuredContent` so the nested caller keeps its machine-readable value.
+
 ## Worked examples
 
 ### Log every bash command

@@ -128,6 +128,7 @@ import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 import { piAgentDir, piProjectPath } from '../../../lib/node/pi/pi-paths.ts';
 import { pickScopeFile } from '../../../lib/node/pi/scope-pick.ts';
 import { getActivePersona } from '../../../lib/node/pi/persona/active.ts';
+import { preserveStructuredContent } from '../../../lib/node/pi/tool-events.ts';
 
 import {
   activeReconfigure,
@@ -1072,13 +1073,21 @@ export default function sandbox(pi: ExtensionAPI): void {
           } catch {
             // Best-effort logging; never let the audit log break the hook.
           }
-          return { content: newContent as ToolResultEvent['content'] };
+          return {
+            content: newContent as ToolResultEvent['content'],
+            ...preserveStructuredContent(event),
+          };
         }
       } else if (outcome.kind === 'deny' && outcome.feedback) {
         const tag = '⚠️  sandbox blocked this write; the user declined to widen the policy:';
         const hint = `user feedback: ${outcome.feedback}`;
         const newContent = prependBashHint(evt.content, hint, tag);
-        if (newContent) return { content: newContent as ToolResultEvent['content'] };
+        if (newContent) {
+          return {
+            content: newContent as ToolResultEvent['content'],
+            ...preserveStructuredContent(event),
+          };
+        }
       }
       // `kind: 'deny'` without feedback, or `kind: 'no-ui'`, falls
       // through to the existing ASRT-annotation path below.
@@ -1116,7 +1125,10 @@ export default function sandbox(pi: ExtensionAPI): void {
           } catch {
             // Best-effort logging; never let the audit log break the hook.
           }
-          return { content: newContent as ToolResultEvent['content'] };
+          return {
+            content: newContent as ToolResultEvent['content'],
+            ...preserveStructuredContent(event),
+          };
         }
       }
     }
@@ -1147,7 +1159,10 @@ export default function sandbox(pi: ExtensionAPI): void {
       // Best-effort logging; never let the audit log break the hook.
     }
 
-    return { content: splice.content as ToolResultEvent['content'] };
+    return {
+      content: splice.content as ToolResultEvent['content'],
+      ...preserveStructuredContent(event),
+    };
   });
 
   // ─────────────────────────────────────────────────────────────────

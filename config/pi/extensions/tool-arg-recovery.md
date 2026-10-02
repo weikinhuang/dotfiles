@@ -25,6 +25,10 @@ Pi’s original error stays intact at index 0; the recovery block is appended as
 [`verify-before-claim`](./verify-before-claim.md), [`loop-breaker`](./loop-breaker.ts), and
 [`stall-recovery`](./stall-recovery.md) honest.
 
+Nested calls made through `ctx.executeTool()` are left unchanged. Pi v1's codemode layer already validates those calls
+and returns recovery guidance to the script, so adding a second model-oriented block would only alter programmatic error
+text.
+
 Example output for a `todo` call with `id: "1"` (string instead of number):
 
 ```text

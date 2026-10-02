@@ -74,6 +74,7 @@ import {
   parseToolList,
 } from '../../../lib/node/pi/output-condense.ts';
 import { envTruthy, parseClampedPositiveInt } from '../../../lib/node/pi/parse-env.ts';
+import { isNestedToolEvent, preserveStructuredContent } from '../../../lib/node/pi/tool-events.ts';
 
 const DEFAULT_TOOLS = ['bash'] as const;
 
@@ -103,6 +104,7 @@ export default function toolOutputCondenser(pi: ExtensionAPI): void {
   };
 
   pi.on('tool_result', async (event, ctx) => {
+    if (isNestedToolEvent(event)) return undefined;
     const toolName = (event as { toolName?: string }).toolName;
     if (typeof toolName !== 'string') return undefined;
     if (!tools.has(toolName.toLowerCase())) return undefined;
@@ -165,6 +167,6 @@ export default function toolOutputCondenser(pi: ExtensionAPI): void {
       newDetails.fullOutputPath = fullOutputPath;
     }
 
-    return { content: newContent, details: newDetails };
+    return { content: newContent, details: newDetails, ...preserveStructuredContent(event) };
   });
 }

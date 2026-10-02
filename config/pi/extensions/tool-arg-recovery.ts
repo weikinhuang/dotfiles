@@ -63,6 +63,7 @@ import { type ExtensionAPI } from '@earendil-works/pi-coding-agent';
 import { envTruthy, parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
 import { makeDiagnostics } from '../../../lib/node/pi/recovery-diagnostics.ts';
 import { buildRecoveryBlock, parseValidationFailure, type SchemaNode } from '../../../lib/node/pi/tool-arg-recovery.ts';
+import { isNestedToolEvent, preserveStructuredContent } from '../../../lib/node/pi/tool-events.ts';
 
 const DEFAULT_MAX_EXAMPLE_CHARS = 1500;
 
@@ -94,6 +95,7 @@ export default function toolArgRecovery(pi: ExtensionAPI): void {
   };
 
   pi.on('tool_result', (event, ctx) => {
+    if (isNestedToolEvent(event)) return undefined;
     if (!event.isError) return undefined;
 
     const first = event.content[0];
@@ -121,6 +123,7 @@ export default function toolArgRecovery(pi: ExtensionAPI): void {
 
     return {
       content: [...event.content, { type: 'text', text: `\n${block}` }],
+      ...preserveStructuredContent(event),
     };
   });
 }

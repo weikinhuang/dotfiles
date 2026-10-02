@@ -14,6 +14,9 @@ the offset/limit the model asked for and the current turn. On any subsequent `re
   `rg -n "<pattern>" <path>` or `scratchpad` for incremental capture.
 - **changed** - mtime or size differs → silent, update the signature.
 
+Reads made by another tool through `ctx.executeTool()` carry `parentToolCallId` and are ignored. They do not update the
+history or receive model-facing nudge text, so codemode scripts get the unmodified programmatic result.
+
 The turn counter only bumps on a genuinely fresh idle user prompt - extension-synthesized messages
 (`source: "extension"`) and pi-0.77.0+ mid-stream steers / queued follow-ups (`InputEvent.streamingBehavior` of
 `"steer"` / `"followUp"`) don’t count, so “N turns ago” stays semantically correct when other extensions inject steers

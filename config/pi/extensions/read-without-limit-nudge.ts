@@ -55,6 +55,7 @@ import {
   DEFAULT_MIN_LINES,
   type TruncationLike,
 } from '../../../lib/node/pi/read-limit-nudge.ts';
+import { isNestedToolEvent, preserveStructuredContent } from '../../../lib/node/pi/tool-events.ts';
 
 export default function readWithoutLimitNudge(pi: ExtensionAPI): void {
   if (envTruthy(process.env.PI_READ_LIMIT_NUDGE_DISABLED)) return;
@@ -78,6 +79,7 @@ export default function readWithoutLimitNudge(pi: ExtensionAPI): void {
   };
 
   pi.on('tool_result', (event, ctx) => {
+    if (isNestedToolEvent(event)) return undefined;
     if (!isReadToolResult(event)) return undefined;
     if (event.isError) return undefined;
 
@@ -148,6 +150,7 @@ export default function readWithoutLimitNudge(pi: ExtensionAPI): void {
 
     return {
       content: [...event.content, { type: 'text', text: `\n${decision.nudge}` }],
+      ...preserveStructuredContent(event),
     };
   });
 }
