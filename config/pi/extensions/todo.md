@@ -18,12 +18,12 @@ Builds on pi's stock `examples/extensions/todo.ts` with three weak-model afforda
    `formatActivePlan(state, { includeCancelled: false, footer: 'none' })`: only `in_progress` + `review` + `pending`
    (capped) + `blocked` - no `cancelled` bucket and no how-to footer (that guidance lives in the tool's
    `promptGuidelines`, a cached prompt location; cancelled items stay visible in the `/todos` overlay). Why the
-   `context` hook and not the system prompt: pi's `context` output builds only the outgoing payload and is **never
-   persisted**, so the system prompt stays **byte-stable** (the provider's prompt-prefix cache survives plan mutations -
-   a 1-todo add/complete/add/complete cycle costs 0 system-prefix invalidations via this arm vs ~3 when the block lived
-   in the system prompt) and nothing accumulates. When the active set is empty (or only completed/cancelled items
-   remain), nothing is injected at all. Measured: ~125 B lean tail block. This is the generic, reusable mechanism
-   (`context-reminder.ts`) any extension with volatile, often-empty state can drive from its own `context` handler.
+   `context` producer avoids rebuilding the leading system prompt, but ephemeral tail delivery alone changes earlier
+   messages on later calls. With `PI_CACHE_REMINDERS_ENABLED=1`, [`cache-reminders`](./cache-reminders.md) captures the
+   proposed plan once per run in a distinct, branch-recoverable snapshot and preserves earlier snapshots unchanged. Tool
+   results communicate mid-run transitions immediately; new user runs, resume, branch navigation, and compaction restore
+   current state. When only completed/cancelled items remain, no new reminder is emitted. Small historical snapshots
+   remain until compaction.
 3. **Completion-claim guardrail** (`agent_end`). If the assistant signs off as "done" (heuristic in
    [`looksLikeCompletionClaim`](../../../lib/node/pi/todo-prompt.ts)) while `in_progress` / `review` / `pending` items
    still exist, a follow-up user message is injected nudging it to finish, `block`, or `cancel` the open items.
@@ -165,10 +165,10 @@ v1 because the note carries the why-it-closed reason and that signal is worth se
 - [`../../../lib/node/pi/branch-state.ts`](../../../lib/node/pi/branch-state.ts) - shared `BranchEntry` / `ActionResult`
   / `findLatestStateInBranch` scaffolding the reducer builds on.
 - [`../../../lib/node/pi/context-reminder.ts`](../../../lib/node/pi/context-reminder.ts) - generic, reusable helper for
-  cache-friendly ephemeral injection via the `context` hook: `applyContextReminder(messages, { id, body })` strips any
-  prior block of `id` and splices a fresh `<system-reminder id="...">` into the last user/toolResult turn. Pure and
+  standalone reminder production via the `context` hook: `applyContextReminder(messages, { id, body })` strips any prior
+  block of `id` and splices a fresh `<system-reminder id="...">` into the last user/toolResult turn. Pure and
   extension-agnostic - any extension (memory, scratchpad, bg-bash) can drive it. This is todo's active-plan injection
-  mechanism.
+  mechanism, finalized by [`cache-reminders`](./cache-reminders.md) for historical-prefix stability.
 
 ## Companion skill
 

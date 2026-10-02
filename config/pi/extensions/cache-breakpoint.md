@@ -121,7 +121,8 @@ paid test needs explicit approval and a hard dollar cap.
   until the next request or session teardown. Logging is best-effort and creates new files with mode `0600`. This is a
   hook-payload serialization comparison, not a capture of SDK HTTP serialization. Later payload hooks can still change
   the request. A falling cache-read count with unchanged hashes suggests eviction/routing; a historical item changing
-  identifies local mutation. Neither alone proves the cause of an untraced historical incident.
+  identifies local mutation. Neither alone proves the cause of an untraced historical incident. The content-free
+  allowlist and comparisons live in [`cache-trace.ts`](../../../lib/node/pi/cache-trace.ts).
 - `PI_CACHE_BREAKPOINT_DISABLED=1` - skip the extension entirely (guarded at the top of the factory, nothing registers).
 - `PI_CACHE_BREAKPOINT_TRACE=<path>` - append one line per request:
   `<changed|no-op> style=<bedrock|anthropic|none> reason=<reason>`, where `reason` is `aggregated` / `relocated` / a

@@ -18,6 +18,9 @@ test('runtime wires only local accounting/UI hooks; responses and provider conte
     getActiveTools: () => ['todo'],
   } as unknown as ExtensionAPI;
   vi.stubEnv('PI_COST_GUARD_DISABLED', '0');
+  vi.stubEnv('PI_COST_GUARD_CALL_DOLLARS', '0.25');
+  vi.stubEnv('PI_COST_GUARD_MILESTONES', 'none');
+  vi.stubEnv('PI_COST_GUARD_WINDOW', '4');
   costGuard(pi);
   expect(handlers.has('context')).toBe(false);
   expect(handlers.has('context_with_system')).toBe(false);

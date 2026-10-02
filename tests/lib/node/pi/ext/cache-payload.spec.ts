@@ -66,8 +66,12 @@ test('installed Responses converter preserves the complete historical input pref
     const payload = responsesPayload(projection.messages);
     expect(payload.input.slice(0, previous.length)).toEqual(previous);
     previous = payload.input;
-    messages.push(
-      ...toolLoop.map((message) => Object.assign({}, message, { timestamp: Number(message.timestamp) + i * 2 })),
-    );
+    const callId = `call_${i + 1}|fc_${i + 1}`;
+    const call = Object.assign({}, toolLoop[0], {
+      timestamp: 2 + i * 2,
+      content: [{ type: 'toolCall', name: 'todo', id: callId, arguments: { action: 'list' } }],
+    });
+    const result = Object.assign({}, toolLoop[1], { timestamp: 3 + i * 2, toolCallId: callId });
+    messages.push(call, result);
   }
 });

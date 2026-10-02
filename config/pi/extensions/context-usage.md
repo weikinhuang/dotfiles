@@ -41,16 +41,21 @@ authoritative and the estimate alongside it.
 The treemap invariant holds for every node except the root: `node.tokens === Σ children.tokens`. The root's tokens are
 the whole context window, so the slack is the free tail.
 
+SDK 0.87 includes system messages in `buildSessionContext`; the extension excludes them from the conversation bucket
+because the system prompt is already accounted separately. Request-only reminder projections are not persisted model
+messages, so this raw-session breakdown does not enumerate their bytes; the provider-total reconciliation includes that
+difference. Use [`cache-breakpoint`](./cache-breakpoint.md) tracing to inspect their item hashes and sizes.
+
 ### Injected addenda (load-order caveat)
 
 The **Injected addenda** bucket is the per-turn content extensions append to the system prompt in `before_agent_start`
-(todo / scratchpad / memory). The installed pi (0.79.0) does not export `buildSystemPrompt`, so the base prompt can't be
-reconstructed directly. Instead the extension captures the prompt as seen by its own `before_agent_start` handler and
-diffs the effective prompt against it. Because handlers run in extension load order, that captured base already includes
-injections from extensions loaded **before** `context-usage`, so the bucket reflects injections from extensions loaded
-**after** it (in practice the big ones - todo / scratchpad / memory). The diff is never wrong-signed; when no turn has
-run yet there is no bucket. When pi exports `buildSystemPrompt` (newer versions) this becomes an exact split, and the
-addenda are further broken down into labeled blank-line sections via `splitInjectedAddenda`.
+(static persona/preset/avatar addenda, not todo/scratchpad/memory reminder snapshots). The original pi integration did
+not export `buildSystemPrompt`, so the base prompt couldn't be reconstructed directly. Instead the extension captures
+the prompt as seen by its own `before_agent_start` handler and diffs the effective prompt against it. Because handlers
+run in extension load order, that captured base already includes injections from extensions loaded **before**
+`context-usage`, so the bucket reflects injections from extensions loaded **after** it. The diff is never wrong-signed;
+when no turn has run yet there is no bucket. When pi exports `buildSystemPrompt` (newer versions) this becomes an exact
+split, and the addenda are further broken down into labeled blank-line sections via `splitInjectedAddenda`.
 
 ### Retained reasoning
 

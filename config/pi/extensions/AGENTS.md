@@ -58,50 +58,31 @@ Every extension ships with a deep doc next to it (`bg-bash.ts` ↔ `bg-bash.md`,
 The `.md` is the long-form reference for behaviour, env vars, and rule shapes; the `.ts` is the source of truth for
 runtime behaviour. New extensions add both files **and** a row in [README.md](./README.md)'s index table in lockstep.
 
-### Auto-injecting state every turn: `context` hook vs system prompt
+### Cache-safe reminder delivery
 
-Many extensions surface live state to the model every turn so it survives `/compact` and long contexts without the model
-having to call `list`. **Pick the delivery mechanism by the block's volatility - this is a cache-correctness decision,
-not a style choice.**
+Dynamic state belongs in standalone blocks emitted by
+[`applyContextReminder`](../../../lib/node/pi/context-reminder.ts), with a unique stable ID per producer. Return nothing
+when empty. Keep side effects in `before_agent_start`; never rebuild the leading system prompt or tool schemas for
+changing todo/job/note state. The memory index follows the same snapshot path, not a system addendum.
 
-- **Volatile / often-empty / per-turn-changing state** (a plan, a job registry, a budget line) → inject via the
-  **`context` hook** using [`applyContextReminder`](../../../lib/node/pi/context-reminder.ts). It splices an ephemeral
-  `<system-reminder id="...">` into the last user/toolResult turn. Pi's `context` output builds only the outgoing
-  provider payload and is **never persisted** (it operates on a `structuredClone`; the assistant reply is pushed to the
-  real, untouched message array), so the **system prompt stays byte-stable** and the provider's prompt-prefix cache
-  survives every state mutation. Nothing accumulates across turns. Return `undefined` (inject nothing) when the block is
-  empty. The shape:
+The emitter alone is **not cache-safe**: even a static body disappears from an older message on the next call. During
+rollout, `PI_CACHE_REMINDERS_ENABLED=1` is required to enable the coordinator; legacy delivery is otherwise unchanged.
+Do not enable new default behavior without measured validation. [`cache-reminders`](./cache-reminders.md) finalizes all
+producers in `context_with_system`, capturing the composed bytes once per run, sorting IDs, and projecting a distinct
+anchored snapshot instead of rewriting user/tool content. Snapshot data is persisted on the selected branch; earlier
+snapshots remain byte-identical until compaction. Tool results communicate changes within the run. New user runs,
+resume/tree navigation, and successful compaction refresh state; do not refresh after each tool call. Other
+final-context hooks must preserve these historical items.
 
-  ```ts
-  pi.on('context', (event) => {
-    const block = render(state); // null/undefined when there's nothing active
-    if (!block) return undefined;
-    const messages = applyContextReminder(event.messages as unknown as ReminderMessage[], {
-      id: 'my-ext',
-      body: block,
-    });
-    return { messages: messages as unknown as typeof event.messages };
-  });
-  ```
+Use the existing consumer reducers/disk stores for state recovery; do not replace them with a transient closure.
+Background terminal completions need persisted acknowledgement and must not appear in every new snapshot. Keep truly
+static persona/preset/avatar addenda in the system prompt. Intentional scene folds, context reduction, and prompt/tool
+changes may still invalidate a prefix; this coordinator does not redesign those features.
 
-  Use a **unique `id`** per extension - the helper strips only blocks carrying that id, so injectors coexist. If the old
-  `before_agent_start` handler also did per-turn side effects (refresh a captured `ctx.ui`, update a statusline), keep a
-  side-effect-only `before_agent_start` and move **only** the injection to `context` (see `bg-bash.ts`, `comfyui.ts`).
-  The `context`-hook `ctx` is the full `ExtensionContext`. Anchors: `todo`, `bg-bash`, `comfyui`, `scratchpad`,
-  `roleplay` (its keyword-fired lore is computed once per turn in `before_agent_start` but injected here as
-  `roleplay-lore` because its membership is volatile per-turn; the stable scene + cast index stay in the system prompt).
-
-- **Large + stable / always-present state** (e.g. saved memories) and **static prompt addenda** (persona, preset,
-  small-model addendum, avatar emote prompt) → keep appending to the **system prompt** via `before_agent_start` (return
-  a `{ systemPrompt }` that concatenates the block onto `event.systemPrompt`). These sit in the cached prefix and are
-  billed at the cache-read rate every unchanged turn; the bust-on-change downside rarely fires. **Do NOT move `memory`
-  to the `context` hook** - an always-present block on the (uncached) tail is re-billed at full rate every turn, the
-  opposite of the win.
-
-The trap the `context` hook avoids: a volatile block in the system prompt rebuilds the prompt prefix on every mutation,
-busting the cache for the whole request. A live usage line is especially costly because its token count changes almost
-every turn. Rule of thumb: **if the block changes more often than the system prompt otherwise would, it belongs on the
-tail.**
+Diagnostics and usage warnings belong only in local UI/logs. Use [`cache-breakpoint`](./cache-breakpoint.md) for
+content-free tracing and documented native key handling, and [`cost-guard`](./cost-guard.md) for local warnings. Never
+inject warning state into the prompt. Do not add guessed provider fields or run a paid smoke test without explicit
+approval and a hard dollar cap.
 
 ### Large/persistent tool results (images) are a conversation-body cost trap
 

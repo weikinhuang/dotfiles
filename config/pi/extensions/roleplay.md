@@ -248,12 +248,14 @@ block, by contrast, is **volatile per-turn state** - its membership shifts on ev
 in the system prompt (where each shift would bust the whole prompt-prefix cache, re-prefilling the conversation on
 llama.cpp). Instead `before_agent_start` computes it once (running the timing pass exactly once per turn) and stashes it
 in a `pendingLore` slot; the `context` event injects that slot as an ephemeral `<system-reminder id="roleplay-lore">` on
-the trailing message via [`context-reminder.ts`](../../../lib/node/pi/context-reminder.ts) - the same cache-friendly
-seam as `roleplay-repetition` / `roleplay-event`. The system prompt stays byte-stable across turns when only lore
-membership changes, and [`cache-breakpoint.ts`](./cache-breakpoint.md) keeps the conversation breakpoint off the
-reminder-bearing tail (a no-op on llama.cpp, which has no such breakpoint). This is the delivery-mechanism rule in
-[`AGENTS.md`](./AGENTS.md) § "Auto-injecting state every turn: `context` hook vs system prompt". Returns nothing when
-the cast is empty and no lore fired.
+the trailing message via [`context-reminder.ts`](../../../lib/node/pi/context-reminder.ts), like `roleplay-repetition` /
+`roleplay-event`. With `PI_CACHE_REMINDERS_ENABLED=1`, [`cache-reminders`](./cache-reminders.md) captures these
+standalone blocks once per run, sorts their IDs, and projects a distinct branch-recoverable snapshot with byte-stable
+historical items. Mid-run state updates do not rewrite that snapshot. On later user runs only newly firing state is
+captured; historical event/lore snapshots remain context history, not newly queued events. Scene folds, rolling context
+reduction, and bare depth-insertion messages remain separate mechanisms and can still change a prefix. See the delivery
+rule in [`AGENTS.md`](./AGENTS.md) § "Cache-safe reminder delivery". Returns nothing when the cast is empty and no lore
+fired.
 
 ## Scene: folding full character sheets (`characters` / `pov` / `pinned`)
 
@@ -541,9 +543,8 @@ Sampler penalties (`presence_penalty` / `frequency_penalty`) only see token-leve
 cannot catch a model reusing the same multi-word cadence or stock sensory phrase **across consecutive replies** ("a
 shiver runs down my spine", again, every turn). The extension scans the recent assistant replies for repeated word
 n-grams and, when one crosses the threshold, injects a one-line "vary your phrasing" nudge via the `context` event under
-the `roleplay-repetition` id. It is **additive only** - it never rewrites output, and rides the same cache-friendly
-ephemeral-reminder seam as the todo / memory blocks ([`context-reminder.ts`](../../../lib/node/pi/context-reminder.ts)),
-so it never busts the prompt-prefix cache.
+the `roleplay-repetition` id. It never rewrites output. Like todo/memory, its producer block is finalized by the
+run-scoped [`cache-reminders`](./cache-reminders.md) coordinator rather than relying on ephemeral delivery alone.
 
 It is **roleplay-aware**: n-grams that appear in the active cast's `character` bodies (speech tics, verbatim canon
 lines) are excluded, so a signature catchphrase a persona is _supposed_ to repeat is never flagged. The exclusion set is
@@ -555,7 +556,8 @@ memoized per cast and rebuilt on any store change. Tuned by the `repetition*` co
 `/roleplay event [hint]` queues a one-shot in-world **complication** - a knock at the door, a revealed motive, a sudden
 choice - injected as a private director note for the **next reply only** (consume-once: cleared at the following turn
 boundary). Like the repetition nudge it rides the `context` event under the `roleplay-event` id and never rewrites the
-transcript.
+transcript. With stable projection enabled, the delivered snapshot is retained as historical context rather than being
+removed on the following call. It is not requeued as a new event on later user runs.
 
 Source order:
 

@@ -41,7 +41,8 @@ modes without a UI still maintain diagnostic state but do not emit warnings. Shu
 | `PI_COST_GUARD_CALL_DOLLARS`        | `0.25`   | Per-call USD warning; `0` disables this condition                        |
 | `PI_COST_GUARD_MILESTONES`          | `2,5,10` | Sorted, deduplicated positive USD thresholds; `none` disables milestones |
 
-Invalid/nonfinite/negative values fall back to defaults. Ratios must be within 0..1. Missing costs are not guessed from
+Invalid/nonfinite/negative ratio or dollar values fall back to defaults. The window uses the shared prefix-tolerant
+positive-integer parser and is clamped to 2..100. Ratios must be within 0..1. Missing costs are not guessed from
 provider pricing; token-only sustained conditions can still be detected. Historical costs are not rewritten.
 
 ## Verification and hot reload

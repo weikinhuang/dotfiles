@@ -16,14 +16,16 @@
  * state change busts the provider's prompt-prefix cache for the whole
  * request.
  *
- * Pi exposes a better seam: the `context` hook ("Fired before each LLM
+ * Pi exposes a producer seam: the `context` hook ("Fired before each LLM
  * call. Can modify messages."). Its handler receives a `structuredClone`
  * of the conversation and returns a replacement array that is used ONLY
  * to build that one provider payload - the persisted conversation
  * (`context.messages`) is never touched (see `agent-loop.ts`
  * `streamAssistantResponse`). So a reminder injected here is genuinely
- * EPHEMERAL: rebuilt fresh each request, never written to the session,
- * and the system prompt stays byte-stable so the prefix cache stays warm.
+ * EPHEMERAL: rebuilt fresh each request, never written to the session.
+ * That keeps the leading system prompt unchanged but does NOT preserve
+ * historical message bytes. The final snapshot coordinator is required
+ * to remove these producer blocks and project stable request items.
  *
  * This module is the generic, reusable core that any extension can drive
  * from its own `context` handler:

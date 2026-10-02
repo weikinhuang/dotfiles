@@ -256,6 +256,8 @@ export default function memoryExtension(pi: ExtensionAPI): void {
   if (envTruthy(process.env.PI_MEMORY_DISABLED)) return;
 
   const autoInjectEnabled = process.env.PI_MEMORY_DISABLE_AUTOINJECT !== '1';
+  const snapshotEnabled =
+    envTruthy(process.env.PI_CACHE_REMINDERS_ENABLED) && !envTruthy(process.env.PI_CACHE_REMINDERS_DISABLED);
   const readOnly = envTruthy(process.env.PI_MEMORY_READONLY);
   const maxInjectedChars = parseClampedPositiveInt(
     process.env.PI_MEMORY_MAX_INJECTED_CHARS,
@@ -333,18 +335,18 @@ export default function memoryExtension(pi: ExtensionAPI): void {
     rebuildFromDisk(ctx);
   });
 
-  // Count the submit for the capture-assist gate and, when enabled, inject
-  // the STATIC memory index into the cached system prompt. The static index
-  // only changes on save/update/remove, so it does not bust the prompt-prefix
-  // cache turn-to-turn.
-  pi.on('before_agent_start', () => {
+  // Keep legacy delivery until the stable lifecycle is explicitly enabled.
+  pi.on('before_agent_start', (event) => {
     // Count this submit as user activity for the capture-assist gate.
     userTurnsSinceLastSave += 1;
+    if (snapshotEnabled || !autoInjectEnabled) return undefined;
+    const block = formatMemoryIndex(state, { maxChars: maxInjectedChars, now: now(), staleDays });
+    return block ? { systemPrompt: `${event.systemPrompt}\n\n${block}` } : undefined;
   });
   // The final snapshot coordinator preserves the index in a distinct history item.
   // Never rebuild the leading system prompt when memories or age labels change.
   pi.on('context', (event) => {
-    if (!autoInjectEnabled) return undefined;
+    if (!autoInjectEnabled || !snapshotEnabled) return undefined;
     const block = formatMemoryIndex(state, { maxChars: maxInjectedChars, now: now(), staleDays });
     if (!block) return undefined;
     const messages = applyContextReminder(event.messages as unknown as ReminderMessage[], {

@@ -23,9 +23,11 @@ Notes are trimmed on write; attempting to `update` a note with an empty body ret
 
 1. **Active-notes auto-injection** (via the `context` hook). The notebook is rendered under a `## Working Notes` header
    with a soft character cap (default 2000) and spliced as an ephemeral `<system-reminder id="scratchpad">` into the
-   last user/toolResult turn (not the system prompt), so the system-prompt prefix stays byte-stable and the provider's
-   prompt cache survives note edits. Pi's `context` output is never persisted, so nothing accumulates and an empty
-   notebook injects nothing. Notes are grouped by heading in first-seen order; ungrouped notes render first under an
+   last user/toolResult turn as producer output, not the system prompt. With `PI_CACHE_REMINDERS_ENABLED=1`,
+   [`cache-reminders`](./cache-reminders.md) captures it once per run in a stable, branch-recoverable request item.
+   Default-off rollout retains legacy ephemeral delivery until opted in. Note edits are communicated by tool results
+   without rewriting earlier snapshot bytes; an empty notebook emits no new snapshot. Historical snapshots stay
+   unchanged until compaction. Notes are grouped by heading in first-seen order; ungrouped notes render first under an
    implicit “Notes” header. When the cap is hit we emit a trailer telling the model to call `scratchpad` with action
    `list` for the rest.
 

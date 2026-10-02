@@ -10,7 +10,7 @@ import {
 } from '../../../lib/node/pi/reminder-lifecycle.ts';
 
 export default function cacheReminders(pi: ExtensionAPI): void {
-  if (envTruthy(process.env.PI_CACHE_REMINDERS_DISABLED)) return;
+  if (envTruthy(process.env.PI_CACHE_REMINDERS_DISABLED) || !envTruthy(process.env.PI_CACHE_REMINDERS_ENABLED)) return;
   const lifecycle = createReminderLifecycle();
   pi.on('before_agent_start', () => {
     lifecycle.refresh();
