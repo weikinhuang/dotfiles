@@ -89,8 +89,31 @@ The cross-turn invariant the helper guarantees: whatever ends up inside the cach
 is byte-stable next turn (the ephemeral reminder, regenerated each request, always rides outside the breakpoint) and the
 cached prefix grows monotonically.
 
+## Responses support and limits
+
+The installed pi `0.87.0` OpenAI and Azure Responses transports emit `prompt_cache_key` from `sessionId` and replay the
+full input with `store: false`. The key influences routing/accounting; it does not repair a mutated history prefix.
+[`cache-reminders`](./cache-reminders.md) supplies the provider-neutral stable history baseline.
+
+The current [OpenAI prompt-caching guide](https://platform.openai.com/docs/guides/prompt-caching) and
+[Azure guide](https://learn.microsoft.com/en-us/azure/ai-foundry/openai/how-to/prompt-caching) document native
+`prompt_cache_breakpoint` and `prompt_cache_options` for GPT-5.6 and later. Earlier models reject these fields, and
+Azure PTU deployments do not support explicit breakpoints. The OpenAI transport exposes a compatibility capability; the
+Azure payload does not establish deployment support. This extension therefore adds neither breakpoints nor retention
+options, and does not use `previous_response_id` or enable server-side response storage. It never adds Anthropic
+`cache_control` to a Responses payload. Unknown OpenAI-compatible transports remain unchanged.
+
+Local fixtures preserve the full historical Responses input prefix over ten simulated calls and all unrelated request
+fields under optional key isolation. Real cached-token advancement and cache-write spend below 30% remain unmeasured: a
+paid test needs explicit approval and a hard dollar cap.
+
 ## Environment variables
 
+- `PI_CACHE_BREAKPOINT_RESPONSES_KEY=1` - opt-in isolation of an existing native Responses `prompt_cache_key` by stable
+  session/provider/model identity. Changes only that field on `openai-responses` / `azure-openai-responses` transports
+  whose payload already contains a nonempty key and an `input` array. No key is added to unknown payloads, keyless
+  requests, or explicit-only policies (which can mean cache writes are disabled). Never includes state, time, or call
+  sequence. Default off: pi already emits a stable session key, and changing keys causes a one-time cache miss.
 - `PI_CACHE_TRACE=<path>` - opt-in JSONL diagnostics for all provider payloads, after breakpoint handling. Records
   provider/model, sequence, item roles/indices, UTF-8 byte counts, SHA-256 hashes, reminder IDs, common item/byte
   prefixes, and first divergent item. Assistant completion records contain only numeric usage and cost fields. Prompt

@@ -22,6 +22,7 @@
 import { expect, test } from 'vitest';
 
 import {
+  isolateResponsesCacheKey,
   type PayloadBlock,
   type PayloadMessage,
   relocateTailCacheBreakpoint,
@@ -29,6 +30,46 @@ import {
 
 const REMINDER = '<system-reminder id="todo-plan">\nactive plan\n</system-reminder>';
 const blocks = (m: PayloadMessage): PayloadBlock[] => m.content as PayloadBlock[];
+
+test.each(['openai-responses', 'azure-openai-responses'])('Responses native key isolation is stable for %s', (api) => {
+  const identity = { api, provider: api, model: 'deployment', sessionId: 'session' };
+  const payload = {
+    model: 'deployment',
+    input: [{ role: 'user', content: 'fixture' }],
+    prompt_cache_key: 'session',
+    tools: [{ name: 'todo' }],
+    store: false,
+    stream: true,
+  };
+  const original = structuredClone(payload);
+  expect(isolateResponsesCacheKey(payload, identity).changed).toBe(true);
+  const key = payload.prompt_cache_key;
+  expect(key.length).toBeLessThanOrEqual(64);
+  for (let i = 0; i < 10; i++) expect(isolateResponsesCacheKey(payload, identity).changed).toBe(false);
+  expect({ ...payload, prompt_cache_key: original.prompt_cache_key }).toEqual(original);
+  expect(payload.input).toEqual(original.input);
+  isolateResponsesCacheKey(payload, { ...identity, model: 'other-model' });
+  expect(payload.prompt_cache_key).not.toBe(key);
+  isolateResponsesCacheKey(payload, { ...identity, sessionId: 'other-session' });
+  expect(payload.prompt_cache_key).not.toBe(key);
+});
+
+test('unknown payloads and explicit-only/no-cache requests stay byte-for-byte unchanged', () => {
+  const identity = { api: 'openai-responses', provider: 'openai', model: 'fixture', sessionId: 'session' };
+  for (const payload of [
+    null,
+    {},
+    { input: [], prompt_cache_key: undefined },
+    { input: [], prompt_cache_key: 'session', prompt_cache_options: { mode: 'explicit' } },
+  ]) {
+    const original = JSON.stringify(payload);
+    expect(isolateResponsesCacheKey(payload, identity).changed).toBe(false);
+    expect(JSON.stringify(payload)).toBe(original);
+  }
+  const unknown = { input: [], prompt_cache_key: 'custom' };
+  expect(isolateResponsesCacheKey(unknown, { ...identity, api: 'openai-completions' }).changed).toBe(false);
+  expect(unknown.prompt_cache_key).toBe('custom');
+});
 
 // ──────────────────────────────────────────────────────────────────────
 // Bedrock Converse: aggregate (un-nest)

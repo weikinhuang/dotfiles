@@ -80,6 +80,8 @@
 // The wire marker every <system-reminder> block carries. Sourced from
 // `context-reminder.ts` (the emitter) so the detector here, the emitter,
 // and the reminder-primer addendum share one literal and can't drift.
+import { createHash } from 'node:crypto';
+
 import { REMINDER_TAG_MARKER as REMINDER_MARKER } from './context-reminder.ts';
 import { isRecord } from './shared/guards.ts';
 
@@ -334,4 +336,40 @@ export function relocateTailCacheBreakpoint(payload: unknown): RelocateResult {
 
   // 2. Fallback: relocate the breakpoint onto the previous user message.
   return relocateToPrev(msgs, lastIdx, style);
+}
+
+export interface ResponsesCacheIdentity {
+  api: string;
+  provider: string;
+  model: string;
+  sessionId: string;
+}
+
+/** Opt-in isolation of a native key already emitted by a documented Responses transport.
+ * No capability inference from model names, no cache_control, no previous_response_id/state retention.
+ */
+export function isolateResponsesCacheKey(payload: unknown, identity: ResponsesCacheIdentity): RelocateResult {
+  if (!['openai-responses', 'azure-openai-responses'].includes(identity.api)) {
+    return { changed: false, reason: 'unsupported-api' };
+  }
+  if (
+    !isRecord(payload) ||
+    !Array.isArray(payload.input) ||
+    typeof payload.prompt_cache_key !== 'string' ||
+    !payload.prompt_cache_key ||
+    !identity.sessionId
+  ) {
+    return { changed: false, reason: 'no-native-cache-key' };
+  }
+  // Explicit-only mode may represent cacheRetention=none. Never enable cache writes for it.
+  if (isRecord(payload.prompt_cache_options) && payload.prompt_cache_options.mode === 'explicit') {
+    return { changed: false, reason: 'explicit-policy-preserved' };
+  }
+  const key = `pi-${createHash('sha256')
+    .update(JSON.stringify([identity.sessionId, identity.provider, identity.model]))
+    .digest('hex')
+    .slice(0, 48)}`;
+  if (payload.prompt_cache_key === key) return { changed: false, reason: 'key-already-isolated' };
+  payload.prompt_cache_key = key;
+  return { changed: true, reason: 'responses-session-key' };
 }

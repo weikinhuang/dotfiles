@@ -46,7 +46,7 @@ import { appendFileSync } from 'node:fs';
 
 import { type ExtensionAPI } from '@earendil-works/pi-coding-agent';
 
-import { relocateTailCacheBreakpoint } from '../../../lib/node/pi/cache-breakpoint.ts';
+import { isolateResponsesCacheKey, relocateTailCacheBreakpoint } from '../../../lib/node/pi/cache-breakpoint.ts';
 import { appendCacheTrace, cacheResponseTrace, createCacheTracer } from '../../../lib/node/pi/cache-trace.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 
@@ -80,6 +80,15 @@ export default function cacheBreakpointExtension(pi: ExtensionAPI): void {
 
   pi.on('before_provider_request', (event, ctx) => {
     const result = relocateTailCacheBreakpoint(event.payload);
+    const keyResult =
+      envTruthy(process.env.PI_CACHE_BREAKPOINT_RESPONSES_KEY) && ctx.model
+        ? isolateResponsesCacheKey(event.payload, {
+            api: String(ctx.model.api),
+            provider: ctx.model.provider,
+            model: ctx.model.id,
+            sessionId: ctx.sessionManager.getSessionId(),
+          })
+        : { changed: false };
     trace(`${result.changed ? 'changed' : 'no-op'} style=${result.style ?? 'none'} reason=${result.reason}`);
     if (payloadTracePath) {
       try {
@@ -95,6 +104,6 @@ export default function cacheBreakpointExtension(pi: ExtensionAPI): void {
     }
     // Mutated in place; return it only when we actually changed something
     // so a no-op never alters the request pi would otherwise send.
-    return result.changed ? event.payload : undefined;
+    return result.changed || keyResult.changed ? event.payload : undefined;
   });
 }
