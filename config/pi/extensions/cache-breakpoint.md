@@ -91,6 +91,14 @@ cached prefix grows monotonically.
 
 ## Environment variables
 
+- `PI_CACHE_TRACE=<path>` - opt-in JSONL diagnostics for all provider payloads, after breakpoint handling. Records
+  provider/model, sequence, item roles/indices, UTF-8 byte counts, SHA-256 hashes, reminder IDs, common item/byte
+  prefixes, and first divergent item. Assistant completion records contain only numeric usage and cost fields. Prompt
+  bodies, schemas, tool output, and response content are never logged. Comparison bytes are retained only in memory
+  until the next request or session teardown. Logging is best-effort and creates new files with mode `0600`. This is a
+  hook-payload serialization comparison, not a capture of SDK HTTP serialization. Later payload hooks can still change
+  the request. A falling cache-read count with unchanged hashes suggests eviction/routing; a historical item changing
+  identifies local mutation. Neither alone proves the cause of an untraced historical incident.
 - `PI_CACHE_BREAKPOINT_DISABLED=1` - skip the extension entirely (guarded at the top of the factory, nothing registers).
 - `PI_CACHE_BREAKPOINT_TRACE=<path>` - append one line per request:
   `<changed|no-op> style=<bedrock|anthropic|none> reason=<reason>`, where `reason` is `aggregated` / `relocated` / a

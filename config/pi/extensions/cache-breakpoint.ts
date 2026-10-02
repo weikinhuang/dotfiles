@@ -47,6 +47,7 @@ import { appendFileSync } from 'node:fs';
 import { type ExtensionAPI } from '@earendil-works/pi-coding-agent';
 
 import { relocateTailCacheBreakpoint } from '../../../lib/node/pi/cache-breakpoint.ts';
+import { appendCacheTrace, cacheResponseTrace, createCacheTracer } from '../../../lib/node/pi/cache-trace.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 
 export default function cacheBreakpointExtension(pi: ExtensionAPI): void {
@@ -60,9 +61,38 @@ export default function cacheBreakpointExtension(pi: ExtensionAPI): void {
     } catch {}
   };
 
-  pi.on('before_provider_request', (event) => {
+  const payloadTracePath = process.env.PI_CACHE_TRACE;
+  let payloadTracer = createCacheTracer();
+  let sequence = 0;
+  pi.on('session_start', () => {
+    payloadTracer = createCacheTracer();
+    sequence = 0;
+  });
+  pi.on('session_shutdown', () => {
+    payloadTracer = createCacheTracer();
+    sequence = 0;
+  });
+  pi.on('message_end', (event) => {
+    if (payloadTracePath && sequence > 0 && event.message.role === 'assistant') {
+      appendCacheTrace(payloadTracePath, cacheResponseTrace(sequence, event.message.usage));
+    }
+  });
+
+  pi.on('before_provider_request', (event, ctx) => {
     const result = relocateTailCacheBreakpoint(event.payload);
     trace(`${result.changed ? 'changed' : 'no-op'} style=${result.style ?? 'none'} reason=${result.reason}`);
+    if (payloadTracePath) {
+      try {
+        const record = payloadTracer(event.payload, {
+          provider: ctx.model?.provider ?? 'unknown',
+          model: ctx.model?.id ?? 'unknown',
+        });
+        sequence = record.sequence;
+        appendCacheTrace(payloadTracePath, record);
+      } catch {
+        // Unserializable payloads must not break provider requests.
+      }
+    }
     // Mutated in place; return it only when we actually changed something
     // so a no-op never alters the request pi would otherwise send.
     return result.changed ? event.payload : undefined;
