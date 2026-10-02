@@ -528,4 +528,73 @@ describe('buildInjectedGraph', () => {
     expect(out.graph?.['10'].inputs?.image).toBe('up-0');
     expect(out.graph?.['11'].inputs?.image).toBe('baked2.png');
   });
+
+  test('builds an autogrow graph with no image loaders for text-to-image', async () => {
+    const editFile = join(dir, 'autogrow.json');
+    writeFileSync(
+      editFile,
+      JSON.stringify({
+        '7': { class_type: 'LoadImage', inputs: { image: 'placeholder.png' } },
+        '8': { class_type: 'TextEncodeQwenImage21', inputs: { prompt: 'old', 'images.image_1': ['7', 0] } },
+      }),
+    );
+    const wf: WorkflowConfig = {
+      file: editFile,
+      inputs: { prompt: { node: '8', key: 'prompt' } },
+      images: {
+        mode: 'autogrow',
+        loader: { node: '7', key: 'image' },
+        target: { node: '8', keyPrefix: 'images.image_' },
+        max: 16,
+      },
+    };
+    const { calls } = stubFetch(() => fakeResponse({}));
+    const out = await buildInjectedGraph(CONN, wf, 'qwen', { prompt: 'a cat' }, dir, HOME, noop, signal());
+    expect(out.error).toBeUndefined();
+    expect(out.graph?.['7']).toBeUndefined();
+    expect(out.graph?.['8'].inputs?.['images.image_1']).toBeUndefined();
+    expect(calls).toHaveLength(0);
+  });
+
+  test('uploads and expands an autogrow image list', async () => {
+    writeFileSync(join(dir, 'a.png'), 'A');
+    writeFileSync(join(dir, 'b.png'), 'B');
+    const editFile = join(dir, 'autogrow.json');
+    writeFileSync(
+      editFile,
+      JSON.stringify({
+        '7': { class_type: 'LoadImage', inputs: { image: 'placeholder.png' } },
+        '8': { class_type: 'TextEncodeQwenImage21', inputs: { prompt: 'old', 'images.image_1': ['7', 0] } },
+      }),
+    );
+    let n = 0;
+    stubFetch((url) =>
+      url.includes('/upload/image') ? fakeResponse({ json: { name: `up-${n++}` } }) : fakeResponse({}),
+    );
+    const wf: WorkflowConfig = {
+      file: editFile,
+      inputs: { prompt: { node: '8', key: 'prompt' } },
+      images: {
+        mode: 'autogrow',
+        loader: { node: '7', key: 'image' },
+        target: { node: '8', keyPrefix: 'images.image_' },
+        max: 16,
+      },
+    };
+    const out = await buildInjectedGraph(
+      CONN,
+      wf,
+      'qwen',
+      { prompt: 'combine', inputImages: [join(dir, 'a.png'), join(dir, 'b.png')] },
+      dir,
+      HOME,
+      noop,
+      signal(),
+    );
+    expect(out.error).toBeUndefined();
+    expect(out.graph?.['7'].inputs?.image).toBe('up-0');
+    expect(out.graph?.['9'].inputs?.image).toBe('up-1');
+    expect(out.graph?.['8'].inputs?.['images.image_1']).toEqual(['7', 0]);
+    expect(out.graph?.['8'].inputs?.['images.image_2']).toEqual(['9', 0]);
+  });
 });

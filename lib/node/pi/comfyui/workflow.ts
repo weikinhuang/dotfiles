@@ -19,10 +19,17 @@ import { readJsoncOrUndefined } from '../fs-safe.ts';
 import { expandTilde } from '../path-expand.ts';
 import { isRecord } from '../shared.ts';
 
-import type { ComfyWorkflow, ImageSlots, InputMapping, RoleMapping, WorkflowConfig } from './types.ts';
+import type {
+  AutogrowImageSlots,
+  ComfyWorkflow,
+  ImageSlots,
+  InputMapping,
+  RoleMapping,
+  WorkflowConfig,
+} from './types.ts';
 
 /** A value injectable into a workflow node input. */
-export type InjectValue = string | number;
+export type InjectValue = string | number | boolean;
 
 export interface InjectResult {
   /** Deep clone of the input workflow with mapped params written in. */
@@ -144,6 +151,73 @@ export function injectImageList(workflow: ComfyWorkflow, targets: InputMapping[]
   return { workflow: clone, errors };
 }
 
+/** Return a user-facing count error for an autogrow image list, if any. */
+export function autogrowImageCountError(slots: AutogrowImageSlots, count: number): string | undefined {
+  const min = slots.min ?? 0;
+  if (count < min) return `requires at least ${min} reference image(s)`;
+  if (count > slots.max) return `accepts at most ${slots.max} reference image(s)`;
+  return undefined;
+}
+
+function nextNumericNodeId(workflow: ComfyWorkflow): number {
+  let max = 0;
+  for (const id of Object.keys(workflow)) {
+    if (/^\d+$/.test(id)) max = Math.max(max, Number(id));
+  }
+  return max + 1;
+}
+
+/**
+ * Expand a cloneable loader template into exactly one image-producing node
+ * per uploaded name, then connect those nodes to a numbered dotted-input
+ * family such as `images.image_1`, `images.image_2`, and so on.
+ */
+export function injectAutogrowImageList(
+  workflow: ComfyWorkflow,
+  slots: AutogrowImageSlots,
+  names: string[],
+): InjectResult {
+  const clone = structuredClone(workflow);
+  const errors: string[] = [];
+  const countError = autogrowImageCountError(slots, names.length);
+  if (countError !== undefined) return { workflow: clone, errors: [countError] };
+
+  const template = clone[slots.loader.node];
+  if (template === undefined || !isRecord(template.inputs)) {
+    errors.push(`workflow has no loader node "${slots.loader.node}" with inputs`);
+  }
+  const target = clone[slots.target.node];
+  if (target === undefined || !isRecord(target.inputs)) {
+    errors.push(`workflow has no autogrow target node "${slots.target.node}" with inputs`);
+  }
+  if (errors.length > 0 || template === undefined || target === undefined) return { workflow: clone, errors };
+
+  for (const key of Object.keys(target.inputs ?? {})) {
+    if (!key.startsWith(slots.target.keyPrefix)) continue;
+    const suffix = key.slice(slots.target.keyPrefix.length);
+    if (/^[1-9]\d*$/.test(suffix)) delete target.inputs?.[key];
+  }
+
+  if (names.length === 0) {
+    delete clone[slots.loader.node];
+  } else {
+    let nextId = nextNumericNodeId(clone);
+    for (let i = 0; i < names.length; i++) {
+      const nodeId = i === 0 ? slots.loader.node : String(nextId++);
+      const loader = i === 0 ? template : structuredClone(template);
+      if (!isRecord(loader.inputs)) {
+        errors.push(`workflow loader node "${slots.loader.node}" has invalid inputs`);
+        break;
+      }
+      loader.inputs[slots.loader.key] = names[i];
+      clone[nodeId] = loader;
+      target.inputs![`${slots.target.keyPrefix}${i + 1}`] = [nodeId, slots.loader.output ?? 0];
+    }
+  }
+
+  return { workflow: clone, errors };
+}
+
 /**
  * Check that every image slot referenced by `images` exists in
  * `workflow`. Sibling of {@link validateMapping} for the ordered
@@ -166,8 +240,13 @@ export function validateImageMappings(workflow: ComfyWorkflow, images: InputMapp
  * positional `InputMapping[]`). `undefined` (no image slots) is not a role
  * map. Used to branch the upload + inject paths.
  */
+/** Whether a workflow declares a runtime-sized positional image list. */
+export function isAutogrowImageSlots(images: ImageSlots | undefined): images is AutogrowImageSlots {
+  return images !== undefined && !Array.isArray(images) && images.mode === 'autogrow';
+}
+
 export function isRoleMap(images: ImageSlots | undefined): images is Record<string, RoleMapping> {
-  return images !== undefined && !Array.isArray(images);
+  return images !== undefined && !Array.isArray(images) && !isAutogrowImageSlots(images);
 }
 
 /**
@@ -215,6 +294,20 @@ export function validateImageRoleMap(workflow: ComfyWorkflow, roleMap: Record<st
     if (node === undefined || !isRecord(node.inputs)) {
       errors.push(`role "${role}" -> node "${target.node}" not found in workflow`);
     }
+  }
+  return errors;
+}
+
+/** Validate the loader and target nodes for an autogrow declaration. */
+export function validateAutogrowImageSlots(workflow: ComfyWorkflow, slots: AutogrowImageSlots): string[] {
+  const errors: string[] = [];
+  const loader = workflow[slots.loader.node];
+  if (loader === undefined || !isRecord(loader.inputs)) {
+    errors.push(`autogrow loader -> node "${slots.loader.node}" not found in workflow`);
+  }
+  const target = workflow[slots.target.node];
+  if (target === undefined || !isRecord(target.inputs)) {
+    errors.push(`autogrow target -> node "${slots.target.node}" not found in workflow`);
   }
   return errors;
 }
@@ -270,7 +363,12 @@ export function formatWorkflowValidation(workflows: Record<string, WorkflowConfi
       lines.push(`✗ ${name}: ${loaded.error ?? 'load failed'}`);
       continue;
     }
-    const errors = validateMapping(loaded.graph, wf.inputs);
+    const imageErrors = isAutogrowImageSlots(wf.images)
+      ? validateAutogrowImageSlots(loaded.graph, wf.images)
+      : isRoleMap(wf.images)
+        ? validateImageRoleMap(loaded.graph, wf.images)
+        : validateImageMappings(loaded.graph, wf.images ?? []);
+    const errors = [...validateMapping(loaded.graph, wf.inputs), ...imageErrors];
     const inputs = Object.keys(wf.inputs).join(', ') || '(none)';
     lines.push(errors.length > 0 ? `✗ ${name}: ${errors.join('; ')}` : `✓ ${name}: ${inputs}`);
     // Warn (don't fail) when an auto-refine companion names a workflow that is

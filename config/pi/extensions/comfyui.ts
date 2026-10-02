@@ -23,16 +23,17 @@
  * command / hook surface.
  *
  * Config layers (lowest -> highest): shipped txt2img default ->
- * <piAgentDir>/comfyui.json -> <cwd>/.pi/comfyui.json.
+ * <piAgentDir>/comfyui.json -> <cwd>/.pi/comfyui.json. An environment-only
+ * setup with PI_COMFYUI_URL uses the shipped Qwen Image 2.1 workflow instead.
  *
  * The extension auto-disables when neither config file contributes a `workflows`
- * entry. The shipped txt2img.api.json is an example, not a real default, so
- * without user workflows we deregister rather than leak a broken option into the
- * tool list.
+ * entry and PI_COMFYUI_URL is unset. The shipped txt2img.api.json is example
+ * scaffolding, while the Qwen Image 2.1 graph is the environment-only default.
  *
  * Environment:
  *   PI_COMFYUI_DISABLED=1   skip the extension entirely
- *   PI_COMFYUI_URL=...      override the configured baseUrl
+ *   PI_COMFYUI_URL=...      override the configured baseUrl and enable env-only mode
+ *   PI_COMFYUI_AUTH=...     Authorization header value in env-only mode
  *   PI_COMFYUI_TOKEN=...    referenced by a config authHeader as ${PI_COMFYUI_TOKEN}
  */
 
@@ -85,14 +86,50 @@ import type { LooseMessage } from '../../../lib/node/pi/context-edit/target.ts';
 
 const extDir = dirname(fileURLToPath(import.meta.url));
 
-// Only the on-disk path of the shipped example workflow is shell-specific;
-// its input map is pure data (SHIPPED_WORKFLOW_INPUTS in lib).
+const QWEN_IMAGE_EDIT_21 = 'qwen-image-edit-2.1';
+
+// Only on-disk paths are shell-specific; input maps and metadata otherwise
+// follow the same declarative WorkflowConfig shape as user workflows.
 function shippedWorkflow(): WorkflowConfig {
   return { file: join(extDir, '..', 'comfyui', 'txt2img.api.json'), inputs: SHIPPED_WORKFLOW_INPUTS };
 }
 
+function shippedQwenImageEdit21Workflow(): WorkflowConfig {
+  return {
+    file: join(extDir, '..', 'comfyui', 'qwen-image-edit-2.1.api.json'),
+    description: 'Qwen Image 2.1 unified text-to-image and instruction editing with 0-16 references',
+    tags: ['photoreal', 'illustration', 'text', 'edit', 'multi-reference'],
+    promptProtocol:
+      'Natural language. With references, call them <image1> through <image16>; <image1> is the edit target and later images are supporting references.',
+    inputs: {
+      prompt: { node: '8', key: 'prompt' },
+      negative: { node: '8', key: 'negative_prompt' },
+      seed: { node: '9', key: 'seed' },
+      steps: { node: '9', key: 'steps' },
+      cfg: { node: '9', key: 'cfg' },
+    },
+    images: {
+      mode: 'autogrow',
+      loader: { node: '7', key: 'image', output: 0 },
+      target: { node: '8', keyPrefix: 'images.image_' },
+      min: 0,
+      max: 16,
+    },
+  };
+}
+
+function envConfigured(): boolean {
+  return (process.env.PI_COMFYUI_URL?.trim().length ?? 0) > 0;
+}
+
 function loadConfig(cwd: string): ComfyuiConfig {
-  return loadComfyuiConfig(cwd, shippedWorkflow());
+  const config = loadComfyuiConfig(cwd, shippedWorkflow());
+  if (loadUserWorkflowNames(cwd).length > 0 || !envConfigured()) return config;
+  return {
+    ...config,
+    defaultWorkflow: QWEN_IMAGE_EDIT_21,
+    workflows: { [QWEN_IMAGE_EDIT_21]: shippedQwenImageEdit21Workflow() },
+  };
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -110,12 +147,10 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
   // the (immutable) tool description.
   const cwd = process.cwd();
 
-  // Auto-disable when no user-supplied workflows exist. The shipped txt2img
-  // graph (config/pi/comfyui/txt2img.api.json) is an example - it expects a
-  // v1-5-pruned-emaonly checkpoint that most servers won't have - so registering
-  // the tool with only that available would leak a broken option into the model's
-  // tool list. The user has to point at their own workflow in
-  // ~/.pi/agent/comfyui.json or <cwd>/.pi/comfyui.json to opt in.
+  // Auto-disable when neither a config file nor PI_COMFYUI_URL opts in. A
+  // config-backed setup gets its configured workflows plus the classic shipped
+  // txt2img example. An environment-only setup gets the known-good shipped Qwen
+  // Image 2.1 workflow instead of exposing that server-specific SD1.5 example.
   //
   // This gate is necessarily registration-time: pi has no unregisterTool API,
   // so we cannot register first and back out on `session_start`. It is keyed
@@ -123,7 +158,7 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
   // the registration-time cwd. A project whose only workflows live under a
   // later `ctx.cwd` that differs from the launch dir would miss this gate, but
   // its handlers still work once that project's config loads at call time.
-  if (loadUserWorkflowNames(cwd).length === 0) return;
+  if (loadUserWorkflowNames(cwd).length === 0 && !envConfigured()) return;
 
   const registrationConfig = loadConfig(cwd);
   const defaultWorkflow = registrationConfig.defaultWorkflow;
@@ -349,7 +384,7 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
       ctx.ui.notify(
         [
           `comfyui: ${base} ${reachable ? '(reachable)' : '(unreachable)'}`,
-          `auth: ${config.authHeader ? `on (${config.authHeader.name})` : 'off'}`,
+          `auth: ${Object.keys(headers).length > 0 ? `on (${Object.keys(headers).join(', ')})` : 'off'}`,
           `default workflow: ${config.defaultWorkflow}`,
           `workflows: ${names}`,
           `saveDir: ${config.saveDir}`,

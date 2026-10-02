@@ -46,11 +46,23 @@ export interface RoleMapping extends InputMapping {
 }
 
 /**
- * A workflow's image inputs: EITHER an ordered positional list (filled by
- * the `inputImages` tool arg) OR a role-keyed map (filled by the `images`
- * tool arg). The two are mutually exclusive per workflow.
+ * A runtime-sized positional image list for ComfyUI `COMFY_AUTOGROW_V3`
+ * inputs. The loader node is a cloneable graph template; one copy is emitted
+ * per uploaded image and connected to `target.keyPrefix + oneBasedIndex`.
  */
-export type ImageSlots = InputMapping[] | Record<string, RoleMapping>;
+export interface AutogrowImageSlots {
+  mode: 'autogrow';
+  loader: InputMapping & { output?: number };
+  target: { node: string; keyPrefix: string };
+  min?: number;
+  max: number;
+}
+
+/**
+ * A workflow's image inputs: a fixed positional list, a runtime-sized
+ * autogrow list, or a role-keyed map.
+ */
+export type ImageSlots = InputMapping[] | AutogrowImageSlots | Record<string, RoleMapping>;
 
 /**
  * Per-workflow map from auto-refine repair channel to the *name of another
@@ -86,7 +98,10 @@ export interface WorkflowConfig {
    *   default; or
    * - a role-keyed `Record<string, RoleMapping>` (named): the `images`
    *   tool arg supplies each slot by role, and a `mask` slot can be
-   *   synthesized from a bbox.
+   *   synthesized from a bbox; or
+   * - an {@link AutogrowImageSlots} declaration: the `inputImages` tool arg
+   *   creates exactly one loader and one numbered target connection per
+   *   supplied image.
    *
    * Absent for pure text-to-image workflows. See {@link ImageSlots}.
    */

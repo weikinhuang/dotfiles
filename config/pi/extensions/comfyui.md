@@ -40,7 +40,7 @@ websocket parsing - lives under [`../../../lib/node/pi/comfyui/`](../../../lib/n
 1. Resolve config and the named workflow (`workflow` arg, else `defaultWorkflow`).
 2. Load and validate the API-format workflow JSON for that name.
 3. For edit / img2img, upload each `inputImages` entry via `POST /upload/image` and reference the stored names in the
-   workflow's ordered image slots.
+   workflow's fixed or runtime-sized image slots.
 4. Inject the prompt / seed / dimensions / etc. into the node ids named by the workflow's input map. Omitted args keep
    the workflow file's baked-in values; an omitted `seed` becomes a fresh random seed only when the workflow maps one.
 5. Submit via `POST /prompt` with a generated `client_id`, capturing the `prompt_id`.
@@ -87,9 +87,10 @@ tool result so the model can self-correct.
 
 Each parameter is injected only if the active workflow's input map names a node for it. Passing an arg the workflow does
 not map (or passing `inputImages` to a workflow with no image slots) returns a clear error rather than a silent no-op.
-Workflows that declare more than one image slot (see `images` below) accept several ordered reference images; supplying
-more images than the workflow has slots is an error, while supplying fewer fills the slots in order and leaves the
-remaining slots at their graph-baked image.
+Fixed positional workflows that declare more than one image slot (see `images` below) accept several ordered reference
+images; supplying more images than the workflow has slots is an error, while supplying fewer fills the slots in order
+and leaves the remaining slots at their graph-baked image. Autogrow workflows instead create exactly the slots supplied
+by the call, up to their configured maximum.
 
 `aspect` is a convenience that expands to `width` / `height` at a target pixel budget (the `defaults` area when both are
 configured, else ~1 MP), snapped to a multiple of 8. It accepts a named preset (`square`, `portrait`, `landscape`,
@@ -330,15 +331,17 @@ outgoing payload.
 Config layers lowest to highest: the shipped `txt2img` example, then `~/.pi/agent/comfyui.json`, then
 `<cwd>/.pi/comfyui.json`.
 
-The extension **auto-disables** when neither user nor project `comfyui.json` contributes a `workflows` entry - the
-shipped [`txt2img.api.json`](../comfyui/txt2img.api.json) is example scaffolding (it expects a
-`v1-5-pruned-emaonly.safetensors` checkpoint most servers won't have), not a real default. Drop at least one workflow
-into one of the config files to opt in; see [`../comfyui-example.json`](../comfyui-example.json) for a starting point.
+The extension **auto-disables** when neither user nor project `comfyui.json` contributes a `workflows` entry and
+`PI_COMFYUI_URL` is unset. The shipped [`txt2img.api.json`](../comfyui/txt2img.api.json) remains example scaffolding (it
+expects a `v1-5-pruned-emaonly.safetensors` checkpoint most servers will not have). An environment-only setup uses the
+shipped [`qwen-image-edit-2.1.api.json`](../comfyui/qwen-image-edit-2.1.api.json) as its sole workflow and default. For
+a config-file setup, add at least one workflow to opt in; see [`../comfyui-example.json`](../comfyui-example.json) for a
+starting point.
 
 | Key                         | Default                  | Meaning                                                                                                                                          |
 | --------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `baseUrl`                   | `http://127.0.0.1:8188`  | ComfyUI server origin. Supports `${ENV}`. `PI_COMFYUI_URL` overrides it.                                                                         |
-| `authHeader`                | (none)                   | `{ "name", "value" }` sent on every request; `value` supports `${ENV}`.                                                                          |
+| `authHeader`                | (none)                   | `{ "name", "value" }` sent on every request; `value` supports `${ENV}`. `PI_COMFYUI_AUTH` overrides it as an `Authorization` value.              |
 | `timeoutMs`                 | `180000`                 | Hard cap per generation before it is aborted.                                                                                                    |
 | `saveDir`                   | `.pi/comfyui-out`        | Where PNGs are written (relative to cwd, or an absolute path).                                                                                   |
 | `defaultWorkflow`           | `txt2img`                | Workflow used when the tool call omits `workflow`.                                                                                               |
@@ -461,6 +464,23 @@ workflow entry points at its JSON file and maps tunable names to a node id + inp
         "steps": { "node": "3", "key": "steps" },
       },
       "images": [{ "node": "41", "key": "image" }],
+    },
+    "qwen-image-edit-2.1": {
+      "file": "~/.pi/agent/comfyui/qwen-image-edit-2.1.api.json",
+      "inputs": {
+        "prompt": { "node": "8", "key": "prompt" },
+        "negative": { "node": "8", "key": "negative_prompt" },
+        "seed": { "node": "9", "key": "seed" },
+        "steps": { "node": "9", "key": "steps" },
+        "cfg": { "node": "9", "key": "cfg" },
+      },
+      "images": {
+        "mode": "autogrow",
+        "loader": { "node": "7", "key": "image", "output": 0 },
+        "target": { "node": "8", "keyPrefix": "images.image_" },
+        "min": 0,
+        "max": 16,
+      },
     },
     "flux2-t2i": {
       "file": "~/.pi/agent/comfyui/flux2-t2i.api.json",
@@ -590,7 +610,7 @@ in-style. The four channels:
   with an `init` role and a mapped `denoise`. No mask, no detector; the critic only sets the denoise strength.
 - **`inpaint`** - a coarse-region masked repaint. The critic names a region (`center`, `top-left`, `bottom`, …, or none
   for the whole image), the extension turns it into a normalized bbox and synthesizes the mask through the existing
-  [bbox-mask path](#image-inputs-positional-or-named-roles), and the companion reads it via a `mask` role
+  [bbox-mask path](#image-inputs-fixed-positional-autogrow-or-named-roles), and the companion reads it via a `mask` role
   (`kind: "mask"`). The critic never emits pixel coordinates - it names _what_ and _whether it is local_; the bbox
   geometry is the extension's job. The shipped [`anima-inpaint.api.json`](../comfyui/anima-inpaint.api.json) adapts the
   Cosmos Predict 2 `anima` checkpoint to inpaint in-place: `LoadImage` (init) -> `VAEEncodeForInpaint` (`grow_mask_by`
@@ -624,17 +644,41 @@ appears only when some workflow accepts an image input; `enhance` / `context` on
 `params.X ?? config.X`, so omitting a param simply keeps it out of the schema - it never changes how a present param
 behaves.
 
-#### Image inputs: positional or named roles
+#### Image inputs: fixed positional, autogrow, or named roles
 
 Image inputs for edit / img2img / inpaint workflows are declared in a top-level `images` field on the workflow entry (a
-sibling of `inputs`, not a key inside it), in one of two mutually exclusive shapes:
+sibling of `inputs`, not a key inside it), in one of three mutually exclusive shapes:
 
-- **Positional** - an array of `{ "node", "key" }` pairs naming `LoadImage`-style slots. The ordered `inputImages` tool
-  arg fills them in order (`inputImages[0]` into `images[0]`, …). Supplying more images than slots is an error; fewer
-  fills the leading slots and leaves the trailing slots at the image baked into the graph file.
+- **Fixed positional** - an array of `{ "node", "key" }` pairs naming `LoadImage`-style slots. The ordered `inputImages`
+  tool arg fills them in order (`inputImages[0]` into `images[0]`, …). Supplying more images than slots is an error;
+  fewer fills the leading slots and leaves the trailing slots at the image baked into the graph file.
+- **Autogrow positional** - an object with `"mode": "autogrow"`, a cloneable `loader` node mapping, a `target` node plus
+  dotted-input `keyPrefix`, and `min` / `max` bounds. The extension removes the template connection and loader when no
+  images are supplied, or clones the loader and connects exactly one numbered target input per `inputImages` entry.
+  `loader.output` defaults to `0`; `min` defaults to `0`. This is generic support for nodes whose image list uses
+  ComfyUI's `COMFY_AUTOGROW_V3` convention.
 - **Named roles** - an object keyed by role (`init`, `mask`, `control`, …) whose values are `{ "node", "key" }` pairs
   with two optional extras: `"kind": "mask"` marks a slot a bbox mask may target, and `"invert": true` flips that mask's
   polarity. The `images` tool arg supplies each slot by role: `images: { "init": "~/in.png", "mask": "~/m.png" }`.
+
+An autogrow declaration looks like this:
+
+```jsonc
+{
+  "images": {
+    "mode": "autogrow",
+    "loader": { "node": "7", "key": "image", "output": 0 },
+    "target": { "node": "8", "keyPrefix": "images.image_" },
+    "min": 0,
+    "max": 16,
+  },
+}
+```
+
+The API graph carries one loader template and one initial dotted connection. The extension clears every numbered target
+input whose key starts with `keyPrefix`, deletes the template for an empty list, or emits one loader and connection per
+image. ComfyUI autogrow links must be flat dotted keys such as `images.image_1`; a nested `images` object does not
+resolve image links in the prompt API.
 
 A call uses `inputImages` xor `images`, matching the workflow's declared shape; passing the wrong one (or an unknown
 role, or any image arg to a text-to-image workflow) is a clear error rather than a silent no-op. A `refine` id feeds the
@@ -665,6 +709,15 @@ bakes the reference image into the conditioning, `FluxKontextImageScale` (node 6
 resolution, and `FluxKontextMultiReferenceLatentMethod` (node 43) anchors the edit - which lets the KSampler run at
 `denoise 1` (the source latent only sets the output resolution). Lowering `denoise` is the wrong knob, so its map
 exposes none; `CFGNorm` (node 75) stabilises the cfg-1 Lightning setup.
+
+[`../comfyui/qwen-image-edit-2.1.api.json`](../comfyui/qwen-image-edit-2.1.api.json) is the native Qwen Image 2.1 graph
+and demonstrates autogrow image slots. It uses the INT8 diffusion model and Qwen3-VL encoder, keeps the prefix cache in
+CPU RAM, and places CLIP plus the VAE on GPU 1 while diffusion and sampling remain on GPU 0. With no `inputImages`,
+`TextEncodeQwenImage21` produces a text-to-image latent at its baked 1024 resolution. With one or more references, the
+same node derives the latent from `<image1>` and accepts `<image2>` through `<image16>` as supporting references. Its
+latent output feeds `KSampler` directly in both modes, so no separate empty-latent or switch node is needed. The graph
+maps no `width` / `height`; reference images preserve their aspect ratio while being resized toward the encoder's
+1024-pixel budget.
 
 Two **FLUX.2 [klein] 9B** graphs round out the set, both loading GGUF weights via `UnetLoaderGGUF` and the Qwen3-8B text
 encoder via `CLIPLoaderGGUF` (`type: flux2`) alongside the `flux2-vae`.
@@ -800,15 +853,16 @@ default (e.g. `steps`) on top of a global one without redeclaring the rest.
 
 ## Environment variables
 
-| Variable                     | Effect                                                                            |
-| ---------------------------- | --------------------------------------------------------------------------------- |
-| `PI_COMFYUI_DISABLED`        | Skip the extension entirely.                                                      |
-| `PI_COMFYUI_URL`             | Override the configured `baseUrl`.                                                |
-| `PI_COMFYUI_TOKEN`           | Convention for a token referenced by `authHeader.value` as `${PI_COMFYUI_TOKEN}`. |
-| `PI_COMFYUI_DISABLE_ENHANCE` | Hard-disable the prompt enhancer regardless of config / per-call `enhance`.       |
-| `PI_COMFYUI_ENHANCE_DEBUG`   | Notify on each successful enhance (`enhanced → …`); failures notify regardless.   |
-| `PI_COMFYUI_DISABLE_REFINE`  | Hard-disable the auto-refine loop regardless of config / per-call `autoRefine`.   |
-| `PI_COMFYUI_REFINE_DEBUG`    | Notify on each critic decision / refine round; failures notify regardless.        |
+| Variable                     | Effect                                                                                      |
+| ---------------------------- | ------------------------------------------------------------------------------------------- |
+| `PI_COMFYUI_DISABLED`        | Skip the extension entirely.                                                                |
+| `PI_COMFYUI_URL`             | Override `baseUrl`; also enable the shipped Qwen 2.1 workflow in an environment-only setup. |
+| `PI_COMFYUI_AUTH`            | Override auth with this complete `Authorization` header value.                              |
+| `PI_COMFYUI_TOKEN`           | Convention for a token referenced by `authHeader.value` as `${PI_COMFYUI_TOKEN}`.           |
+| `PI_COMFYUI_DISABLE_ENHANCE` | Hard-disable the prompt enhancer regardless of config / per-call `enhance`.                 |
+| `PI_COMFYUI_ENHANCE_DEBUG`   | Notify on each successful enhance (`enhanced → …`); failures notify regardless.             |
+| `PI_COMFYUI_DISABLE_REFINE`  | Hard-disable the auto-refine loop regardless of config / per-call `autoRefine`.             |
+| `PI_COMFYUI_REFINE_DEBUG`    | Notify on each critic decision / refine round; failures notify regardless.                  |
 
 Auth headers are sent on every HTTP request. ComfyUI's websocket does not carry custom headers, so on an authenticated
 server the progress stream may not connect; polling still drives completion regardless.

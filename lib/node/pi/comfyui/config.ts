@@ -26,6 +26,7 @@ import { piAgentPath, piProjectPath } from '../pi-paths.ts';
 import { isRecord } from '../shared.ts';
 
 import type {
+  AutogrowImageSlots,
   AuthHeader,
   ComfyuiConfig,
   GenerationDefaults,
@@ -153,6 +154,10 @@ function asInputMapping(value: unknown): InputMapping | undefined {
   return { node, key };
 }
 
+function asNonNegativeInteger(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : undefined;
+}
+
 function asInputMap(value: unknown): Record<string, InputMapping> | undefined {
   if (!isRecord(value)) return undefined;
   const out: Record<string, InputMapping> = {};
@@ -194,9 +199,42 @@ function asRoleMap(value: unknown): Record<string, RoleMapping> | undefined {
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
-/** Coerce the `images` field: an array is positional, an object is role-keyed. */
+function asAutogrowImageSlots(value: unknown): AutogrowImageSlots | undefined {
+  if (!isRecord(value) || value.mode !== 'autogrow') return undefined;
+  const loaderRaw = value.loader;
+  const loaderBase = asInputMapping(loaderRaw);
+  const targetRaw = value.target;
+  const max = asNonNegativeInteger(value.max);
+  if (loaderBase === undefined || !isRecord(loaderRaw) || !isRecord(targetRaw) || max === undefined || max === 0) {
+    return undefined;
+  }
+  const targetNode = asString(targetRaw.node);
+  const keyPrefix = asString(targetRaw.keyPrefix);
+  if (targetNode === undefined || targetNode.length === 0 || keyPrefix === undefined || keyPrefix.length === 0) {
+    return undefined;
+  }
+
+  const output = asNonNegativeInteger(loaderRaw.output);
+  if (loaderRaw.output !== undefined && output === undefined) return undefined;
+  const loader = output === undefined ? loaderBase : { ...loaderBase, output };
+  const out: AutogrowImageSlots = {
+    mode: 'autogrow',
+    loader,
+    target: { node: targetNode, keyPrefix },
+    max,
+  };
+
+  const min = asNonNegativeInteger(value.min);
+  if (value.min !== undefined && (min === undefined || min > max)) return undefined;
+  if (min !== undefined) out.min = min;
+  return out;
+}
+
+/** Coerce the `images` field: fixed positional, autogrow positional, or role-keyed. */
 function asImageSlots(value: unknown): ImageSlots | undefined {
-  return Array.isArray(value) ? asImageList(value) : asRoleMap(value);
+  if (Array.isArray(value)) return asImageList(value);
+  if (isRecord(value) && value.mode === 'autogrow') return asAutogrowImageSlots(value);
+  return asRoleMap(value);
 }
 
 function asStringList(value: unknown): string[] | undefined {
@@ -428,14 +466,17 @@ export function resolveBaseUrl(config: ComfyuiConfig, env: NodeJS.ProcessEnv = p
 }
 
 /**
- * Build the request-header object from the configured auth header, with
- * `${ENV}` interpolation applied. Returns an empty object when no auth
- * header is configured or the interpolated value is empty.
+ * Build the request-header object from `PI_COMFYUI_AUTH`, or from the
+ * configured auth header with `${ENV}` interpolation. The direct environment
+ * override is treated as an `Authorization` value. Returns an empty object
+ * when neither source provides a non-empty value.
  */
 export function resolveAuthHeaders(
   config: ComfyuiConfig,
   env: NodeJS.ProcessEnv = process.env,
 ): Record<string, string> {
+  const override = env.PI_COMFYUI_AUTH?.trim();
+  if (override !== undefined && override.length > 0) return { Authorization: override };
   if (config.authHeader === undefined) return {};
   const value = interpolateEnv(config.authHeader.value, env);
   if (value.length === 0) return {};

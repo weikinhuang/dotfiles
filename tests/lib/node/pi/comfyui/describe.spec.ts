@@ -45,6 +45,20 @@ describe('supportedParams', () => {
     };
     expect(supportedParams(wf)).toEqual(['prompt', 'images']);
   });
+
+  test('appends inputImages for an autogrow image list', () => {
+    const wf: WorkflowConfig = {
+      file: 'q.json',
+      inputs: { prompt: { node: '8', key: 'prompt' } },
+      images: {
+        mode: 'autogrow',
+        loader: { node: '7', key: 'image' },
+        target: { node: '8', keyPrefix: 'images.image_' },
+        max: 16,
+      },
+    };
+    expect(supportedParams(wf)).toEqual(['prompt', 'inputImages']);
+  });
 });
 
 describe('imageRoleNames', () => {
@@ -121,6 +135,21 @@ describe('describeWorkflow', () => {
       ],
     };
     expect(describeWorkflow('multi', wf)).toContain('2 reference images');
+  });
+
+  test('renders the reference range for an autogrow image list', () => {
+    const wf: WorkflowConfig = {
+      file: 'q.json',
+      inputs: { prompt: { node: '8', key: 'prompt' } },
+      images: {
+        mode: 'autogrow',
+        loader: { node: '7', key: 'image' },
+        target: { node: '8', keyPrefix: 'images.image_' },
+        min: 0,
+        max: 16,
+      },
+    };
+    expect(describeWorkflow('qwen', wf)).toContain('0-16 reference images');
   });
 
   test('lists named roles instead of a reference-image count', () => {
@@ -211,6 +240,16 @@ describe('workflowCapabilities', () => {
         },
       },
       edit: { file: 'e.json', inputs: { prompt: { node: '1', key: 't' } }, images: [{ node: '9', key: 'image' }] },
+      autogrow: {
+        file: 'a.json',
+        inputs: { prompt: { node: '1', key: 't' } },
+        images: {
+          mode: 'autogrow',
+          loader: { node: '7', key: 'image' },
+          target: { node: '8', keyPrefix: 'images.image_' },
+          max: 16,
+        },
+      },
       inpaint: {
         file: 'i.json',
         inputs: { prompt: { node: '1', key: 't' } },

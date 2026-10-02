@@ -191,6 +191,26 @@
       },
       "images": [{ "node": "41", "key": "image" }]
     },
+    "qwen-image-edit-2.1": {
+      "file": "~/.dotfiles/config/pi/comfyui/qwen-image-edit-2.1.api.json",
+      "description": "Qwen Image 2.1 unified text-to-image and instruction editing with 0-16 references",
+      "tags": ["photoreal", "illustration", "text", "edit", "multi-reference"],
+      "promptProtocol": "Natural language. With references, call them <image1> through <image16>; <image1> is the edit target and later images are supporting references.",
+      "inputs": {
+        "prompt": { "node": "8", "key": "prompt" },
+        "negative": { "node": "8", "key": "negative_prompt" },
+        "seed": { "node": "9", "key": "seed" },
+        "steps": { "node": "9", "key": "steps" },
+        "cfg": { "node": "9", "key": "cfg" }
+      },
+      "images": {
+        "mode": "autogrow",
+        "loader": { "node": "7", "key": "image", "output": 0 },
+        "target": { "node": "8", "keyPrefix": "images.image_" },
+        "min": 0,
+        "max": 16
+      }
+    },
     "flux2-t2i": {
       "file": "~/.dotfiles/config/pi/comfyui/flux2-t2i.api.json",
       "inputs": {

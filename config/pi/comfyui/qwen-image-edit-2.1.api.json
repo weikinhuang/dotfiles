@@ -1,0 +1,82 @@
+{
+  "1": {
+    "class_type": "UNETLoader",
+    "_meta": { "title": "Load Diffusion Model (Qwen Image 2.1 INT8)" },
+    "inputs": {
+      "unet_name": "qwen_image_2.1_int8_convrot.safetensors",
+      "weight_dtype": "default"
+    }
+  },
+  "2": {
+    "class_type": "CLIPLoader",
+    "_meta": { "title": "Load CLIP (Qwen3-VL 8B INT8)" },
+    "inputs": {
+      "clip_name": "qwen3vl_8b_int8_convrot.safetensors",
+      "type": "qwen_image",
+      "device": "default"
+    }
+  },
+  "3": {
+    "class_type": "VAELoader",
+    "_meta": { "title": "Load VAE (Qwen Image 2.1 BF16)" },
+    "inputs": { "vae_name": "qwen_image_2.1_vae_bf16.safetensors" }
+  },
+  "4": {
+    "class_type": "SelectCLIPDevice",
+    "_meta": { "title": "CLIP on GPU 1" },
+    "inputs": { "clip": ["2", 0], "device": "gpu:1" }
+  },
+  "5": {
+    "class_type": "SelectVAEDevice",
+    "_meta": { "title": "VAE on GPU 1" },
+    "inputs": { "vae": ["3", 0], "device": "gpu:1" }
+  },
+  "6": {
+    "class_type": "QwenImage21Cache",
+    "_meta": { "title": "Qwen Image 2.1 Prefix Cache" },
+    "inputs": { "model": ["1", 0], "device": "cpu", "dtype": "int8" }
+  },
+  "7": {
+    "class_type": "LoadImage",
+    "_meta": { "title": "Reference Image Template (cloned by pi)" },
+    "inputs": { "image": "example.png" }
+  },
+  "8": {
+    "class_type": "TextEncodeQwenImage21",
+    "_meta": { "title": "Qwen Image 2.1 Prompt and References" },
+    "inputs": {
+      "clip": ["4", 0],
+      "vae": ["5", 0],
+      "prompt": "A detailed studio photograph of a ceramic cup",
+      "negative_prompt": "",
+      "resolution": 1024,
+      "images.image_1": ["7", 0]
+    }
+  },
+  "9": {
+    "class_type": "KSampler",
+    "_meta": { "title": "KSampler (Qwen Image 2.1)" },
+    "inputs": {
+      "model": ["6", 0],
+      "positive": ["8", 0],
+      "negative": ["8", 1],
+      "latent_image": ["8", 2],
+      "seed": 0,
+      "steps": 25,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1
+    }
+  },
+  "10": {
+    "class_type": "VAEDecode",
+    "_meta": { "title": "VAE Decode" },
+    "inputs": { "samples": ["9", 0], "vae": ["5", 0] }
+  },
+  "11": {
+    "class_type": "SaveImage",
+    "_meta": { "title": "Save Image" },
+    "inputs": { "filename_prefix": "Qwen-Image-2.1", "images": ["10", 0] }
+  }
+}

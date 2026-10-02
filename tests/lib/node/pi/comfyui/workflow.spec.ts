@@ -8,16 +8,20 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
-import type { ComfyWorkflow } from '../../../../../lib/node/pi/comfyui/types.ts';
+import type { AutogrowImageSlots, ComfyWorkflow } from '../../../../../lib/node/pi/comfyui/types.ts';
 import {
+  autogrowImageCountError,
   formatWorkflowValidation,
+  injectAutogrowImageList,
   injectImageList,
   injectImageRoles,
   injectInputs,
+  isAutogrowImageSlots,
   isComfyWorkflow,
   isRoleMap,
   loadWorkflowGraph,
   randomSeed,
+  validateAutogrowImageSlots,
   validateImageMappings,
   validateImageRoleMap,
   validateMapping,
@@ -133,6 +137,66 @@ describe('injectImageList', () => {
   });
 });
 
+describe('injectAutogrowImageList', () => {
+  const slots: AutogrowImageSlots = {
+    mode: 'autogrow',
+    loader: { node: '10', key: 'image' },
+    target: { node: '20', keyPrefix: 'images.image_' },
+    min: 0,
+    max: 3,
+  };
+
+  function autogrowWorkflow(): ComfyWorkflow {
+    return {
+      '10': { class_type: 'LoadImage', inputs: { image: 'placeholder.png' } },
+      '20': {
+        class_type: 'TextEncodeQwenImage21',
+        inputs: {
+          prompt: 'old',
+          'images.image_1': ['10', 0],
+          'images.image_2': ['11', 0],
+          'images.image_metadata': 'preserve me',
+        },
+      },
+    };
+  }
+
+  test('removes the loader and stale dotted inputs for an empty image list', () => {
+    const original = autogrowWorkflow();
+    const result = injectAutogrowImageList(original, slots, []);
+    expect(result.errors).toEqual([]);
+    expect(result.workflow['10']).toBeUndefined();
+    expect(result.workflow['20'].inputs?.['images.image_1']).toBeUndefined();
+    expect(result.workflow['20'].inputs?.['images.image_2']).toBeUndefined();
+    expect(result.workflow['20'].inputs?.['images.image_metadata']).toBe('preserve me');
+    expect(original['10']).toBeDefined();
+  });
+
+  test('clones one loader per image and writes flat dotted links', () => {
+    const result = injectAutogrowImageList(autogrowWorkflow(), slots, ['a.png', 'b.png']);
+    expect(result.errors).toEqual([]);
+    expect(result.workflow['10'].inputs?.image).toBe('a.png');
+    expect(result.workflow['21'].inputs?.image).toBe('b.png');
+    expect(result.workflow['20'].inputs?.['images.image_1']).toEqual(['10', 0]);
+    expect(result.workflow['20'].inputs?.['images.image_2']).toEqual(['21', 0]);
+    expect(result.workflow['20'].inputs?.['images.image_3']).toBeUndefined();
+  });
+
+  test('enforces the declared minimum and maximum', () => {
+    expect(autogrowImageCountError({ ...slots, min: 1 }, 0)).toContain('at least 1');
+    expect(autogrowImageCountError(slots, 4)).toContain('at most 3');
+    expect(autogrowImageCountError(slots, 3)).toBeUndefined();
+  });
+
+  test('validates loader and target nodes', () => {
+    expect(validateAutogrowImageSlots(autogrowWorkflow(), slots)).toEqual([]);
+    expect(validateAutogrowImageSlots(sampleWorkflow(), slots)).toEqual([
+      'autogrow loader -> node "10" not found in workflow',
+      'autogrow target -> node "20" not found in workflow',
+    ]);
+  });
+});
+
 describe('validateImageMappings', () => {
   test('returns no errors when every image slot exists', () => {
     const targets = [
@@ -158,6 +222,17 @@ describe('isRoleMap', () => {
     expect(isRoleMap(undefined)).toBe(false);
     expect(isRoleMap([{ node: '6', key: 'image' }])).toBe(false);
     expect(isRoleMap({ init: { node: '6', key: 'image' } })).toBe(true);
+  });
+
+  test('distinguishes an autogrow declaration from a role map', () => {
+    const slots: AutogrowImageSlots = {
+      mode: 'autogrow',
+      loader: { node: '7', key: 'image' },
+      target: { node: '8', keyPrefix: 'images.image_' },
+      max: 16,
+    };
+    expect(isAutogrowImageSlots(slots)).toBe(true);
+    expect(isRoleMap(slots)).toBe(false);
   });
 });
 

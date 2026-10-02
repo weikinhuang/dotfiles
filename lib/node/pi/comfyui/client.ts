@@ -37,9 +37,12 @@ import { mimeFromName } from './images.ts';
 import type { ComfyWorkflow, ImageRef, WorkflowConfig } from './types.ts';
 import { createWaker, type Waker } from './waker.ts';
 import {
+  autogrowImageCountError,
+  injectAutogrowImageList,
   injectImageList,
   injectImageRoles,
   injectInputs,
+  isAutogrowImageSlots,
   isRoleMap,
   loadWorkflowGraph,
   randomSeed,
@@ -254,6 +257,7 @@ export async function buildInjectedGraph(
 
   const slots = wf.images;
   const roleMode = isRoleMap(slots);
+  const autogrowMode = isAutogrowImageSlots(slots);
 
   // Image inputs: positional uploads happen here; role uploads (incl.
   // synthesized masks, which need `sharp`) are resolved by the shell and
@@ -264,6 +268,15 @@ export async function buildInjectedGraph(
       return { error: `workflow "${name}" uses named image roles; pass "images", not "inputImages"` };
     }
     withImages = injectImageRoles(loaded.graph, slots, roleImages ?? {});
+  } else if (autogrowMode) {
+    const images = params.inputImages ?? [];
+    const countError = autogrowImageCountError(slots, images.length);
+    if (countError !== undefined) return { error: `workflow "${name}" ${countError}` };
+    if (images.length > 0) {
+      report(images.length === 1 ? 'uploading input image…' : `uploading ${images.length} reference images…`);
+    }
+    const uploadedNames = await Promise.all(images.map((path) => uploadImage(conn, path, homedir, signal)));
+    withImages = injectAutogrowImageList(loaded.graph, slots, uploadedNames);
   } else {
     const targets = slots ?? [];
     const images = params.inputImages ?? [];

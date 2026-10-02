@@ -170,6 +170,84 @@ describe('coerceConfigLayer', () => {
     expect(out.workflows?.r).toEqual({ file: '~/r.json', inputs: {} });
   });
 
+  test('parses an autogrow image declaration', () => {
+    const out = coerceConfigLayer({
+      workflows: {
+        qwen: {
+          file: '~/qwen.json',
+          inputs: { prompt: { node: '8', key: 'prompt' } },
+          images: {
+            mode: 'autogrow',
+            loader: { node: '7', key: 'image', output: 0 },
+            target: { node: '8', keyPrefix: 'images.image_' },
+            min: 0,
+            max: 16,
+          },
+        },
+      },
+    });
+    expect(out.workflows?.qwen?.images).toEqual({
+      mode: 'autogrow',
+      loader: { node: '7', key: 'image', output: 0 },
+      target: { node: '8', keyPrefix: 'images.image_' },
+      min: 0,
+      max: 16,
+    });
+  });
+
+  test('drops malformed autogrow image declarations', () => {
+    const out = coerceConfigLayer({
+      workflows: {
+        noLoader: {
+          file: '~/a.json',
+          inputs: {},
+          images: { mode: 'autogrow', target: { node: '8', keyPrefix: 'images.image_' }, max: 16 },
+        },
+        noTarget: {
+          file: '~/b.json',
+          inputs: {},
+          images: { mode: 'autogrow', loader: { node: '7', key: 'image' }, max: 16 },
+        },
+        noCapacity: {
+          file: '~/c.json',
+          inputs: {},
+          images: {
+            mode: 'autogrow',
+            loader: { node: '7', key: 'image' },
+            target: { node: '8', keyPrefix: 'images.image_' },
+            max: 0,
+          },
+        },
+        badBounds: {
+          file: '~/d.json',
+          inputs: {},
+          images: {
+            mode: 'autogrow',
+            loader: { node: '7', key: 'image' },
+            target: { node: '8', keyPrefix: 'images.image_' },
+            min: 3,
+            max: 2,
+          },
+        },
+        badOutput: {
+          file: '~/e.json',
+          inputs: {},
+          images: {
+            mode: 'autogrow',
+            loader: { node: '7', key: 'image', output: -1 },
+            target: { node: '8', keyPrefix: 'images.image_' },
+            max: 16,
+          },
+        },
+      },
+    });
+    expect(out.workflows?.noLoader?.images).toBeUndefined();
+    expect(out.workflows?.noTarget?.images).toBeUndefined();
+    expect(out.workflows?.noCapacity?.images).toBeUndefined();
+    expect(out.workflows?.badBounds?.images).toBeUndefined();
+    expect(out.workflows?.badOutput?.images).toBeUndefined();
+  });
+
   test('parses description, tags, and promptProtocol metadata', () => {
     const out = coerceConfigLayer({
       workflows: {
@@ -550,6 +628,13 @@ describe('resolveAuthHeaders', () => {
     expect(resolveAuthHeaders(mergeConfigLayers(), { TOK: 'secret' })).toEqual({});
     const blank = mergeConfigLayers({ authHeader: { name: 'X', value: '${MISSING}' } });
     expect(resolveAuthHeaders(blank, {})).toEqual({});
+  });
+
+  test('PI_COMFYUI_AUTH overrides config as the Authorization value', () => {
+    const config = mergeConfigLayers({ authHeader: { name: 'X-Comfy-Key', value: 'configured' } });
+    expect(resolveAuthHeaders(config, { PI_COMFYUI_AUTH: 'Basic secret' })).toEqual({
+      Authorization: 'Basic secret',
+    });
   });
 });
 

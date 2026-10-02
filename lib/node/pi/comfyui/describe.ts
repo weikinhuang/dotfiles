@@ -13,7 +13,7 @@
  * No pi imports - testable under vitest.
  */
 
-import { isRoleMap } from './workflow.ts';
+import { isAutogrowImageSlots, isRoleMap } from './workflow.ts';
 
 import type { WorkflowConfig } from './types.ts';
 
@@ -45,7 +45,9 @@ export function tunableParams(wf: WorkflowConfig): string[] {
 export function supportedParams(wf: WorkflowConfig): string[] {
   const params = tunableParams(wf);
   if (isRoleMap(wf.images)) params.push('images');
-  else if (wf.images !== undefined && wf.images.length > 0) params.push('inputImages');
+  else if (isAutogrowImageSlots(wf.images) || (Array.isArray(wf.images) && wf.images.length > 0)) {
+    params.push('inputImages');
+  }
   return params;
 }
 
@@ -131,6 +133,8 @@ export function describeWorkflow(name: string, wf: WorkflowConfig, opts: Describ
   const roles = imageRoleNames(wf);
   if (roles.length > 0) {
     sections.push(`roles: ${roles.join(', ')}`);
+  } else if (isAutogrowImageSlots(wf.images)) {
+    sections.push(`${wf.images.min ?? 0}-${wf.images.max} reference images`);
   } else {
     const slots = Array.isArray(wf.images) ? wf.images.length : 0;
     if (slots > 0) sections.push(`${slots} reference image${slots === 1 ? '' : 's'}`);
@@ -206,7 +210,7 @@ export function workflowCapabilities(workflows: Record<string, WorkflowConfig>):
       caps.roleImages = true;
       caps.imageInput = true;
       if (Object.values(wf.images).some((slot) => slot.kind === 'mask')) caps.maskRole = true;
-    } else if (wf.images !== undefined && wf.images.length > 0) {
+    } else if (isAutogrowImageSlots(wf.images) || (Array.isArray(wf.images) && wf.images.length > 0)) {
       caps.positionalImages = true;
       caps.imageInput = true;
     }

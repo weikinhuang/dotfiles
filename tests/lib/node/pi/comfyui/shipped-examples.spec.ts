@@ -16,9 +16,11 @@ import { dirname, join } from 'node:path';
 import { describe, expect, test } from 'vitest';
 
 import { SHIPPED_WORKFLOW_INPUTS } from '../../../../../lib/node/pi/comfyui/config.ts';
-import type { InputMapping } from '../../../../../lib/node/pi/comfyui/types.ts';
+import type { AutogrowImageSlots, InputMapping } from '../../../../../lib/node/pi/comfyui/types.ts';
 import {
+  isAutogrowImageSlots,
   loadWorkflowGraph,
+  validateAutogrowImageSlots,
   validateImageMappings,
   validateMapping,
 } from '../../../../../lib/node/pi/comfyui/workflow.ts';
@@ -28,7 +30,7 @@ const comfyuiDir = join(repoRoot, 'config/pi/comfyui');
 
 interface ShippedMap {
   inputs: Record<string, InputMapping>;
-  images?: InputMapping[];
+  images?: InputMapping[] | AutogrowImageSlots;
 }
 
 const FLUX2_T2I_INPUTS: Record<string, InputMapping> = {
@@ -90,6 +92,22 @@ const SHIPPED: Record<string, ShippedMap> = {
     },
     images: [{ node: '41', key: 'image' }],
   },
+  'qwen-image-edit-2.1.api.json': {
+    inputs: {
+      prompt: { node: '8', key: 'prompt' },
+      negative: { node: '8', key: 'negative_prompt' },
+      seed: { node: '9', key: 'seed' },
+      steps: { node: '9', key: 'steps' },
+      cfg: { node: '9', key: 'cfg' },
+    },
+    images: {
+      mode: 'autogrow',
+      loader: { node: '7', key: 'image', output: 0 },
+      target: { node: '8', keyPrefix: 'images.image_' },
+      min: 0,
+      max: 16,
+    },
+  },
   'anima-inpaint.api.json': {
     inputs: {
       prompt: { node: '65', key: 'string' },
@@ -126,13 +144,19 @@ describe('shipped comfyui example graphs', () => {
 
       // Every mapped node (scalars + image slots) exists.
       expect(validateMapping(graph, inputs)).toEqual([]);
-      expect(validateImageMappings(graph, images ?? [])).toEqual([]);
+      const imageErrors = isAutogrowImageSlots(images)
+        ? validateAutogrowImageSlots(graph, images)
+        : validateImageMappings(graph, images ?? []);
+      expect(imageErrors).toEqual([]);
 
       // Every mapped input key is actually present on its node.
-      const targets: [string, InputMapping][] = [
-        ...Object.entries(inputs),
-        ...(images ?? []).map((m, i): [string, InputMapping] => [`image ${i + 1}`, m]),
-      ];
+      const imageTargets: [string, InputMapping][] = isAutogrowImageSlots(images)
+        ? [
+            ['image loader', images.loader],
+            ['image target', { node: images.target.node, key: `${images.target.keyPrefix}1` }],
+          ]
+        : (images ?? []).map((m, i): [string, InputMapping] => [`image ${i + 1}`, m]);
+      const targets: [string, InputMapping][] = [...Object.entries(inputs), ...imageTargets];
       for (const [name, target] of targets) {
         const node = graph[target.node];
         expect(node, `${name} -> node ${target.node}`).toBeDefined();
