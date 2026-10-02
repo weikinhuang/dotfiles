@@ -211,6 +211,60 @@
         "max": 16
       }
     },
+    "minimax-h3-ref2va-spectrum": {
+      "file": "~/.dotfiles/config/pi/comfyui/minimax-h3-ref2va-spectrum.api.json",
+      "description": "MiniMax H3 Ref2VA video with native audio, dual-GPU placement, SageAttention, and Spectrum",
+      "tags": ["video", "audio", "reference", "minimax-h3", "sage", "spectrum"],
+      "promptProtocol": "Natural language. Address references as <Picture 1> through <Picture 9>, <Video 1> through <Video 3>, and <Audio 1> through <Audio 3>.",
+      "inputs": {
+        "prompt": { "node": "14", "key": "prompt" },
+        "seed": { "node": "15", "key": "noise_seed" },
+        "steps": { "node": "17", "key": "steps" },
+        "width": { "node": "14", "key": "width" },
+        "height": { "node": "14", "key": "height" },
+        "duration": { "node": "14", "key": "length", "transform": "secondsToFrames24H3" },
+        "refImageSize": { "node": "14", "key": "ref_image_size" }
+      },
+      "images": {
+        "mode": "autogrow",
+        "loader": { "node": "10", "key": "image", "output": 0 },
+        "target": { "node": "14", "keyPrefix": "ref_images.ref_image_", "indexBase": 0 },
+        "min": 0,
+        "max": 9
+      },
+      "videos": {
+        "mode": "autogrow",
+        "templates": ["11", "12"],
+        "loader": { "node": "11", "key": "file" },
+        "outputs": [
+          {
+            "source": { "node": "12", "output": 0 },
+            "target": { "node": "14", "keyPrefix": "ref_videos.ref_video_", "indexBase": 0 }
+          },
+          {
+            "source": { "node": "12", "output": 1 },
+            "target": { "node": "14", "keyPrefix": "ref_video_audios.ref_video_audio_", "indexBase": 0 }
+          }
+        ],
+        "min": 0,
+        "max": 3
+      },
+      "audios": {
+        "mode": "autogrow",
+        "templates": ["13"],
+        "loader": { "node": "13", "key": "audio" },
+        "outputs": [
+          {
+            "source": { "node": "13", "output": 0 },
+            "target": { "node": "14", "keyPrefix": "ref_audios.ref_audio_", "indexBase": 0 }
+          }
+        ],
+        "min": 0,
+        "max": 3
+      },
+      "referenceConstraints": { "maxTotal": 12, "audioRequiresVisual": true },
+      "outputType": "video"
+    },
     "flux2-t2i": {
       "file": "~/.dotfiles/config/pi/comfyui/flux2-t2i.api.json",
       "inputs": {

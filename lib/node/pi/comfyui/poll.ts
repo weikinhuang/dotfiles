@@ -15,7 +15,7 @@ import {
   fetchHistory,
   fetchQueue,
   type ImageBlockTransform,
-  type SavedImage,
+  type SavedOutput,
 } from './client.ts';
 import type { ImageJob } from './jobs.ts';
 
@@ -23,7 +23,7 @@ import type { ImageJob } from './jobs.ts';
 export type CollectOutcome =
   | { kind: 'running' }
   | { kind: 'failed'; reason: string }
-  | { kind: 'done'; saved: SavedImage[] };
+  | { kind: 'done'; saved: SavedOutput[] };
 
 /**
  * One poll of a job's `/history`: returns `done` with fetched+saved

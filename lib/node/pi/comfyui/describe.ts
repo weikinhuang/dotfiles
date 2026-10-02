@@ -48,6 +48,8 @@ export function supportedParams(wf: WorkflowConfig): string[] {
   else if (isAutogrowImageSlots(wf.images) || (Array.isArray(wf.images) && wf.images.length > 0)) {
     params.push('inputImages');
   }
+  if (wf.videos !== undefined) params.push('inputVideos');
+  if (wf.audios !== undefined) params.push('inputAudios');
   return params;
 }
 
@@ -139,6 +141,11 @@ export function describeWorkflow(name: string, wf: WorkflowConfig, opts: Describ
     const slots = Array.isArray(wf.images) ? wf.images.length : 0;
     if (slots > 0) sections.push(`${slots} reference image${slots === 1 ? '' : 's'}`);
   }
+  if (wf.videos !== undefined) sections.push(`${wf.videos.min ?? 0}-${wf.videos.max} reference videos`);
+  if (wf.audios !== undefined) sections.push(`${wf.audios.min ?? 0}-${wf.audios.max} reference audio clips`);
+  if (wf.referenceConstraints?.maxTotal !== undefined) {
+    sections.push(`${wf.referenceConstraints.maxTotal} reference files total`);
+  }
   if (wf.promptProtocol !== undefined && wf.promptProtocol.length > 0) {
     sections.push(`protocol: ${wf.promptProtocol}`);
   }
@@ -192,6 +199,10 @@ export interface WorkflowCapabilities {
   maskRole: boolean;
   /** Some workflow accepts any image input (so `refine` can feed one). */
   imageInput: boolean;
+  /** Some workflow accepts positional video references. */
+  videoInput: boolean;
+  /** Some workflow accepts positional standalone audio references. */
+  audioInput: boolean;
 }
 
 export function workflowCapabilities(workflows: Record<string, WorkflowConfig>): WorkflowCapabilities {
@@ -202,6 +213,8 @@ export function workflowCapabilities(workflows: Record<string, WorkflowConfig>):
     roleImages: false,
     maskRole: false,
     imageInput: false,
+    videoInput: false,
+    audioInput: false,
   };
   for (const wf of Object.values(workflows)) {
     for (const p of tunableParams(wf)) caps.params.add(p);
@@ -214,6 +227,8 @@ export function workflowCapabilities(workflows: Record<string, WorkflowConfig>):
       caps.positionalImages = true;
       caps.imageInput = true;
     }
+    if (wf.videos !== undefined) caps.videoInput = true;
+    if (wf.audios !== undefined) caps.audioInput = true;
   }
   return caps;
 }

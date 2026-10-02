@@ -7,6 +7,7 @@ import { describe, expect, test } from 'vitest';
 import type { SendDecision } from '../../../../../lib/node/pi/comfyui/config.ts';
 import {
   imageCountNote,
+  mediaCountNote,
   notSentNote,
   type RenderedImageSummary,
   seedNote,
@@ -24,6 +25,14 @@ describe('imageCountNote', () => {
   test('plural otherwise (including zero)', () => {
     expect(imageCountNote(0)).toBe('0 images');
     expect(imageCountNote(2)).toBe('2 images');
+  });
+});
+
+describe('mediaCountNote', () => {
+  test('summarizes mixed media in a stable order', () => {
+    expect(mediaCountNote(['/tmp/preview.png', '/tmp/result.mp4', '/tmp/sound.wav'])).toBe(
+      '1 image and 1 video and 1 audio file',
+    );
   });
 });
 
@@ -61,6 +70,12 @@ describe('summarizeRenderedImages', () => {
   test('foreground render with generation id + seed', () => {
     expect(summarizeRenderedImages({ ...base, count: 2, idNote: ' [g3]', seed: 7 })).toBe(
       'Generated 2 images [g3] via "anima" (seed 7). Saved to /tmp/out.',
+    );
+  });
+
+  test('uses saved paths for mixed-media counts', () => {
+    expect(summarizeRenderedImages({ ...base, count: 2, paths: ['/tmp/out.mp4', '/tmp/preview.png'] })).toBe(
+      'Generated 1 image and 1 video via "anima". Saved to /tmp/out.',
     );
   });
 

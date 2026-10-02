@@ -30,6 +30,7 @@ import {
   createWaker,
   fetchAndSave,
   type ImageBlockTransform,
+  isSavedImage,
   openProgressSocket,
   submitPrompt,
   waitForImages,
@@ -156,7 +157,7 @@ export async function renderViaWorkflow(deps: {
   try {
     const refs = await waitForImages(conn, promptId, signal, waker);
     const saved = await fetchAndSave(conn, refs, deps.saveDir, signal, deps.previewTransform);
-    const first = saved[0];
+    const first = saved.find(isSavedImage);
     if (first === undefined) throw new Error('render produced no image');
     return {
       block: first.block,

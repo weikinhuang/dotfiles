@@ -10,12 +10,12 @@
 
 import type { ExtensionContext } from '@earendil-works/pi-coding-agent';
 
-import { cancelPrompt, type Conn, readSavedImages } from '../../comfyui/client.ts';
+import { cancelPrompt, type Conn, isSavedImage, readSavedImages } from '../../comfyui/client.ts';
 import { resolveAuthHeaders, resolveBaseUrl, resolveSendToModel } from '../../comfyui/config.ts';
 import { findGenerationByPrompt } from '../../comfyui/generations.ts';
 import { findJob, formatRegistry, updateJob } from '../../comfyui/jobs.ts';
 import { pollJobOnce } from '../../comfyui/poll.ts';
-import { imageCountNote, summarizeRenderedImages } from '../../comfyui/summary.ts';
+import { mediaCountNote, summarizeRenderedImages } from '../../comfyui/summary.ts';
 import type { JobsAction, JobsDetails } from './details.ts';
 import { previewTransformFor } from './images.ts';
 import type { ComfyuiRuntime } from './runtime.ts';
@@ -84,9 +84,8 @@ export async function actCollect(
       generationId: existing?.id,
     };
     const decision = resolveSendToModel(job.sendToModel, ctx.model?.input);
-    const n = job.savedPaths.length;
     const idNote = existing ? ` (${existing.id})` : '';
-    const baseText = `[${id}]${idNote} already downloaded: ${imageCountNote(n)} in ${job.saveDir}.`;
+    const baseText = `[${id}]${idNote} already downloaded: ${mediaCountNote(job.savedPaths)} in ${job.saveDir}.`;
     if (decision.send) {
       const blocks = await readSavedImages(job.savedPaths, previewTransform);
       if (blocks.length > 0) {
@@ -165,6 +164,7 @@ export async function actCollect(
     const text = summarizeRenderedImages({
       verb: 'Collected',
       count: savedPaths.length,
+      paths: savedPaths,
       fromJob: ` from [${id}]`,
       idNote,
       workflow: job.workflow,
@@ -173,7 +173,7 @@ export async function actCollect(
       decision,
     });
     return decision.send
-      ? { content: [{ type: 'text', text }, ...saved.map((s) => s.block)], details }
+      ? { content: [{ type: 'text', text }, ...saved.filter(isSavedImage).map((s) => s.block)], details }
       : { content: [{ type: 'text', text }], details };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

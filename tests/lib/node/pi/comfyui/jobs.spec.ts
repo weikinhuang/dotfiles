@@ -171,7 +171,7 @@ describe('formatJobHint', () => {
 
 describe('formatRegistry / formatRunningBlock', () => {
   test('empty registry has an empty-state note and no running block', () => {
-    expect(formatRegistry(emptyRegistry(), 0)).toBe('(no background image jobs)');
+    expect(formatRegistry(emptyRegistry(), 0)).toBe('(no background media jobs)');
     expect(formatRunningBlock(emptyRegistry())).toBeUndefined();
   });
 
@@ -180,7 +180,7 @@ describe('formatRegistry / formatRunningBlock', () => {
     reg = addJob(reg, sampleJob({ promptId: 'p-2', seed: undefined, workflow: 'txt2img' })).registry;
     reg = updateJob(reg, '1', { status: 'done' });
     const block = formatRunningBlock(reg);
-    expect(block).toContain('## Pending image jobs');
+    expect(block).toContain('## Pending media jobs');
     expect(block).toContain('[2] txt2img');
     expect(block).not.toContain('[1]');
   });

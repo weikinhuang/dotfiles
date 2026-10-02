@@ -46,6 +46,28 @@ describe('supportedParams', () => {
     expect(supportedParams(wf)).toEqual(['prompt', 'images']);
   });
 
+  test('appends typed media args for autogrow video and audio pipelines', () => {
+    const wf: WorkflowConfig = {
+      file: 'h3.json',
+      inputs: { prompt: { node: '8', key: 'prompt' }, duration: { node: '9', key: 'a' } },
+      videos: {
+        mode: 'autogrow',
+        templates: ['20'],
+        loader: { node: '20', key: 'file' },
+        outputs: [{ source: { node: '20' }, target: { node: '8', keyPrefix: 'videos.video_' } }],
+        max: 3,
+      },
+      audios: {
+        mode: 'autogrow',
+        templates: ['30'],
+        loader: { node: '30', key: 'audio' },
+        outputs: [{ source: { node: '30' }, target: { node: '8', keyPrefix: 'audios.audio_' } }],
+        max: 3,
+      },
+    };
+    expect(supportedParams(wf)).toEqual(['prompt', 'duration', 'inputVideos', 'inputAudios']);
+  });
+
   test('appends inputImages for an autogrow image list', () => {
     const wf: WorkflowConfig = {
       file: 'q.json',
@@ -262,6 +284,8 @@ describe('workflowCapabilities', () => {
     expect(caps.roleImages).toBe(true);
     expect(caps.maskRole).toBe(true);
     expect(caps.imageInput).toBe(true);
+    expect(caps.videoInput).toBe(false);
+    expect(caps.audioInput).toBe(false);
   });
 
   test('pure text-to-image setup reports no image / dimension capability', () => {
@@ -273,5 +297,7 @@ describe('workflowCapabilities', () => {
     expect(caps.roleImages).toBe(false);
     expect(caps.maskRole).toBe(false);
     expect(caps.imageInput).toBe(false);
+    expect(caps.videoInput).toBe(false);
+    expect(caps.audioInput).toBe(false);
   });
 });

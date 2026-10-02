@@ -221,7 +221,7 @@ export function formatJobHint(job: ImageJob): string {
 
 /** Multi-line listing of the whole registry, or an empty-state note. */
 export function formatRegistry(reg: JobRegistry, now: number): string {
-  if (reg.jobs.length === 0) return '(no background image jobs)';
+  if (reg.jobs.length === 0) return '(no background media jobs)';
   return reg.jobs.map((j) => formatJobLine(j, now)).join('\n');
 }
 
@@ -238,5 +238,5 @@ export function formatRunningBlock(reg: JobRegistry): string | undefined {
     const progress = j.progress !== undefined && j.progress.length > 0 ? ` (${j.progress})` : '';
     return `- [${j.id}] ${j.workflow}${seed}${progress} - collect with \`image_jobs\` action collect, id ${j.id}`;
   });
-  return ['## Pending image jobs', ...lines].join('\n');
+  return ['## Pending media jobs', ...lines].join('\n');
 }

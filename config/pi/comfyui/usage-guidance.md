@@ -1,7 +1,8 @@
-# Image generation guidance
+# Media generation guidance
 
-You have a `generate_image` tool backed by a ComfyUI server with several named workflows. To create, draw, or render a
-picture, call `generate_image`; do not describe it in prose instead, and never call the ComfyUI HTTP API yourself.
+You have a `generate_image` tool backed by a ComfyUI server with named image and video workflows. To create, draw, or
+render visual media, call `generate_image`; do not describe it in prose instead, and never call the ComfyUI HTTP API
+yourself.
 
 - Pick the workflow by capability from the tool's workflow list, and prompt each one in the protocol shown there (some
   want Danbooru tags, some want natural language).
@@ -9,6 +10,8 @@ picture, call `generate_image`; do not describe it in prose instead, and never c
   lighting and composition.
 - Set `width` / `height` (or `aspect`) for the framing you want, and leave the sampler and step count alone so each
   workflow keeps its tuned recipe.
+- Pass `inputImages`, `inputVideos`, and `inputAudios` only when the selected workflow advertises them. Keep each media
+  type in prompt order and address references using the workflow's displayed protocol.
 
 The default workflow is **Krea 2 Turbo**, a natural-language photoreal model:
 

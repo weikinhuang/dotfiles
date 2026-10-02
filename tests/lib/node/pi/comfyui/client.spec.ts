@@ -131,10 +131,19 @@ describe('fetchAndSave', () => {
     const refs: ImageRef[] = [{ filename: 'out.png', subfolder: '', type: 'output' }];
     const saved = await fetchAndSave(CONN, refs, dir, signal());
     expect(saved).toHaveLength(1);
-    expect(saved[0].block.mimeType).toBe('image/png');
-    expect(saved[0].block.data).toBe(Buffer.from([255, 0]).toString('base64'));
+    expect(saved[0].block?.mimeType).toBe('image/png');
+    expect(saved[0].block?.data).toBe(Buffer.from([255, 0]).toString('base64'));
     expect(readdirSync(dir)).toHaveLength(1);
     expect(saved[0].savedPath).toContain('out.png');
+  });
+
+  test('saves video without constructing an invalid inline image block', async () => {
+    stubFetch(() => fakeResponse({ bytes: new Uint8Array([0, 1, 2]) }));
+    const refs: ImageRef[] = [{ filename: 'out.mp4', subfolder: '', type: 'output' }];
+    const saved = await fetchAndSave(CONN, refs, dir, signal());
+    expect(saved[0]).toMatchObject({ kind: 'video', mimeType: 'video/mp4' });
+    expect(saved[0].block).toBeUndefined();
+    expect(readFileSync(saved[0].savedPath)).toEqual(Buffer.from([0, 1, 2]));
   });
 
   test('basenames a traversal filename so writes stay inside saveDir', async () => {
@@ -554,6 +563,94 @@ describe('buildInjectedGraph', () => {
     expect(out.graph?.['7']).toBeUndefined();
     expect(out.graph?.['8'].inputs?.['images.image_1']).toBeUndefined();
     expect(calls).toHaveLength(0);
+  });
+
+  test('uploads and expands video and audio reference pipelines', async () => {
+    writeFileSync(join(dir, 'a.mp4'), 'VIDEO');
+    writeFileSync(join(dir, 'b.wav'), 'AUDIO');
+    const mediaFile = join(dir, 'media.json');
+    writeFileSync(
+      mediaFile,
+      JSON.stringify({
+        '6': { class_type: 'MiniMaxH3ReferenceToVideo', inputs: { prompt: 'old' } },
+        '20': { class_type: 'LoadVideo', inputs: { file: 'placeholder.mp4' } },
+        '21': { class_type: 'GetVideoComponents', inputs: { video: ['20', 0] } },
+        '30': { class_type: 'LoadAudio', inputs: { audio: 'placeholder.wav' } },
+      }),
+    );
+    let n = 0;
+    stubFetch((url) =>
+      url.includes('/upload/image') ? fakeResponse({ json: { name: `up-${n++}` } }) : fakeResponse({}),
+    );
+    const wf: WorkflowConfig = {
+      file: mediaFile,
+      inputs: { prompt: { node: '6', key: 'prompt' } },
+      videos: {
+        mode: 'autogrow',
+        templates: ['20', '21'],
+        loader: { node: '20', key: 'file' },
+        outputs: [
+          {
+            source: { node: '21', output: 0 },
+            target: { node: '6', keyPrefix: 'ref_videos.ref_video_', indexBase: 0 },
+          },
+          {
+            source: { node: '21', output: 1 },
+            target: { node: '6', keyPrefix: 'ref_video_audios.ref_video_audio_', indexBase: 0 },
+          },
+        ],
+        max: 3,
+      },
+      audios: {
+        mode: 'autogrow',
+        templates: ['30'],
+        loader: { node: '30', key: 'audio' },
+        outputs: [
+          {
+            source: { node: '30' },
+            target: { node: '6', keyPrefix: 'ref_audios.ref_audio_', indexBase: 0 },
+          },
+        ],
+        max: 3,
+      },
+      referenceConstraints: { maxTotal: 12, audioRequiresVisual: true },
+    };
+    const out = await buildInjectedGraph(
+      CONN,
+      wf,
+      'h3',
+      { prompt: 'combine', inputVideos: [join(dir, 'a.mp4')], inputAudios: [join(dir, 'b.wav')] },
+      dir,
+      HOME,
+      noop,
+      signal(),
+    );
+    expect(out.error).toBeUndefined();
+    expect(out.graph?.['20'].inputs?.file).toBe('up-0');
+    expect(out.graph?.['21'].inputs?.video).toEqual(['20', 0]);
+    expect(out.graph?.['30'].inputs?.audio).toBe('up-1');
+    expect(out.graph?.['6'].inputs?.['ref_videos.ref_video_0']).toEqual(['21', 0]);
+    expect(out.graph?.['6'].inputs?.['ref_video_audios.ref_video_audio_0']).toEqual(['21', 1]);
+    expect(out.graph?.['6'].inputs?.['ref_audios.ref_audio_0']).toEqual(['30', 0]);
+  });
+
+  test('rejects audio-only references when the workflow requires visual media', async () => {
+    const wf: WorkflowConfig = {
+      file: wfFile,
+      inputs: { prompt: { node: '6', key: 'text' } },
+      referenceConstraints: { audioRequiresVisual: true },
+    };
+    const out = await buildInjectedGraph(
+      CONN,
+      wf,
+      'h3',
+      { prompt: 'x', inputAudios: ['missing.wav'] },
+      dir,
+      HOME,
+      noop,
+      signal(),
+    );
+    expect(out.error).toContain('requires an image or video');
   });
 
   test('uploads and expands an autogrow image list', async () => {

@@ -8,10 +8,32 @@
  */
 
 import type { SendDecision } from './config.ts';
+import { mediaKindFromName, type MediaKind } from './images.ts';
 
 /** "1 image" / "N images" - the pluralized image count clause. */
 export function imageCountNote(count: number): string {
   return `${count} image${count === 1 ? '' : 's'}`;
+}
+
+/** Human-readable counts for a mixed set of saved image/video/audio outputs. */
+export function mediaCountNote(paths: string[]): string {
+  const counts = new Map<MediaKind, number>();
+  for (const path of paths) {
+    const kind = mediaKindFromName(path);
+    counts.set(kind, (counts.get(kind) ?? 0) + 1);
+  }
+  const labels: Record<MediaKind, [string, string]> = {
+    image: ['image', 'images'],
+    video: ['video', 'videos'],
+    audio: ['audio file', 'audio files'],
+    binary: ['file', 'files'],
+  };
+  return (['image', 'video', 'audio', 'binary'] as const)
+    .flatMap((kind) => {
+      const count = counts.get(kind) ?? 0;
+      return count > 0 ? [`${count} ${labels[kind][count === 1 ? 0 : 1]}`] : [];
+    })
+    .join(' and ');
 }
 
 /** " (seed N)" when a seed is known, else "". */
@@ -34,8 +56,10 @@ export function notSentNote(decision: SendDecision): string {
 export interface RenderedImageSummary {
   /** Leading verb: "Generated" (foreground) or "Collected" (background collect). */
   verb: string;
-  /** Number of images that landed on disk. */
+  /** Number of images that landed on disk (legacy image-only callers). */
   count: number;
+  /** Saved output paths; when present, render an accurate mixed-media count. */
+  paths?: string[];
   /** " from [jobId]" segment for a collected background job, else omit. */
   fromJob?: string;
   /** Pre-decorated generation-id note, e.g. " [g3]" (generate) or " (g3)" (collect). */
@@ -58,8 +82,9 @@ export interface RenderedImageSummary {
  * the wording stays identical across the two paths.
  */
 export function summarizeRenderedImages(s: RenderedImageSummary): string {
+  const countNote = s.paths !== undefined ? mediaCountNote(s.paths) : imageCountNote(s.count);
   return (
-    `${s.verb} ${imageCountNote(s.count)}${s.fromJob ?? ''}${s.idNote ?? ''} via "${s.workflow}"` +
+    `${s.verb} ${countNote}${s.fromJob ?? ''}${s.idNote ?? ''} via "${s.workflow}"` +
     `${seedNote(s.seed)}. Saved to ${s.saveDir}.${notSentNote(s.decision)}${s.extra ?? ''}`
   );
 }

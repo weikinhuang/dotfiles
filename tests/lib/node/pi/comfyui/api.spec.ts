@@ -100,6 +100,18 @@ describe('extractOutputImages', () => {
     ]);
   });
 
+  test('ignores uploaded input media echoed by loader nodes', () => {
+    const history = {
+      p1: {
+        outputs: {
+          '9': { gifs: [{ filename: 'reference.mp4', subfolder: '', type: 'input' }] },
+          '10': { gifs: [{ filename: 'generated.mp4', subfolder: '', type: 'output' }] },
+        },
+      },
+    };
+    expect(extractOutputImages(history, 'p1')).toEqual([{ filename: 'generated.mp4', subfolder: '', type: 'output' }]);
+  });
+
   test('de-duplicates a Preview(temp)+Save(output) pair, keeping the output ref', () => {
     const history = {
       p1: {

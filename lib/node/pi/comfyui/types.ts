@@ -21,6 +21,8 @@ export interface AuthHeader {
 export interface InputMapping {
   node: string;
   key: string;
+  /** Optional deterministic conversion applied before writing the graph input. */
+  transform?: 'secondsToFrames24H3';
 }
 
 /**
@@ -53,9 +55,36 @@ export interface RoleMapping extends InputMapping {
 export interface AutogrowImageSlots {
   mode: 'autogrow';
   loader: InputMapping & { output?: number };
-  target: { node: string; keyPrefix: string };
+  target: { node: string; keyPrefix: string; indexBase?: number };
   min?: number;
   max: number;
+}
+
+/** One output from a cloned media pipeline wired into a numbered target family. */
+export interface AutogrowMediaOutput {
+  source: { node: string; output?: number };
+  target: { node: string; keyPrefix: string; indexBase?: number };
+}
+
+/**
+ * A runtime-sized media pipeline. Every input file gets a clone of all
+ * `templates`; links among those template nodes are rewritten to the clone,
+ * then one or more outputs are connected to numbered target inputs.
+ */
+export interface AutogrowMediaSlots {
+  mode: 'autogrow';
+  templates: string[];
+  loader: InputMapping;
+  outputs: AutogrowMediaOutput[];
+  min?: number;
+  max: number;
+}
+
+/** Cross-type limits for workflows that combine image, video, and audio references. */
+export interface ReferenceConstraints {
+  maxTotal?: number;
+  /** Reject standalone audio unless at least one image or video is present. */
+  audioRequiresVisual?: boolean;
 }
 
 /**
@@ -106,6 +135,14 @@ export interface WorkflowConfig {
    * Absent for pure text-to-image workflows. See {@link ImageSlots}.
    */
   images?: ImageSlots;
+  /** Runtime-sized video inputs, filled from the `inputVideos` tool arg. */
+  videos?: AutogrowMediaSlots;
+  /** Runtime-sized standalone audio inputs, filled from the `inputAudios` tool arg. */
+  audios?: AutogrowMediaSlots;
+  /** Optional limits spanning every reference-media type. */
+  referenceConstraints?: ReferenceConstraints;
+  /** Primary output media type; defaults to `image` for backward compatibility. */
+  outputType?: 'image' | 'video';
   /**
    * One-line human description of what this workflow is for (e.g. "anime /
    * illustration (booru-tag prompting)"). Surfaced in the tool + `workflow`

@@ -8,11 +8,17 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
-import type { AutogrowImageSlots, ComfyWorkflow } from '../../../../../lib/node/pi/comfyui/types.ts';
+import type {
+  AutogrowImageSlots,
+  AutogrowMediaSlots,
+  ComfyWorkflow,
+} from '../../../../../lib/node/pi/comfyui/types.ts';
 import {
   autogrowImageCountError,
+  autogrowMediaCountError,
   formatWorkflowValidation,
   injectAutogrowImageList,
+  injectAutogrowMediaList,
   injectImageList,
   injectImageRoles,
   injectInputs,
@@ -22,6 +28,7 @@ import {
   loadWorkflowGraph,
   randomSeed,
   validateAutogrowImageSlots,
+  validateAutogrowMediaSlots,
   validateImageMappings,
   validateImageRoleMap,
   validateMapping,
@@ -72,6 +79,16 @@ describe('injectInputs', () => {
     expect(workflow['5'].inputs?.width).toBe(1024);
     // original is not mutated (deep clone)
     expect(original['6'].inputs?.text).toBe('old positive');
+  });
+
+  test('converts H3 duration seconds to a supported 24fps frame count', () => {
+    const result = injectInputs(
+      sampleWorkflow(),
+      { duration: { node: '5', key: 'batch_size', transform: 'secondsToFrames24H3' } },
+      { duration: 2 },
+    );
+    expect(result.errors).toEqual([]);
+    expect(result.workflow['5'].inputs?.batch_size).toBe(56);
   });
 
   test('skips undefined params, keeping the baked-in values', () => {
@@ -182,6 +199,14 @@ describe('injectAutogrowImageList', () => {
     expect(result.workflow['20'].inputs?.['images.image_3']).toBeUndefined();
   });
 
+  test('supports zero-based target families', () => {
+    const zeroBased: AutogrowImageSlots = { ...slots, target: { ...slots.target, indexBase: 0 } };
+    const result = injectAutogrowImageList(autogrowWorkflow(), zeroBased, ['a.png']);
+    expect(result.errors).toEqual([]);
+    expect(result.workflow['20'].inputs?.['images.image_0']).toEqual(['10', 0]);
+    expect(result.workflow['20'].inputs?.['images.image_1']).toBeUndefined();
+  });
+
   test('enforces the declared minimum and maximum', () => {
     expect(autogrowImageCountError({ ...slots, min: 1 }, 0)).toContain('at least 1');
     expect(autogrowImageCountError(slots, 4)).toContain('at most 3');
@@ -194,6 +219,69 @@ describe('injectAutogrowImageList', () => {
       'autogrow loader -> node "10" not found in workflow',
       'autogrow target -> node "20" not found in workflow',
     ]);
+  });
+});
+
+describe('injectAutogrowMediaList', () => {
+  const slots: AutogrowMediaSlots = {
+    mode: 'autogrow',
+    templates: ['30', '31'],
+    loader: { node: '30', key: 'file' },
+    outputs: [
+      {
+        source: { node: '31', output: 0 },
+        target: { node: '20', keyPrefix: 'ref_videos.ref_video_', indexBase: 0 },
+      },
+      {
+        source: { node: '31', output: 1 },
+        target: { node: '20', keyPrefix: 'ref_video_audios.ref_video_audio_', indexBase: 0 },
+      },
+    ],
+    max: 3,
+  };
+
+  function mediaWorkflow(): ComfyWorkflow {
+    return {
+      '20': {
+        class_type: 'MiniMaxH3ReferenceToVideo',
+        inputs: {
+          'ref_videos.ref_video_0': ['30', 0],
+          'ref_video_audios.ref_video_audio_0': ['31', 1],
+        },
+      },
+      '30': { class_type: 'LoadVideo', inputs: { file: 'placeholder.mp4' } },
+      '31': { class_type: 'GetVideoComponents', inputs: { video: ['30', 0] } },
+    };
+  }
+
+  test('clones and rewires a multi-node pipeline for each video', () => {
+    const result = injectAutogrowMediaList(mediaWorkflow(), slots, ['a.mp4', 'b.mp4'], 'video');
+    expect(result.errors).toEqual([]);
+    expect(result.workflow['30'].inputs?.file).toBe('a.mp4');
+    expect(result.workflow['31'].inputs?.video).toEqual(['30', 0]);
+    expect(result.workflow['32'].inputs?.file).toBe('b.mp4');
+    expect(result.workflow['33'].inputs?.video).toEqual(['32', 0]);
+    expect(result.workflow['20'].inputs?.['ref_videos.ref_video_0']).toEqual(['31', 0]);
+    expect(result.workflow['20'].inputs?.['ref_video_audios.ref_video_audio_0']).toEqual(['31', 1]);
+    expect(result.workflow['20'].inputs?.['ref_videos.ref_video_1']).toEqual(['33', 0]);
+    expect(result.workflow['20'].inputs?.['ref_video_audios.ref_video_audio_1']).toEqual(['33', 1]);
+  });
+
+  test('removes templates and stale target links when no media is supplied', () => {
+    const result = injectAutogrowMediaList(mediaWorkflow(), slots, [], 'video');
+    expect(result.errors).toEqual([]);
+    expect(result.workflow['30']).toBeUndefined();
+    expect(result.workflow['31']).toBeUndefined();
+    expect(result.workflow['20'].inputs?.['ref_videos.ref_video_0']).toBeUndefined();
+    expect(result.workflow['20'].inputs?.['ref_video_audios.ref_video_audio_0']).toBeUndefined();
+  });
+
+  test('enforces counts and validates pipeline nodes', () => {
+    expect(autogrowMediaCountError(slots, 4, 'video')).toContain('at most 3');
+    expect(validateAutogrowMediaSlots(mediaWorkflow(), slots, 'video')).toEqual([]);
+    expect(validateAutogrowMediaSlots(sampleWorkflow(), slots, 'video')).toContain(
+      'video template -> node "30" not found in workflow',
+    );
   });
 });
 

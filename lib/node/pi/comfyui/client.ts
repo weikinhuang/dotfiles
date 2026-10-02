@@ -33,12 +33,14 @@ import {
   queueRunningHasPrompt,
   toWsUrl,
 } from './api.ts';
-import { mimeFromName } from './images.ts';
+import { mediaKindFromName, mediaMimeFromName, type MediaKind } from './images.ts';
 import type { ComfyWorkflow, ImageRef, WorkflowConfig } from './types.ts';
 import { createWaker, type Waker } from './waker.ts';
 import {
   autogrowImageCountError,
+  autogrowMediaCountError,
   injectAutogrowImageList,
+  injectAutogrowMediaList,
   injectImageList,
   injectImageRoles,
   injectInputs,
@@ -55,10 +57,28 @@ export interface Conn {
   timeoutMs: number;
 }
 
-/** One fetched output: the on-disk path plus the inline image block. */
-export interface SavedImage {
+export interface ImageBlock {
+  type: 'image';
+  data: string;
+  mimeType: string;
+}
+
+/** One fetched output. Only still-image outputs carry an inline model block. */
+export interface SavedOutput {
   savedPath: string;
-  block: { type: 'image'; data: string; mimeType: string };
+  kind: MediaKind;
+  mimeType: string;
+  block?: ImageBlock;
+}
+
+/** A narrowed saved output that is safe to attach as a Pi image block. */
+export interface SavedImage extends SavedOutput {
+  kind: 'image';
+  block: ImageBlock;
+}
+
+export function isSavedImage(output: SavedOutput): output is SavedImage {
+  return output.kind === 'image' && output.block !== undefined;
 }
 
 /**
@@ -71,12 +91,8 @@ export interface SavedImage {
  */
 export type ImageBlockTransform = (bytes: Buffer, mimeType: string) => Promise<Buffer> | Buffer;
 
-async function buildImageBlock(
-  bytes: Buffer,
-  name: string,
-  transform?: ImageBlockTransform,
-): Promise<SavedImage['block']> {
-  const mimeType = mimeFromName(name);
+async function buildImageBlock(bytes: Buffer, name: string, transform?: ImageBlockTransform): Promise<ImageBlock> {
+  const mimeType = mediaMimeFromName(name);
   const encoded = transform ? await transform(bytes, mimeType) : bytes;
   return { type: 'image', data: encoded.toString('base64'), mimeType };
 }
@@ -93,6 +109,10 @@ export interface GenParams {
   seed?: number;
   denoise?: number;
   inputImages?: string[];
+  inputVideos?: string[];
+  inputAudios?: string[];
+  duration?: number;
+  refImageSize?: string;
   count?: number;
   sendToModel?: boolean;
   background?: boolean;
@@ -161,11 +181,22 @@ export async function uploadImageBuffer(
   return json.subfolder ? `${json.subfolder}/${json.name}` : json.name;
 }
 
-/** Upload a local image file for img2img; returns its server-side name. */
-export async function uploadImage(conn: Conn, filePath: string, homedir: string, signal: AbortSignal): Promise<string> {
+/** Upload a local media file through ComfyUI's binary-safe input endpoint. */
+export async function uploadInputFile(
+  conn: Conn,
+  filePath: string,
+  homedir: string,
+  signal: AbortSignal,
+  kind: 'image' | 'video' | 'audio' = 'image',
+): Promise<string> {
   const resolved = expandTilde(filePath, homedir);
-  if (!existsSync(resolved)) throw new Error(`input image not found: ${resolved}`);
+  if (!existsSync(resolved)) throw new Error(`input ${kind} not found: ${resolved}`);
   return uploadImageBuffer(conn, readFileSync(resolved), basename(resolved), signal);
+}
+
+/** Backward-compatible image upload wrapper used by role/mask handling. */
+export async function uploadImage(conn: Conn, filePath: string, homedir: string, signal: AbortSignal): Promise<string> {
+  return uploadInputFile(conn, filePath, homedir, signal, 'image');
 }
 
 /** GET `/history/{id}`; returns `null` on a non-OK response. */
@@ -201,7 +232,7 @@ export async function fetchAndSave(
   saveDir: string,
   signal: AbortSignal,
   transform?: ImageBlockTransform,
-): Promise<SavedImage[]> {
+): Promise<SavedOutput[]> {
   const stamp = `${new Date().toISOString().replace(/[:.]/g, '-')}-${randomUUID().slice(0, 8)}`;
   return Promise.all(
     refs.map(async (ref, i) => {
@@ -211,7 +242,11 @@ export async function fetchAndSave(
       // "../escape.png" can't write outside saveDir.
       const savedPath = join(saveDir, `comfyui-${stamp}-${i}-${basename(ref.filename)}`);
       atomicWriteFile(savedPath, bytes);
-      return { savedPath, block: await buildImageBlock(bytes, ref.filename, transform) };
+      const kind = mediaKindFromName(ref.filename);
+      const mimeType = mediaMimeFromName(ref.filename);
+      return kind === 'image'
+        ? { savedPath, kind, mimeType, block: await buildImageBlock(bytes, ref.filename, transform) }
+        : { savedPath, kind, mimeType };
     }),
   );
 }
@@ -226,10 +261,12 @@ export async function fetchAndSave(
  * foreground render.
  */
 export async function readSavedImages(paths: string[], transform?: ImageBlockTransform): Promise<SavedImage[]> {
-  const existing = paths.filter((p) => existsSync(p));
+  const existingImages = paths.filter((path) => existsSync(path) && mediaKindFromName(path) === 'image');
   return Promise.all(
-    existing.map(async (savedPath) => ({
+    existingImages.map(async (savedPath) => ({
       savedPath,
+      kind: 'image' as const,
+      mimeType: mediaMimeFromName(savedPath),
       block: await buildImageBlock(readFileSync(savedPath), savedPath, transform),
     })),
   );
@@ -258,6 +295,18 @@ export async function buildInjectedGraph(
   const slots = wf.images;
   const roleMode = isRoleMap(slots);
   const autogrowMode = isAutogrowImageSlots(slots);
+  const inputImages = params.inputImages ?? [];
+  const inputVideos = params.inputVideos ?? [];
+  const inputAudios = params.inputAudios ?? [];
+  const visualCount = (roleMode ? Object.keys(roleImages ?? {}).length : inputImages.length) + inputVideos.length;
+  const totalReferences = visualCount + inputAudios.length;
+  const maxTotal = wf.referenceConstraints?.maxTotal;
+  if (maxTotal !== undefined && totalReferences > maxTotal) {
+    return { error: `workflow "${name}" accepts at most ${maxTotal} total reference media file(s)` };
+  }
+  if (wf.referenceConstraints?.audioRequiresVisual === true && inputAudios.length > 0 && visualCount === 0) {
+    return { error: `workflow "${name}" requires an image or video when standalone audio references are supplied` };
+  }
 
   // Image inputs: positional uploads happen here; role uploads (incl.
   // synthesized masks, which need `sharp`) are resolved by the shell and
@@ -269,7 +318,7 @@ export async function buildInjectedGraph(
     }
     withImages = injectImageRoles(loaded.graph, slots, roleImages ?? {});
   } else if (autogrowMode) {
-    const images = params.inputImages ?? [];
+    const images = inputImages;
     const countError = autogrowImageCountError(slots, images.length);
     if (countError !== undefined) return { error: `workflow "${name}" ${countError}` };
     if (images.length > 0) {
@@ -279,7 +328,7 @@ export async function buildInjectedGraph(
     withImages = injectAutogrowImageList(loaded.graph, slots, uploadedNames);
   } else {
     const targets = slots ?? [];
-    const images = params.inputImages ?? [];
+    const images = inputImages;
     if (images.length > 0 && targets.length === 0) {
       return { error: `workflow "${name}" does not accept an input image` };
     }
@@ -293,10 +342,39 @@ export async function buildInjectedGraph(
     withImages = injectImageList(loaded.graph, targets, uploadedNames);
   }
 
+  const mediaSources = [
+    { label: 'video' as const, paths: inputVideos, slots: wf.videos },
+    { label: 'audio' as const, paths: inputAudios, slots: wf.audios },
+  ];
+  for (const { label, paths, slots: mediaSlots } of mediaSources) {
+    if (paths.length > 0 && mediaSlots === undefined) {
+      return { error: `workflow "${name}" does not accept reference ${label}s` };
+    }
+    if (mediaSlots === undefined) continue;
+    const countError = autogrowMediaCountError(mediaSlots, paths.length, label);
+    if (countError !== undefined) return { error: `workflow "${name}" ${countError}` };
+    if (paths.length > 0) {
+      report(paths.length === 1 ? `uploading reference ${label}…` : `uploading ${paths.length} reference ${label}s…`);
+    }
+  }
+  const uploadedMedia = await Promise.all(
+    mediaSources.map(async ({ label, paths }) => ({
+      label,
+      names: await Promise.all(paths.map((path) => uploadInputFile(conn, path, homedir, signal, label))),
+    })),
+  );
+  let withMedia = withImages;
+  for (const { label, names } of uploadedMedia) {
+    const mediaSlots = label === 'video' ? wf.videos : wf.audios;
+    if (mediaSlots === undefined) continue;
+    const injected = injectAutogrowMediaList(withMedia.workflow, mediaSlots, names, label);
+    withMedia = { workflow: injected.workflow, errors: [...withMedia.errors, ...injected.errors] };
+  }
+
   const autoSeed = params.seed === undefined && wf.inputs.seed !== undefined ? randomSeed() : undefined;
   const seed = params.seed ?? autoSeed;
 
-  const injected = injectInputs(withImages.workflow, wf.inputs, {
+  const injected = injectInputs(withMedia.workflow, wf.inputs, {
     prompt: params.prompt,
     negative: params.negative,
     seed,
@@ -305,12 +383,14 @@ export async function buildInjectedGraph(
     denoise: params.denoise,
     width: params.width,
     height: params.height,
+    duration: params.duration,
+    refImageSize: params.refImageSize,
     batch: params.count,
     target: params.target,
     detect: params.detect,
     instruction: params.instruction,
   });
-  const errors = [...withImages.errors, ...injected.errors];
+  const errors = [...withMedia.errors, ...injected.errors];
   if (errors.length > 0) return { error: `workflow mapping error: ${errors.join('; ')}` };
   return { graph: injected.workflow, seed };
 }

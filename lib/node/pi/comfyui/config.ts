@@ -27,11 +27,14 @@ import { isRecord } from '../shared.ts';
 
 import type {
   AutogrowImageSlots,
+  AutogrowMediaOutput,
+  AutogrowMediaSlots,
   AuthHeader,
   ComfyuiConfig,
   GenerationDefaults,
   ImageSlots,
   InputMapping,
+  ReferenceConstraints,
   RefineWith,
   RoleMapping,
   WorkflowConfig,
@@ -151,7 +154,9 @@ function asInputMapping(value: unknown): InputMapping | undefined {
   const node = asString(value.node);
   const key = asString(value.key);
   if (node === undefined || key === undefined || node.length === 0 || key.length === 0) return undefined;
-  return { node, key };
+  const transform = asString(value.transform);
+  if (value.transform !== undefined && transform !== 'secondsToFrames24H3') return undefined;
+  return { node, key, ...(transform === 'secondsToFrames24H3' ? { transform } : {}) };
 }
 
 function asNonNegativeInteger(value: unknown): number | undefined {
@@ -217,10 +222,13 @@ function asAutogrowImageSlots(value: unknown): AutogrowImageSlots | undefined {
   const output = asNonNegativeInteger(loaderRaw.output);
   if (loaderRaw.output !== undefined && output === undefined) return undefined;
   const loader = output === undefined ? loaderBase : { ...loaderBase, output };
+  const indexBase = asNonNegativeInteger(targetRaw.indexBase);
+  if (targetRaw.indexBase !== undefined && indexBase === undefined) return undefined;
+  const target = { node: targetNode, keyPrefix, ...(indexBase !== undefined ? { indexBase } : {}) };
   const out: AutogrowImageSlots = {
     mode: 'autogrow',
     loader,
-    target: { node: targetNode, keyPrefix },
+    target,
     max,
   };
 
@@ -245,6 +253,58 @@ function asStringList(value: unknown): string[] | undefined {
     if (s !== undefined && s.length > 0) out.push(s);
   }
   return out.length > 0 ? out : undefined;
+}
+
+function asAutogrowMediaOutput(value: unknown): AutogrowMediaOutput | undefined {
+  if (!isRecord(value) || !isRecord(value.source) || !isRecord(value.target)) return undefined;
+  const sourceNode = asString(value.source.node);
+  const targetNode = asString(value.target.node);
+  const keyPrefix = asString(value.target.keyPrefix);
+  if (
+    sourceNode === undefined ||
+    sourceNode.length === 0 ||
+    targetNode === undefined ||
+    targetNode.length === 0 ||
+    keyPrefix === undefined ||
+    keyPrefix.length === 0
+  ) {
+    return undefined;
+  }
+  const output = asNonNegativeInteger(value.source.output);
+  if (value.source.output !== undefined && output === undefined) return undefined;
+  const indexBase = asNonNegativeInteger(value.target.indexBase);
+  if (value.target.indexBase !== undefined && indexBase === undefined) return undefined;
+  return {
+    source: { node: sourceNode, ...(output !== undefined ? { output } : {}) },
+    target: { node: targetNode, keyPrefix, ...(indexBase !== undefined ? { indexBase } : {}) },
+  };
+}
+
+function asAutogrowMediaSlots(value: unknown): AutogrowMediaSlots | undefined {
+  if (!isRecord(value) || value.mode !== 'autogrow') return undefined;
+  const loader = asInputMapping(value.loader);
+  const templates = asStringList(value.templates);
+  const max = asNonNegativeInteger(value.max);
+  if (loader === undefined || templates === undefined || max === undefined || max === 0) return undefined;
+  if (!templates.includes(loader.node) || !Array.isArray(value.outputs)) return undefined;
+  const outputs = value.outputs.map(asAutogrowMediaOutput).filter((item) => item !== undefined);
+  if (outputs.length === 0 || outputs.length !== value.outputs.length) return undefined;
+  if (outputs.some((item) => !templates.includes(item.source.node))) return undefined;
+  const out: AutogrowMediaSlots = { mode: 'autogrow', templates, loader, outputs, max };
+  const min = asNonNegativeInteger(value.min);
+  if (value.min !== undefined && (min === undefined || min > max)) return undefined;
+  if (min !== undefined) out.min = min;
+  return out;
+}
+
+function asReferenceConstraints(value: unknown): ReferenceConstraints | undefined {
+  if (!isRecord(value)) return undefined;
+  const out: ReferenceConstraints = {};
+  const maxTotal = asNonNegativeInteger(value.maxTotal);
+  if (maxTotal !== undefined && maxTotal > 0) out.maxTotal = maxTotal;
+  const audioRequiresVisual = asBoolean(value.audioRequiresVisual);
+  if (audioRequiresVisual !== undefined) out.audioRequiresVisual = audioRequiresVisual;
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 /**
@@ -275,6 +335,14 @@ function asWorkflowConfig(value: unknown): WorkflowConfig | undefined {
   const images = asImageSlots(value.images);
   const wf: WorkflowConfig = { file, inputs };
   if (images !== undefined) wf.images = images;
+  const videos = asAutogrowMediaSlots(value.videos);
+  if (videos !== undefined) wf.videos = videos;
+  const audios = asAutogrowMediaSlots(value.audios);
+  if (audios !== undefined) wf.audios = audios;
+  const referenceConstraints = asReferenceConstraints(value.referenceConstraints);
+  if (referenceConstraints !== undefined) wf.referenceConstraints = referenceConstraints;
+  const outputType = asString(value.outputType);
+  if (outputType === 'image' || outputType === 'video') wf.outputType = outputType;
   const description = asString(value.description);
   if (description !== undefined && description.length > 0) wf.description = description;
   const tags = asStringList(value.tags);

@@ -195,6 +195,67 @@ describe('coerceConfigLayer', () => {
     });
   });
 
+  test('parses autogrow video/audio pipelines and reference constraints', () => {
+    const out = coerceConfigLayer({
+      workflows: {
+        h3: {
+          file: '~/h3.json',
+          inputs: { prompt: { node: '8', key: 'prompt' } },
+          videos: {
+            mode: 'autogrow',
+            templates: ['20', '21'],
+            loader: { node: '20', key: 'file' },
+            outputs: [
+              {
+                source: { node: '21', output: 0 },
+                target: { node: '8', keyPrefix: 'ref_videos.ref_video_', indexBase: 0 },
+              },
+            ],
+            max: 3,
+          },
+          audios: {
+            mode: 'autogrow',
+            templates: ['30'],
+            loader: { node: '30', key: 'audio' },
+            outputs: [
+              {
+                source: { node: '30' },
+                target: { node: '8', keyPrefix: 'ref_audios.ref_audio_', indexBase: 0 },
+              },
+            ],
+            max: 3,
+          },
+          referenceConstraints: { maxTotal: 12, audioRequiresVisual: true },
+          outputType: 'video',
+        },
+      },
+    });
+    expect(out.workflows?.h3?.videos?.templates).toEqual(['20', '21']);
+    expect(out.workflows?.h3?.videos?.outputs[0].target.indexBase).toBe(0);
+    expect(out.workflows?.h3?.audios?.loader).toEqual({ node: '30', key: 'audio' });
+    expect(out.workflows?.h3?.referenceConstraints).toEqual({ maxTotal: 12, audioRequiresVisual: true });
+    expect(out.workflows?.h3?.outputType).toBe('video');
+  });
+
+  test('drops malformed autogrow media pipelines', () => {
+    const out = coerceConfigLayer({
+      workflows: {
+        h3: {
+          file: '~/h3.json',
+          inputs: {},
+          videos: {
+            mode: 'autogrow',
+            templates: ['20'],
+            loader: { node: '99', key: 'file' },
+            outputs: [],
+            max: 3,
+          },
+        },
+      },
+    });
+    expect(out.workflows?.h3?.videos).toBeUndefined();
+  });
+
   test('drops malformed autogrow image declarations', () => {
     const out = coerceConfigLayer({
       workflows: {

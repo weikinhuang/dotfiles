@@ -61,6 +61,20 @@ const PROPS = {
       description: 'Reference image paths for img2img/edit workflows, e.g. ["~/in.png"]; filled into slots in order.',
     }),
   ),
+  inputVideos: Type.Optional(
+    Type.Array(Type.String(), {
+      description: 'Reference video paths for workflows that accept video conditioning; filled into slots in order.',
+    }),
+  ),
+  inputAudios: Type.Optional(
+    Type.Array(Type.String(), {
+      description: 'Standalone reference audio paths for workflows that accept audio conditioning; filled in order.',
+    }),
+  ),
+  duration: Type.Optional(Type.Number({ description: 'Output duration in seconds for video workflows.' })),
+  refImageSize: Type.Optional(
+    Type.String({ description: 'Reference image sizing mode when supported, such as "match" or "max".' }),
+  ),
   images: Type.Optional(
     Type.Record(Type.String(), Type.Union([Type.String(), maskValue]), {
       description:
@@ -69,7 +83,7 @@ const PROPS = {
   ),
   count: Type.Optional(Type.Number({ description: 'Batch size.' })),
   sendToModel: Type.Optional(
-    Type.Boolean({ description: 'Return the image to you for analysis; false = save to disk only.' }),
+    Type.Boolean({ description: 'Return still images or video preview frames for analysis; false = save only.' }),
   ),
   ephemeral: Type.Optional(
     Type.Boolean({
@@ -137,7 +151,7 @@ export function buildGenerateParams(
   props.sendToModel = Type.Optional(
     Type.Boolean({
       default: registrationConfig.sendToModel,
-      description: 'Return the image to you for analysis; false = save to disk only.',
+      description: 'Return still images or video preview frames for analysis; false = save only.',
     }),
   );
   props.ephemeral = Type.Optional(
@@ -174,12 +188,25 @@ export function buildGenerateParams(
   const dropProp = (key: string): void => {
     delete (props as Record<string, unknown>)[key];
   };
-  for (const p of ['negative', 'width', 'height', 'steps', 'cfg', 'seed', 'denoise', 'count']) {
+  for (const p of [
+    'negative',
+    'width',
+    'height',
+    'steps',
+    'cfg',
+    'seed',
+    'denoise',
+    'duration',
+    'refImageSize',
+    'count',
+  ]) {
     if (!mapsParam(p)) dropProp(p);
   }
   if (!caps.dimensions) dropProp('aspect');
   if (!caps.imageInput) dropProp('refine');
   if (!caps.positionalImages) dropProp('inputImages');
+  if (!caps.videoInput) dropProp('inputVideos');
+  if (!caps.audioInput) dropProp('inputAudios');
   if (!caps.roleImages) {
     dropProp('images');
   } else if (!caps.maskRole) {

@@ -23,6 +23,7 @@ import {
   type Conn,
   createWaker,
   fetchAndSave,
+  isSavedImage,
   openProgressSocket,
   submitPrompt,
   waitForImages,
@@ -30,6 +31,7 @@ import {
 import { resolveAuthHeaders, resolveBaseUrl, resolveSendToModel } from '../../comfyui/config.ts';
 import { buildEnhanceTask } from '../../comfyui/enhance.ts';
 import { findGeneration, type GenerationRecord } from '../../comfyui/generations.ts';
+import { mediaKindFromName } from '../../comfyui/images.ts';
 import { addJob, findJob, updateJob } from '../../comfyui/jobs.ts';
 import {
   type CritiqueRequest,
@@ -97,7 +99,7 @@ export async function executeGenerate(
   if (params.refine !== undefined) {
     const rec = findGeneration(rt.generations, params.refine);
     if (rec === undefined) return fail(`unknown generation "${params.refine}" (see /comfyui gallery)`);
-    const src = rec.savedPaths[0];
+    const src = rec.savedPaths.find((path) => mediaKindFromName(path) === 'image');
     if (src === undefined || !existsSync(src)) {
       return fail(`generation "${params.refine}" has no saved image on disk to refine`);
     }
@@ -119,6 +121,10 @@ export async function executeGenerate(
       details,
       isError: true,
     };
+  }
+
+  if (params.autoRefine === true && wf.outputType === 'video') {
+    return fail(`workflow "${name}" outputs video and does not support autoRefine`);
   }
 
   // Image inputs are either positional (`inputImages`) or role-keyed
@@ -161,7 +167,7 @@ export async function executeGenerate(
   // `refine` ?? config `autoRefine`. Active only when a refiner is installed
   // (the `comfyui-critic` agent is present + not env-disabled); the loop
   // still no-ops gracefully if no vision-capable model resolves at runtime.
-  const wantRefine = params.autoRefine ?? wf.refine ?? config.autoRefine;
+  const wantRefine = wf.outputType === 'video' ? false : (params.autoRefine ?? wf.refine ?? config.autoRefine);
   const refiner = wantRefine ? refinerAccess.getRefiner(ctx) : null;
   const refineActive = wantRefine && refiner?.isEnabled() === true;
   // Companion repair channels (img2img / inpaint / detailer / ground) are
@@ -458,7 +464,7 @@ export async function executeGenerate(
         const refs = await waitForImages(conn, result.promptId, bgAc.signal, waker);
         const bgPreview = previewTransformFor(params.previewMaxDimension ?? config.previewMaxDimension);
         const saved = await fetchAndSave(conn, refs, saveDir, bgAc.signal, bgPreview);
-        const first = saved[0];
+        const first = saved.find(isSavedImage);
         if (first === undefined) {
           rt.registry = updateJob(rt.registry, jobId, {
             status: 'error',
@@ -607,7 +613,7 @@ export async function executeGenerate(
     let finalHeight = result.height;
     let refineJourney: RefineJourney | undefined;
     let refineNote = refineCountNote;
-    const refineInitial = saved[0];
+    const refineInitial = saved.find(isSavedImage);
     if (refineActive && refiner !== null && refineInitial !== undefined) {
       const initialImage: RenderedImage = {
         block: refineInitial.block,
@@ -655,7 +661,7 @@ export async function executeGenerate(
         onProgress: (text) => report(text),
       });
       const best = loop.image;
-      finalImages = [{ savedPath: best.savedPath, block: best.block }];
+      finalImages = [{ savedPath: best.savedPath, kind: 'image', mimeType: best.block.mimeType, block: best.block }];
       finalPrompt = best.prompt;
       finalNegative = best.negative;
       finalSeed = best.seed;
@@ -712,6 +718,7 @@ export async function executeGenerate(
       const summary = summarizeRenderedImages({
         verb: 'Generated',
         count: finalImages.length,
+        paths: details.savedPaths,
         idNote,
         workflow: name,
         seed: finalSeed,
@@ -719,13 +726,17 @@ export async function executeGenerate(
         decision: { send: true, visionBlocked: false },
         extra: `${refineNote} (ephemeral: shown once, not kept in context)`,
       });
-      return { content: [{ type: 'text', text: summary }, ...finalImages.map((s) => s.block)], details };
+      return {
+        content: [{ type: 'text', text: summary }, ...finalImages.filter(isSavedImage).map((s) => s.block)],
+        details,
+      };
     }
 
     const decision = resolveSendToModel(requested, ctx.model?.input);
     const summary = summarizeRenderedImages({
       verb: 'Generated',
       count: finalImages.length,
+      paths: details.savedPaths,
       idNote,
       workflow: name,
       seed: finalSeed,
@@ -734,13 +745,16 @@ export async function executeGenerate(
       extra: enhanceNote + refineNote,
     });
     return decision.send
-      ? { content: [{ type: 'text', text: summary }, ...finalImages.map((s) => s.block)], details }
+      ? {
+          content: [{ type: 'text', text: summary }, ...finalImages.filter(isSavedImage).map((s) => s.block)],
+          details,
+        }
       : { content: [{ type: 'text', text: summary }], details };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const reason = runSignal.aborted && !(signal?.aborted ?? false) ? `timed out after ${conn.timeoutMs}ms` : message;
     details.error = reason;
-    return { content: [{ type: 'text', text: `image generation failed: ${reason}` }], details, isError: true };
+    return { content: [{ type: 'text', text: `media generation failed: ${reason}` }], details, isError: true };
   } finally {
     clearTimeout(timer);
     if (socket) {

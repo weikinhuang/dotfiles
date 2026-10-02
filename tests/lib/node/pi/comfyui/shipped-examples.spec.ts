@@ -16,11 +16,12 @@ import { dirname, join } from 'node:path';
 import { describe, expect, test } from 'vitest';
 
 import { SHIPPED_WORKFLOW_INPUTS } from '../../../../../lib/node/pi/comfyui/config.ts';
-import type { AutogrowImageSlots, InputMapping } from '../../../../../lib/node/pi/comfyui/types.ts';
+import type { AutogrowImageSlots, AutogrowMediaSlots, InputMapping } from '../../../../../lib/node/pi/comfyui/types.ts';
 import {
   isAutogrowImageSlots,
   loadWorkflowGraph,
   validateAutogrowImageSlots,
+  validateAutogrowMediaSlots,
   validateImageMappings,
   validateMapping,
 } from '../../../../../lib/node/pi/comfyui/workflow.ts';
@@ -31,6 +32,8 @@ const comfyuiDir = join(repoRoot, 'config/pi/comfyui');
 interface ShippedMap {
   inputs: Record<string, InputMapping>;
   images?: InputMapping[] | AutogrowImageSlots;
+  videos?: AutogrowMediaSlots;
+  audios?: AutogrowMediaSlots;
 }
 
 const FLUX2_T2I_INPUTS: Record<string, InputMapping> = {
@@ -108,6 +111,51 @@ const SHIPPED: Record<string, ShippedMap> = {
       max: 16,
     },
   },
+  'minimax-h3-ref2va-spectrum.api.json': {
+    inputs: {
+      prompt: { node: '14', key: 'prompt' },
+      seed: { node: '15', key: 'noise_seed' },
+      steps: { node: '17', key: 'steps' },
+      width: { node: '14', key: 'width' },
+      height: { node: '14', key: 'height' },
+      duration: { node: '14', key: 'length', transform: 'secondsToFrames24H3' },
+      refImageSize: { node: '14', key: 'ref_image_size' },
+    },
+    images: {
+      mode: 'autogrow',
+      loader: { node: '10', key: 'image', output: 0 },
+      target: { node: '14', keyPrefix: 'ref_images.ref_image_', indexBase: 0 },
+      max: 9,
+    },
+    videos: {
+      mode: 'autogrow',
+      templates: ['11', '12'],
+      loader: { node: '11', key: 'file' },
+      outputs: [
+        {
+          source: { node: '12', output: 0 },
+          target: { node: '14', keyPrefix: 'ref_videos.ref_video_', indexBase: 0 },
+        },
+        {
+          source: { node: '12', output: 1 },
+          target: { node: '14', keyPrefix: 'ref_video_audios.ref_video_audio_', indexBase: 0 },
+        },
+      ],
+      max: 3,
+    },
+    audios: {
+      mode: 'autogrow',
+      templates: ['13'],
+      loader: { node: '13', key: 'audio' },
+      outputs: [
+        {
+          source: { node: '13', output: 0 },
+          target: { node: '14', keyPrefix: 'ref_audios.ref_audio_', indexBase: 0 },
+        },
+      ],
+      max: 3,
+    },
+  },
   'anima-inpaint.api.json': {
     inputs: {
       prompt: { node: '65', key: 'string' },
@@ -136,7 +184,7 @@ const SHIPPED: Record<string, ShippedMap> = {
 };
 
 describe('shipped comfyui example graphs', () => {
-  for (const [file, { inputs, images }] of Object.entries(SHIPPED)) {
+  for (const [file, { inputs, images, videos, audios }] of Object.entries(SHIPPED)) {
     test(`${file} is a valid graph whose documented input map resolves`, () => {
       const { graph, error } = loadWorkflowGraph(join(comfyuiDir, file), repoRoot, homedir());
       expect(error).toBeUndefined();
@@ -148,12 +196,17 @@ describe('shipped comfyui example graphs', () => {
         ? validateAutogrowImageSlots(graph, images)
         : validateImageMappings(graph, images ?? []);
       expect(imageErrors).toEqual([]);
+      expect(videos === undefined ? [] : validateAutogrowMediaSlots(graph, videos, 'video')).toEqual([]);
+      expect(audios === undefined ? [] : validateAutogrowMediaSlots(graph, audios, 'audio')).toEqual([]);
 
       // Every mapped input key is actually present on its node.
       const imageTargets: [string, InputMapping][] = isAutogrowImageSlots(images)
         ? [
             ['image loader', images.loader],
-            ['image target', { node: images.target.node, key: `${images.target.keyPrefix}1` }],
+            [
+              'image target',
+              { node: images.target.node, key: `${images.target.keyPrefix}${images.target.indexBase ?? 1}` },
+            ],
           ]
         : (images ?? []).map((m, i): [string, InputMapping] => [`image ${i + 1}`, m]);
       const targets: [string, InputMapping][] = [...Object.entries(inputs), ...imageTargets];

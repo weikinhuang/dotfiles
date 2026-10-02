@@ -96,6 +96,12 @@ describe('renderGenerateResult', () => {
     ).toBe('✓ [g3] 1 image · seed 7 · ephemeral');
   });
 
+  test('success summary labels mixed image and video outputs', () => {
+    expect(out(renderGenerateResult(gen({ savedPaths: ['/out.mp4', '/preview.png'] }), {}, theme, {}))).toBe(
+      '✓ 1 image and 1 video',
+    );
+  });
+
   test('success summary pluralizes and omits absent decorations', () => {
     expect(out(renderGenerateResult(gen({ savedPaths: ['/a.png', '/b.png'] }), {}, theme, {}))).toBe('✓ 2 images');
   });
@@ -125,7 +131,7 @@ describe('renderJobsResult', () => {
   });
 
   test('empty list', () => {
-    expect(out(renderJobsResult(jobs({ action: 'list', jobs: [] }), theme))).toBe('(no background image jobs)');
+    expect(out(renderJobsResult(jobs({ action: 'list', jobs: [] }), theme))).toBe('(no background media jobs)');
   });
 
   test('non-empty list renders one line per job containing its id', () => {

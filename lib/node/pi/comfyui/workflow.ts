@@ -21,6 +21,7 @@ import { isRecord } from '../shared.ts';
 
 import type {
   AutogrowImageSlots,
+  AutogrowMediaSlots,
   ComfyWorkflow,
   ImageSlots,
   InputMapping,
@@ -102,7 +103,14 @@ export function injectInputs(
       errors.push(`workflow has no node "${target.node}" with inputs (needed for "${name}")`);
       continue;
     }
-    node.inputs[target.key] = value;
+    const transformed =
+      target.transform === 'secondsToFrames24H3' && typeof value === 'number'
+        ? (() => {
+            const frames = Math.max(5, Math.round(value * 24));
+            return frames + ((((5 - (frames % 17)) % 17) + 17) % 17);
+          })()
+        : value;
+    node.inputs[target.key] = transformed;
   }
 
   return { workflow: clone, errors };
@@ -159,6 +167,18 @@ export function autogrowImageCountError(slots: AutogrowImageSlots, count: number
   return undefined;
 }
 
+/** Return a user-facing count error for an autogrow media pipeline, if any. */
+export function autogrowMediaCountError(
+  slots: AutogrowMediaSlots,
+  count: number,
+  label: 'video' | 'audio',
+): string | undefined {
+  const min = slots.min ?? 0;
+  if (count < min) return `requires at least ${min} reference ${label}(s)`;
+  if (count > slots.max) return `accepts at most ${slots.max} reference ${label}(s)`;
+  return undefined;
+}
+
 function nextNumericNodeId(workflow: ComfyWorkflow): number {
   let max = 0;
   for (const id of Object.keys(workflow)) {
@@ -192,10 +212,11 @@ export function injectAutogrowImageList(
   }
   if (errors.length > 0 || template === undefined || target === undefined) return { workflow: clone, errors };
 
+  const indexBase = slots.target.indexBase ?? 1;
   for (const key of Object.keys(target.inputs ?? {})) {
     if (!key.startsWith(slots.target.keyPrefix)) continue;
     const suffix = key.slice(slots.target.keyPrefix.length);
-    if (/^[1-9]\d*$/.test(suffix)) delete target.inputs?.[key];
+    if (/^\d+$/.test(suffix)) delete target.inputs?.[key];
   }
 
   if (names.length === 0) {
@@ -211,11 +232,91 @@ export function injectAutogrowImageList(
       }
       loader.inputs[slots.loader.key] = names[i];
       clone[nodeId] = loader;
-      target.inputs![`${slots.target.keyPrefix}${i + 1}`] = [nodeId, slots.loader.output ?? 0];
+      target.inputs![`${slots.target.keyPrefix}${i + indexBase}`] = [nodeId, slots.loader.output ?? 0];
     }
   }
 
   return { workflow: clone, errors };
+}
+
+/** Validate every template/source/target node in an autogrow media pipeline. */
+export function validateAutogrowMediaSlots(
+  workflow: ComfyWorkflow,
+  slots: AutogrowMediaSlots,
+  label: 'video' | 'audio',
+): string[] {
+  const errors: string[] = [];
+  for (const id of slots.templates) {
+    const node = workflow[id];
+    if (node === undefined || !isRecord(node.inputs)) {
+      errors.push(`${label} template -> node "${id}" not found in workflow`);
+    }
+  }
+  for (const output of slots.outputs) {
+    const target = workflow[output.target.node];
+    if (target === undefined || !isRecord(target.inputs)) {
+      errors.push(`${label} target -> node "${output.target.node}" not found in workflow`);
+    }
+  }
+  return errors;
+}
+
+function rewriteTemplateLinks(inputs: Record<string, unknown>, ids: Map<string, string>): void {
+  for (const [key, value] of Object.entries(inputs)) {
+    if (!Array.isArray(value) || value.length !== 2 || typeof value[0] !== 'string') continue;
+    const replacement = ids.get(value[0]);
+    if (replacement !== undefined) inputs[key] = [replacement, value[1]];
+  }
+}
+
+/**
+ * Clone a loader/adapter template group once per uploaded media file and
+ * connect each configured source output to its numbered target family.
+ */
+export function injectAutogrowMediaList(
+  workflow: ComfyWorkflow,
+  slots: AutogrowMediaSlots,
+  names: string[],
+  label: 'video' | 'audio',
+): InjectResult {
+  const clone = structuredClone(workflow);
+  const countError = autogrowMediaCountError(slots, names.length, label);
+  if (countError !== undefined) return { workflow: clone, errors: [countError] };
+  const errors = validateAutogrowMediaSlots(clone, slots, label);
+  if (errors.length > 0) return { workflow: clone, errors };
+
+  for (const output of slots.outputs) {
+    const target = clone[output.target.node];
+    for (const key of Object.keys(target.inputs ?? {})) {
+      if (!key.startsWith(output.target.keyPrefix)) continue;
+      if (/^\d+$/.test(key.slice(output.target.keyPrefix.length))) delete target.inputs?.[key];
+    }
+  }
+
+  const originals = new Map(slots.templates.map((id) => [id, clone[id]]));
+  let nextId = nextNumericNodeId(clone);
+  for (const id of slots.templates) delete clone[id];
+
+  for (let i = 0; i < names.length; i++) {
+    const ids = new Map<string, string>();
+    for (const templateId of slots.templates) ids.set(templateId, i === 0 ? templateId : String(nextId++));
+    for (const templateId of slots.templates) {
+      const node = structuredClone(originals.get(templateId));
+      if (node === undefined || !isRecord(node.inputs)) continue;
+      rewriteTemplateLinks(node.inputs, ids);
+      clone[ids.get(templateId)!] = node;
+    }
+    const loaderId = ids.get(slots.loader.node)!;
+    clone[loaderId].inputs![slots.loader.key] = names[i];
+    for (const output of slots.outputs) {
+      const target = clone[output.target.node];
+      const sourceId = ids.get(output.source.node)!;
+      const index = i + (output.target.indexBase ?? 1);
+      target.inputs![`${output.target.keyPrefix}${index}`] = [sourceId, output.source.output ?? 0];
+    }
+  }
+
+  return { workflow: clone, errors: [] };
 }
 
 /**
@@ -368,7 +469,9 @@ export function formatWorkflowValidation(workflows: Record<string, WorkflowConfi
       : isRoleMap(wf.images)
         ? validateImageRoleMap(loaded.graph, wf.images)
         : validateImageMappings(loaded.graph, wf.images ?? []);
-    const errors = [...validateMapping(loaded.graph, wf.inputs), ...imageErrors];
+    const videoErrors = wf.videos ? validateAutogrowMediaSlots(loaded.graph, wf.videos, 'video') : [];
+    const audioErrors = wf.audios ? validateAutogrowMediaSlots(loaded.graph, wf.audios, 'audio') : [];
+    const errors = [...validateMapping(loaded.graph, wf.inputs), ...imageErrors, ...videoErrors, ...audioErrors];
     const inputs = Object.keys(wf.inputs).join(', ') || '(none)';
     lines.push(errors.length > 0 ? `✗ ${name}: ${errors.join('; ')}` : `✓ ${name}: ${inputs}`);
     // Warn (don't fail) when an auto-refine companion names a workflow that is

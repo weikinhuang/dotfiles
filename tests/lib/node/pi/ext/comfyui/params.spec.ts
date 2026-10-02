@@ -116,6 +116,39 @@ describe('buildGenerateParams', () => {
     );
   });
 
+  test('adds video/audio references and video scalars only when a workflow declares them', () => {
+    const workflows: Record<string, WorkflowConfig> = {
+      h3: {
+        file: 'h3.json',
+        inputs: {
+          prompt: { node: '1', key: 'prompt' },
+          duration: { node: '1', key: 'length' },
+          refImageSize: { node: '1', key: 'ref_image_size' },
+        },
+        videos: {
+          mode: 'autogrow',
+          templates: ['2'],
+          loader: { node: '2', key: 'file' },
+          outputs: [{ source: { node: '2' }, target: { node: '1', keyPrefix: 'video_' } }],
+          max: 3,
+        },
+        audios: {
+          mode: 'autogrow',
+          templates: ['3'],
+          loader: { node: '3', key: 'audio' },
+          outputs: [{ source: { node: '3' }, target: { node: '1', keyPrefix: 'audio_' } }],
+          max: 3,
+        },
+      },
+    };
+    const built = keys(mkConfig(workflows), workflowCapabilities(workflows), false);
+    expect(built).toContain('inputVideos');
+    expect(built).toContain('inputAudios');
+    expect(built).toContain('duration');
+    expect(built).toContain('refImageSize');
+    expect(built).not.toContain('inputImages');
+  });
+
   test('enhance + context appear only when the enhancer is available at registration', () => {
     const workflows: Record<string, WorkflowConfig> = {
       t2i: { file: 't.json', inputs: { prompt: { node: '1', key: 'text' } } },

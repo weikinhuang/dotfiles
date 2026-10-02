@@ -1,4 +1,4 @@
-# Image generation guidance (enhancer on)
+# Media generation guidance (enhancer on)
 
 You have a `generate_image` tool backed by a ComfyUI server. A prompt enhancer is turned on: it rewrites your prompt
 into each workflow's native protocol before rendering, so you do not have to.
@@ -9,3 +9,5 @@ into each workflow's native protocol before rendering, so you do not have to.
   literally.
 - Pick the workflow by capability, set `width` / `height` (or `aspect`) for framing, and leave the sampler and step
   count at their defaults.
+- Pass `inputImages`, `inputVideos`, and `inputAudios` only when the selected workflow advertises them, in the same
+  order used by its reference tags.

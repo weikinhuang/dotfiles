@@ -9,6 +9,7 @@ import type { Theme } from '@earendil-works/pi-coding-agent';
 import { Text } from '@earendil-works/pi-tui';
 
 import { formatJobLine } from '../../comfyui/jobs.ts';
+import { mediaCountNote } from '../../comfyui/summary.ts';
 import type { GenerateDetails, JobsDetails } from './details.ts';
 
 /** Render options (`expanded`, partial flags) - structural subset we use. */
@@ -70,7 +71,9 @@ export function renderGenerateResult(
 
   const ephemeralNote = details.ephemeral ? theme.fg('dim', ' · ephemeral') : '';
   const idNote = details.generationId ? ` [${details.generationId}]` : '';
-  const summary = theme.fg('success', `✓${idNote} ${n} image${n === 1 ? '' : 's'}${seedNote}`) + ephemeralNote;
+  const countNote =
+    details.savedPaths === undefined ? `${n} image${n === 1 ? '' : 's'}` : mediaCountNote(details.savedPaths);
+  const summary = theme.fg('success', `✓${idNote} ${countNote}${seedNote}`) + ephemeralNote;
   if (!options.expanded) return new Text(summary, 0, 0);
 
   // Expanded (ctrl+o): show the full positive / negative prompt and paths.
@@ -99,7 +102,7 @@ export function renderJobsResult(result: ToolResultLike, theme: Theme): Text {
 
   if (details.action === 'list') {
     const jobs = details.jobs ?? [];
-    if (jobs.length === 0) return new Text(theme.fg('dim', '(no background image jobs)'), 0, 0);
+    if (jobs.length === 0) return new Text(theme.fg('dim', '(no background media jobs)'), 0, 0);
     const now = Date.now();
     return new Text(jobs.map((j) => theme.fg('text', formatJobLine(j, now))).join('\n'), 0, 0);
   }
@@ -111,8 +114,9 @@ export function renderJobsResult(result: ToolResultLike, theme: Theme): Text {
     case 'cancelled':
       return new Text(theme.fg('muted', `◌ [${id}] cancelled`), 0, 0);
     case 'done': {
-      const n = details.savedPaths?.length ?? 0;
-      return new Text(theme.fg('success', `✓ [${id}] ${n} image${n === 1 ? '' : 's'}`), 0, 0);
+      const paths = details.savedPaths ?? [];
+      const countNote = paths.length > 0 ? mediaCountNote(paths) : '0 images';
+      return new Text(theme.fg('success', `✓ [${id}] ${countNote}`), 0, 0);
     }
     default:
       return new Text(theme.fg('dim', `[${id}]`), 0, 0);

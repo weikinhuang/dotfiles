@@ -106,10 +106,15 @@ export function extractOutputImages(history: unknown, promptId: string): ImageRe
         if (!isRecord(item)) continue;
         const filename = item.filename;
         if (typeof filename !== 'string' || filename.length === 0) continue;
+        const type = typeof item.type === 'string' ? item.type : 'output';
+        // Loader nodes may echo uploaded reference media through history.
+        // Those are inputs, not generated outputs, and must not be copied or
+        // counted alongside the render.
+        if (type === 'input') continue;
         const ref: ImageRef = {
           filename,
           subfolder: typeof item.subfolder === 'string' ? item.subfolder : '',
-          type: typeof item.type === 'string' ? item.type : 'output',
+          type,
         };
         const existing = byKey.get(refKey(ref));
         if (existing === undefined) byKey.set(refKey(ref), ref);

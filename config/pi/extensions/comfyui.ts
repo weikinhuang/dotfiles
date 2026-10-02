@@ -1,13 +1,13 @@
 /**
- * `comfyui` - a local/remote ComfyUI image-generation tool for pi.
+ * `comfyui` - a local/remote ComfyUI media-generation tool for pi.
  *
- * Registers a single `generate_image` tool the model can call. The tool
+ * Registers a single `generate_image` tool the model can call for image or
+ * video workflows. The tool
  * loads a named API-format workflow, injects the prompt / seed /
  * dimensions into the nodes named by the workflow's input map, submits
  * it to a ComfyUI server, streams generation progress, fetches the
- * rendered PNG(s), saves them to disk, and returns them inline as
- * multimodal tool results so both the terminal and vision-capable models
- * see the image.
+ * rendered media, saves it to disk, and returns still-image previews inline
+ * so both the terminal and vision-capable models can inspect the result.
  *
  * This is NOT a replacement for pi's built-in (provider-routed) image
  * generation - it is a custom tool, the same shape pi's own
@@ -24,11 +24,12 @@
  *
  * Config layers (lowest -> highest): shipped txt2img default ->
  * <piAgentDir>/comfyui.json -> <cwd>/.pi/comfyui.json. An environment-only
- * setup with PI_COMFYUI_URL uses the shipped Qwen Image 2.1 workflow instead.
+ * setup with PI_COMFYUI_URL uses the shipped Qwen Image 2.1 and MiniMax H3
+ * workflows instead.
  *
  * The extension auto-disables when neither config file contributes a `workflows`
  * entry and PI_COMFYUI_URL is unset. The shipped txt2img.api.json is example
- * scaffolding, while the Qwen Image 2.1 graph is the environment-only default.
+ * scaffolding, while Qwen Image 2.1 remains the environment-only default.
  *
  * Environment:
  *   PI_COMFYUI_DISABLED=1   skip the extension entirely
@@ -87,6 +88,7 @@ import type { LooseMessage } from '../../../lib/node/pi/context-edit/target.ts';
 const extDir = dirname(fileURLToPath(import.meta.url));
 
 const QWEN_IMAGE_EDIT_21 = 'qwen-image-edit-2.1';
+const MINIMAX_H3_REF2VA = 'minimax-h3-ref2va-spectrum';
 
 // Only on-disk paths are shell-specific; input maps and metadata otherwise
 // follow the same declarative WorkflowConfig shape as user workflows.
@@ -118,6 +120,64 @@ function shippedQwenImageEdit21Workflow(): WorkflowConfig {
   };
 }
 
+function shippedMiniMaxH3Ref2vaWorkflow(): WorkflowConfig {
+  return {
+    file: join(extDir, '..', 'comfyui', 'minimax-h3-ref2va-spectrum.api.json'),
+    description: 'MiniMax H3 Ref2VA video with native audio, dual-GPU placement, SageAttention, and Spectrum',
+    tags: ['video', 'audio', 'reference', 'minimax-h3', 'sage', 'spectrum'],
+    promptProtocol:
+      'Natural language. Address references as <Picture 1> through <Picture 9>, <Video 1> through <Video 3>, and <Audio 1> through <Audio 3>.',
+    inputs: {
+      prompt: { node: '14', key: 'prompt' },
+      seed: { node: '15', key: 'noise_seed' },
+      steps: { node: '17', key: 'steps' },
+      width: { node: '14', key: 'width' },
+      height: { node: '14', key: 'height' },
+      duration: { node: '14', key: 'length', transform: 'secondsToFrames24H3' },
+      refImageSize: { node: '14', key: 'ref_image_size' },
+    },
+    images: {
+      mode: 'autogrow',
+      loader: { node: '10', key: 'image', output: 0 },
+      target: { node: '14', keyPrefix: 'ref_images.ref_image_', indexBase: 0 },
+      min: 0,
+      max: 9,
+    },
+    videos: {
+      mode: 'autogrow',
+      templates: ['11', '12'],
+      loader: { node: '11', key: 'file' },
+      outputs: [
+        {
+          source: { node: '12', output: 0 },
+          target: { node: '14', keyPrefix: 'ref_videos.ref_video_', indexBase: 0 },
+        },
+        {
+          source: { node: '12', output: 1 },
+          target: { node: '14', keyPrefix: 'ref_video_audios.ref_video_audio_', indexBase: 0 },
+        },
+      ],
+      min: 0,
+      max: 3,
+    },
+    audios: {
+      mode: 'autogrow',
+      templates: ['13'],
+      loader: { node: '13', key: 'audio' },
+      outputs: [
+        {
+          source: { node: '13', output: 0 },
+          target: { node: '14', keyPrefix: 'ref_audios.ref_audio_', indexBase: 0 },
+        },
+      ],
+      min: 0,
+      max: 3,
+    },
+    referenceConstraints: { maxTotal: 12, audioRequiresVisual: true },
+    outputType: 'video',
+  };
+}
+
 function envConfigured(): boolean {
   return (process.env.PI_COMFYUI_URL?.trim().length ?? 0) > 0;
 }
@@ -128,7 +188,10 @@ function loadConfig(cwd: string): ComfyuiConfig {
   return {
     ...config,
     defaultWorkflow: QWEN_IMAGE_EDIT_21,
-    workflows: { [QWEN_IMAGE_EDIT_21]: shippedQwenImageEdit21Workflow() },
+    workflows: {
+      [QWEN_IMAGE_EDIT_21]: shippedQwenImageEdit21Workflow(),
+      [MINIMAX_H3_REF2VA]: shippedMiniMaxH3Ref2vaWorkflow(),
+    },
   };
 }
 
@@ -235,17 +298,21 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
 
   pi.registerTool({
     name: 'generate_image',
-    label: 'Generate image',
+    label: 'Generate media',
     description:
-      `Generate an image from a prompt via a ComfyUI server and return it inline. ` +
-      `Use when the user asks to create, draw, render, or generate a picture. ` +
+      `Generate an image or video from a prompt via a ComfyUI server. ` +
+      `Use when the user asks to create, draw, render, or generate visual media. ` +
       `Each workflow bakes in its own checkpoint/sampler/scheduler; pick one by capability and prompt in its protocol. ` +
       `Available workflows (default ${defaultWorkflow}):\n${workflowMatrix}\n` +
-      `Saved to disk and returned so you can see it.`,
-    promptSnippet: `To create or render an image, call \`generate_image\` (workflows: ${workflowList}) instead of describing it in text.`,
+      `Saved to disk; still images and video preview frames are returned so you can inspect them.`,
+    promptSnippet: `To create or render an image or video, call \`generate_image\` (workflows: ${workflowList}) instead of describing it in text.`,
     promptGuidelines: [
       "Never call ComfyUI's HTTP API (`/object_info`, `/prompt`, `/view`, …) via bash/curl/anything - `generate_image` is the only entry point; it encapsulates model and sampler choice.",
-      ...(caps.positionalImages ? ['Only pass `inputImages` for img2img / edit workflows.'] : []),
+      ...(caps.positionalImages
+        ? ['Only pass `inputImages` when the selected workflow supports image references.']
+        : []),
+      ...(caps.videoInput ? ['Only pass `inputVideos` when the selected workflow supports video references.'] : []),
+      ...(caps.audioInput ? ['Only pass `inputAudios` when the selected workflow supports audio references.'] : []),
     ],
     parameters: GenerateParams,
 
@@ -261,16 +328,16 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
   const ImageJobsParams = Type.Object({
     action: StringEnum(['list', 'collect', 'cancel'] as const, {
       description:
-        'list (all background jobs), collect (poll a job; returns images once ready, "still running" otherwise - safe to repeat), cancel (drop a still-queued job).',
+        'list (all background jobs), collect (poll a job; returns saved media and image previews when ready), cancel (drop a still-queued job).',
     }),
     id: Type.Optional(Type.String({ description: 'Job id (required for collect / cancel).' })),
   });
 
   pi.registerTool({
     name: 'image_jobs',
-    label: 'Image jobs',
+    label: 'Media jobs',
     description:
-      'Manage background image generations (those started by generate_image with background=true). ' +
+      'Manage background media generations (those started by generate_image with background=true). ' +
       'Actions: list, collect (poll, returning the image(s) once ready), cancel.',
     promptSnippet:
       'After a background generate_image (background=true), use image_jobs collect with the returned id to retrieve the image once ready.',

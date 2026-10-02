@@ -21,6 +21,7 @@ import type { ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { type Conn, readSavedImages } from '../../comfyui/client.ts';
 import { resolveAuthHeaders, resolveBaseUrl } from '../../comfyui/config.ts';
 import { findGeneration } from '../../comfyui/generations.ts';
+import { mediaKindFromName } from '../../comfyui/images.ts';
 import {
   type CritiqueRequest,
   type RefineAction,
@@ -64,7 +65,7 @@ export async function runRefineCommand(
     notify(`unknown generation "${id}" (see /comfyui gallery)`, 'warning');
     return;
   }
-  const sourcePath = rec.savedPaths[0];
+  const sourcePath = rec.savedPaths.find((path) => mediaKindFromName(path) === 'image');
   if (sourcePath === undefined || !existsSync(sourcePath)) {
     notify(`generation "${id}" has no saved image on disk to refine`, 'warning');
     return;

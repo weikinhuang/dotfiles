@@ -39,8 +39,9 @@ websocket parsing - lives under [`../../../lib/node/pi/comfyui/`](../../../lib/n
 
 1. Resolve config and the named workflow (`workflow` arg, else `defaultWorkflow`).
 2. Load and validate the API-format workflow JSON for that name.
-3. For edit / img2img, upload each `inputImages` entry via `POST /upload/image` and reference the stored names in the
-   workflow's fixed or runtime-sized image slots.
+3. Upload each declared `inputImages`, `inputVideos`, and `inputAudios` entry through ComfyUI's binary-safe
+   `POST /upload/image` input endpoint, then reference the stored names in the workflow's fixed image slots or
+   runtime-sized media pipelines.
 4. Inject the prompt / seed / dimensions / etc. into the node ids named by the workflow's input map. Omitted args keep
    the workflow file's baked-in values; an omitted `seed` becomes a fresh random seed only when the workflow maps one.
 5. Submit via `POST /prompt` with a generated `client_id`, capturing the `prompt_id`.
@@ -48,11 +49,11 @@ websocket parsing - lives under [`../../../lib/node/pi/comfyui/`](../../../lib/n
    line. The poll is the source of truth (best-effort - websocket failures, including auth, fall back silently to
    polling), but when the websocket is healthy its completion / error event wakes the poll immediately, so there is no
    up-to-one-second wait between "render finished" and "noticed".
-7. Fetch each output via `GET /view`, write the file(s) to `saveDir`, and return them inline with a one-line summary.
-   Outputs reported under `images`, `gifs` (animation / video workflows), and `audio` are all collected; the
-   server-supplied filename is reduced to its basename before writing, so a path-traversal name can never escape
-   `saveDir`. A `PreviewImage`+`SaveImage` pair that emits the same file twice is de-duplicated, keeping the saved
-   `output` copy, so one render is never saved or sent to the model twice.
+7. Fetch each output via `GET /view` and write the file(s) to `saveDir`. Outputs reported under `images`, `gifs`
+   (animation / video workflows), and `audio` are all collected with their real media type. Only still images are
+   returned as inline image blocks; video and audio remain saved files named in the text result. The server-supplied
+   filename is reduced to its basename before writing, so a path-traversal name can never escape `saveDir`. A
+   `PreviewImage`+`SaveImage` pair that emits the same file twice is de-duplicated, keeping the saved `output` copy.
 
 A non-2xx `POST /prompt` (e.g. unknown checkpoint, bad dimension) surfaces ComfyUI's validation body as an `isError`
 tool result so the model can self-correct.
@@ -74,6 +75,10 @@ tool result so the model can self-correct.
 | `seed`                | number  | Omit for a fresh random seed; pass a prior seed to reproduce.                                                                            |
 | `denoise`             | number  | Denoise strength (img2img), `0`-`1`.                                                                                                     |
 | `inputImages`         | array   | Ordered reference image paths for positional img2img / edit workflows, e.g. `["~/in.png"]`.                                              |
+| `inputVideos`         | array   | Ordered reference video paths for workflows with video pipelines.                                                                        |
+| `inputAudios`         | array   | Ordered standalone reference audio paths for workflows with audio pipelines.                                                             |
+| `duration`            | number  | Output duration in seconds when mapped by a video workflow.                                                                              |
+| `refImageSize`        | string  | Reference-image sizing mode when mapped, such as `match` or `max`.                                                                       |
 | `images`              | object  | Named image inputs keyed by role (`init`, `mask`, …) for role-based workflows. See below.                                                |
 | `count`               | number  | Batch size.                                                                                                                              |
 | `sendToModel`         | boolean | Override the `sendToModel` config default for this call.                                                                                 |
@@ -637,10 +642,11 @@ generation.
 
 The `generate_image` parameter schema is built at registration time from the aggregate capabilities of the configured
 workflows, so the model-facing tool definition never carries params nothing can consume. A pure text-to-image setup
-omits `inputImages` / `images` (and the bbox-mask `feather` / `invert` sub-fields), and `width` / `height` / `aspect`,
-`denoise`, `steps`, `cfg`, `seed`, `count`, and `negative` each appear only when some workflow maps them; `refine`
-appears only when some workflow accepts an image input; `enhance` / `context` only when the prompt enhancer is installed
-(see [Prompt enhancement](#prompt-enhancement-enhance)). Every param is optional and the executor reads
+omits `inputImages` / `inputVideos` / `inputAudios` / `images` (and the bbox-mask `feather` / `invert` sub-fields), and
+`width` / `height` / `aspect`, `duration`, `refImageSize`, `denoise`, `steps`, `cfg`, `seed`, `count`, and `negative`
+each appear only when some workflow maps them; `refine` appears only when some workflow accepts an image input;
+`enhance` / `context` only when the prompt enhancer is installed (see
+[Prompt enhancement](#prompt-enhancement-enhance)). Every param is optional and the executor reads
 `params.X ?? config.X`, so omitting a param simply keeps it out of the schema - it never changes how a present param
 behaves.
 
@@ -677,8 +683,39 @@ An autogrow declaration looks like this:
 
 The API graph carries one loader template and one initial dotted connection. The extension clears every numbered target
 input whose key starts with `keyPrefix`, deletes the template for an empty list, or emits one loader and connection per
-image. ComfyUI autogrow links must be flat dotted keys such as `images.image_1`; a nested `images` object does not
-resolve image links in the prompt API.
+image. `target.indexBase` defaults to `1` and may be set to `0` for zero-based socket families. ComfyUI autogrow links
+must be flat dotted keys such as `images.image_1`; a nested `images` object does not resolve image links in the prompt
+API.
+
+Video and audio workflows can declare the same runtime behavior through top-level `videos` and `audios` pipelines. A
+pipeline names a list of graph-template node ids, the loader node and file input, and one or more source-output to
+numbered-target mappings. Every supplied file gets a complete clone of the template group, including rewritten links
+between its nodes. This supports adapters such as `LoadVideo -> GetVideoComponents`, where one uploaded video produces
+both a frame sequence and a paired soundtrack:
+
+```jsonc
+{
+  "videos": {
+    "mode": "autogrow",
+    "templates": ["11", "12"],
+    "loader": { "node": "11", "key": "file" },
+    "outputs": [
+      {
+        "source": { "node": "12", "output": 0 },
+        "target": { "node": "14", "keyPrefix": "ref_videos.ref_video_", "indexBase": 0 },
+      },
+      {
+        "source": { "node": "12", "output": 1 },
+        "target": { "node": "14", "keyPrefix": "ref_video_audios.ref_video_audio_", "indexBase": 0 },
+      },
+    ],
+    "max": 3,
+  },
+}
+```
+
+`referenceConstraints.maxTotal` caps image, video, and standalone audio files together.
+`referenceConstraints.audioRequiresVisual` rejects standalone audio when no image or video accompanies it.
 
 A call uses `inputImages` xor `images`, matching the workflow's declared shape; passing the wrong one (or an unknown
 role, or any image arg to a text-to-image workflow) is a clear error rather than a silent no-op. A `refine` id feeds the
@@ -695,6 +732,9 @@ be a `LoadImageMask`-style input.
 and a relative path (`./local/wf.api.json`, `wf/foo.api.json`) resolves against the session cwd. Relative resolution is
 against the cwd regardless of which config layer declared the workflow, so a project-local `<cwd>/.pi/comfyui.json` can
 point at a graph checked into the project with `"file": "./comfyui/my.api.json"`.
+
+With `PI_COMFYUI_URL` and no configured workflows, the extension exposes the shipped Qwen Image 2.1 workflow as the
+default plus the MiniMax H3 Ref2VA video workflow below.
 
 The shipped default [`../comfyui/txt2img.api.json`](../comfyui/txt2img.api.json) is the classic SD1.5 graph; it expects
 a `v1-5-pruned-emaonly.safetensors` checkpoint to be installed on the server. Repoint `defaultWorkflow` / `workflows` at
@@ -718,6 +758,15 @@ same node derives the latent from `<image1>` and accepts `<image2>` through `<im
 latent output feeds `KSampler` directly in both modes, so no separate empty-latent or switch node is needed. The graph
 maps no `width` / `height`; reference images preserve their aspect ratio while being resized toward the encoder's
 1024-pixel budget.
+
+[`../comfyui/minimax-h3-ref2va-spectrum.api.json`](../comfyui/minimax-h3-ref2va-spectrum.api.json) generates MP4 video
+with native stereo audio through MiniMax H3 Ref2VA. It preserves the dual-GPU placement, native H3 SageAttention patch,
+and Spectrum settings from the working server graph. It accepts up to nine `inputImages`, three `inputVideos`, and three
+standalone `inputAudios`, with 12 files total. Each video's own soundtrack is extracted and paired automatically. Prompt
+references are one-based (`<Picture 1>`, `<Video 1>`, and `<Audio 1>`) even though its autogrow socket keys are
+zero-based. `duration` is converted to the nearest supported 24 fps `5 + 17n` frame count, while `refImageSize` accepts
+`match` or `max`. The graph saves the complete MP4 plus a first-frame PNG preview; only that PNG is eligible for an
+inline model image block.
 
 Two **FLUX.2 [klein] 9B** graphs round out the set, both loading GGUF weights via `UnetLoaderGGUF` and the Qwen3-8B text
 encoder via `CLIPLoaderGGUF` (`type: flux2`) alongside the `flux2-vae`.
