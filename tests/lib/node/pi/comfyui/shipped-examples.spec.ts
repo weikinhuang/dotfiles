@@ -18,6 +18,7 @@ import { describe, expect, test } from 'vitest';
 import { SHIPPED_WORKFLOW_INPUTS } from '../../../../../lib/node/pi/comfyui/config.ts';
 import type { AutogrowImageSlots, AutogrowMediaSlots, InputMapping } from '../../../../../lib/node/pi/comfyui/types.ts';
 import {
+  injectInputs,
   isAutogrowImageSlots,
   loadWorkflowGraph,
   validateAutogrowImageSlots,
@@ -102,6 +103,8 @@ const SHIPPED: Record<string, ShippedMap> = {
       seed: { node: '9', key: 'seed' },
       steps: { node: '9', key: 'steps' },
       cfg: { node: '9', key: 'cfg' },
+      width: { node: '12', key: 'width', alsoSet: [{ node: '13', key: 'switch', value: true }] },
+      height: { node: '12', key: 'height', alsoSet: [{ node: '13', key: 'switch', value: true }] },
     },
     images: {
       mode: 'autogrow',
@@ -217,7 +220,33 @@ describe('shipped comfyui example graphs', () => {
           Object.prototype.hasOwnProperty.call(node.inputs, target.key),
           `${name} -> node ${target.node}.${target.key}`,
         ).toBe(true);
+        for (const sideEffect of target.alsoSet ?? []) {
+          const sideNode = graph[sideEffect.node];
+          expect(sideNode, `${name} alsoSet -> node ${sideEffect.node}`).toBeDefined();
+          expect(
+            Object.prototype.hasOwnProperty.call(sideNode.inputs, sideEffect.key),
+            `${name} alsoSet -> node ${sideEffect.node}.${sideEffect.key}`,
+          ).toBe(true);
+        }
       }
     });
   }
+
+  test('Qwen Image 2.1 activates its custom latent only when dimensions are supplied', () => {
+    const file = 'qwen-image-edit-2.1.api.json';
+    const { graph, error } = loadWorkflowGraph(join(comfyuiDir, file), repoRoot, homedir());
+    expect(error).toBeUndefined();
+    if (graph === undefined) throw new Error('graph should be defined');
+
+    const inputs = SHIPPED[file].inputs;
+    const inherited = injectInputs(graph, inputs, { width: undefined, height: undefined });
+    expect(inherited.errors).toEqual([]);
+    expect(inherited.workflow['13'].inputs?.switch).toBe(false);
+    expect(inherited.workflow['9'].inputs?.latent_image).toEqual(['13', 0]);
+
+    const custom = injectInputs(graph, inputs, { width: 1280, height: 768 });
+    expect(custom.errors).toEqual([]);
+    expect(custom.workflow['12'].inputs).toMatchObject({ width: 1280, height: 768 });
+    expect(custom.workflow['13'].inputs?.switch).toBe(true);
+  });
 });

@@ -109,6 +109,8 @@ function shippedQwenImageEdit21Workflow(): WorkflowConfig {
       seed: { node: '9', key: 'seed' },
       steps: { node: '9', key: 'steps' },
       cfg: { node: '9', key: 'cfg' },
+      width: { node: '12', key: 'width', alsoSet: [{ node: '13', key: 'switch', value: true }] },
+      height: { node: '12', key: 'height', alsoSet: [{ node: '13', key: 'switch', value: true }] },
     },
     images: {
       mode: 'autogrow',

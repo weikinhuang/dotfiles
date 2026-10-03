@@ -478,6 +478,16 @@ workflow entry points at its JSON file and maps tunable names to a node id + inp
         "seed": { "node": "9", "key": "seed" },
         "steps": { "node": "9", "key": "steps" },
         "cfg": { "node": "9", "key": "cfg" },
+        "width": {
+          "node": "12",
+          "key": "width",
+          "alsoSet": [{ "node": "13", "key": "switch", "value": true }],
+        },
+        "height": {
+          "node": "12",
+          "key": "height",
+          "alsoSet": [{ "node": "13", "key": "switch", "value": true }],
+        },
       },
       "images": {
         "mode": "autogrow",
@@ -530,6 +540,11 @@ workflow entry points at its JSON file and maps tunable names to a node id + inp
 Export a workflow from ComfyUI with "Save (API Format)", drop it somewhere readable, and point `file` at it. The `batch`
 map key receives the tool's `count` arg. To get the node ids, open the API-format JSON (its top-level keys are the node
 ids) or enable node-id badges in the ComfyUI canvas.
+
+An input mapping may include `alsoSet`, a non-empty list of fixed node inputs written only when that parameter is
+supplied. This supports graph switches without adding workflow-specific code. The Qwen Image 2.1 map uses it to enable
+its custom-size latent whenever `width`, `height`, or an `aspect` preset injects dimensions; when dimensions are
+omitted, the edit continues to follow the first reference image's latent size.
 
 #### Workflow discoverability (optional)
 
@@ -754,10 +769,11 @@ exposes none; `CFGNorm` (node 75) stabilises the cfg-1 Lightning setup.
 and demonstrates autogrow image slots. It uses the INT8 diffusion model and Qwen3-VL encoder, keeps the prefix cache in
 CPU RAM, and places CLIP plus the VAE on GPU 1 while diffusion and sampling remain on GPU 0. With no `inputImages`,
 `TextEncodeQwenImage21` produces a text-to-image latent at its baked 1024 resolution. With one or more references, the
-same node derives the latent from `<image1>` and accepts `<image2>` through `<image16>` as supporting references. Its
-latent output feeds `KSampler` directly in both modes, so no separate empty-latent or switch node is needed. The graph
-maps no `width` / `height`; reference images preserve their aspect ratio while being resized toward the encoder's
-1024-pixel budget.
+same node derives the latent from `<image1>` and accepts `<image2>` through `<image16>` as supporting references. With
+no explicit dimensions, that latent feeds `KSampler`, so edits follow the first reference image's aspect ratio while the
+encoder resizes it toward its 1024-pixel budget. Passing `width` / `height` (or `aspect`) activates a separate
+`EmptyLatentImage` through `ComfySwitchNode`, matching the native server edit template's custom-size path. Keep custom
+dimensions reasonably close to the resized first reference or the edit may shift.
 
 [`../comfyui/minimax-h3-ref2va-spectrum.api.json`](../comfyui/minimax-h3-ref2va-spectrum.api.json) generates MP4 video
 with native stereo audio through MiniMax H3 Ref2VA. It preserves the dual-GPU placement, native H3 SageAttention patch,

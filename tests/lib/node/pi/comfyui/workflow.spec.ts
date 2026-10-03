@@ -91,6 +91,29 @@ describe('injectInputs', () => {
     expect(result.workflow['5'].inputs?.batch_size).toBe(56);
   });
 
+  test('writes fixed side effects only when the mapped param is supplied', () => {
+    const original = {
+      ...sampleWorkflow(),
+      '10': { class_type: 'ComfySwitchNode', inputs: { switch: false } },
+    };
+    const mapping = {
+      width: {
+        node: '5',
+        key: 'width',
+        alsoSet: [{ node: '10', key: 'switch', value: true }],
+      },
+    };
+    const injected = injectInputs(original, mapping, { width: 1280 });
+    expect(injected.errors).toEqual([]);
+    expect(injected.workflow['5'].inputs?.width).toBe(1280);
+    expect(injected.workflow['10'].inputs?.switch).toBe(true);
+    expect(original['10'].inputs.switch).toBe(false);
+
+    const omitted = injectInputs(original, mapping, { width: undefined });
+    expect(omitted.errors).toEqual([]);
+    expect(omitted.workflow['10'].inputs?.switch).toBe(false);
+  });
+
   test('skips undefined params, keeping the baked-in values', () => {
     const { workflow, errors } = injectInputs(sampleWorkflow(), MAP, { prompt: 'x', seed: undefined });
     expect(errors).toEqual([]);
@@ -122,6 +145,17 @@ describe('validateMapping', () => {
     const errors = validateMapping(sampleWorkflow(), map);
     expect(errors).toHaveLength(1);
     expect(errors[0]).toContain('ghost');
+  });
+
+  test('flags a dangling alsoSet target', () => {
+    const map = {
+      width: {
+        node: '5',
+        key: 'width',
+        alsoSet: [{ node: '404', key: 'switch', value: true }],
+      },
+    };
+    expect(validateMapping(sampleWorkflow(), map)).toEqual(['"width" alsoSet -> node "404" not found in workflow']);
   });
 });
 

@@ -156,7 +156,37 @@ function asInputMapping(value: unknown): InputMapping | undefined {
   if (node === undefined || key === undefined || node.length === 0 || key.length === 0) return undefined;
   const transform = asString(value.transform);
   if (value.transform !== undefined && transform !== 'secondsToFrames24H3') return undefined;
-  return { node, key, ...(transform === 'secondsToFrames24H3' ? { transform } : {}) };
+  let alsoSet: InputMapping['alsoSet'];
+  if (value.alsoSet !== undefined) {
+    if (!Array.isArray(value.alsoSet) || value.alsoSet.length === 0) return undefined;
+    alsoSet = [];
+    for (const raw of value.alsoSet) {
+      if (!isRecord(raw)) return undefined;
+      const sideNode = asString(raw.node);
+      const sideKey = asString(raw.key);
+      const sideValue = raw.value;
+      const validValue =
+        typeof sideValue === 'string' ||
+        typeof sideValue === 'boolean' ||
+        (typeof sideValue === 'number' && Number.isFinite(sideValue));
+      if (
+        sideNode === undefined ||
+        sideKey === undefined ||
+        sideNode.length === 0 ||
+        sideKey.length === 0 ||
+        !validValue
+      ) {
+        return undefined;
+      }
+      alsoSet.push({ node: sideNode, key: sideKey, value: sideValue });
+    }
+  }
+  return {
+    node,
+    key,
+    ...(transform === 'secondsToFrames24H3' ? { transform } : {}),
+    ...(alsoSet !== undefined ? { alsoSet } : {}),
+  };
 }
 
 function asNonNegativeInteger(value: unknown): number | undefined {

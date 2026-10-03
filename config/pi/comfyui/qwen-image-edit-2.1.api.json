@@ -60,7 +60,7 @@
       "model": ["6", 0],
       "positive": ["8", 0],
       "negative": ["8", 1],
-      "latent_image": ["8", 2],
+      "latent_image": ["13", 0],
       "seed": 0,
       "steps": 25,
       "cfg": 1,
@@ -78,5 +78,15 @@
     "class_type": "SaveImage",
     "_meta": { "title": "Save Image" },
     "inputs": { "filename_prefix": "Qwen-Image-2.1", "images": ["10", 0] }
+  },
+  "12": {
+    "class_type": "EmptyLatentImage",
+    "_meta": { "title": "Optional Custom Output Size" },
+    "inputs": { "width": 1024, "height": 1024, "batch_size": 1 }
+  },
+  "13": {
+    "class_type": "ComfySwitchNode",
+    "_meta": { "title": "Use Custom Output Size When Requested" },
+    "inputs": { "switch": false, "on_false": ["8", 2], "on_true": ["12", 0] }
   }
 }

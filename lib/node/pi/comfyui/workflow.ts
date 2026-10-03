@@ -111,6 +111,14 @@ export function injectInputs(
           })()
         : value;
     node.inputs[target.key] = transformed;
+    for (const sideEffect of target.alsoSet ?? []) {
+      const sideNode = clone[sideEffect.node];
+      if (sideNode === undefined || !isRecord(sideNode.inputs)) {
+        errors.push(`workflow has no node "${sideEffect.node}" with inputs (needed for "${name}" alsoSet)`);
+        continue;
+      }
+      sideNode.inputs[sideEffect.key] = sideEffect.value;
+    }
   }
 
   return { workflow: clone, errors };
@@ -128,6 +136,12 @@ export function validateMapping(workflow: ComfyWorkflow, mapping: Record<string,
     const node = workflow[target.node];
     if (node === undefined || !isRecord(node.inputs)) {
       errors.push(`"${name}" -> node "${target.node}" not found in workflow`);
+    }
+    for (const sideEffect of target.alsoSet ?? []) {
+      const sideNode = workflow[sideEffect.node];
+      if (sideNode === undefined || !isRecord(sideNode.inputs)) {
+        errors.push(`"${name}" alsoSet -> node "${sideEffect.node}" not found in workflow`);
+      }
     }
   }
   return errors;

@@ -13,6 +13,13 @@ export interface AuthHeader {
   value: string;
 }
 
+/** A fixed graph input written when its owning mapped parameter is supplied. */
+export interface InputSideEffect {
+  node: string;
+  key: string;
+  value: string | number | boolean;
+}
+
 /**
  * Where a tunable parameter lives inside an API-format workflow graph:
  * the `node` id (the object key in the graph) and the `key` inside that
@@ -23,6 +30,8 @@ export interface InputMapping {
   key: string;
   /** Optional deterministic conversion applied before writing the graph input. */
   transform?: 'secondsToFrames24H3';
+  /** Fixed inputs to write when this mapped parameter is supplied. */
+  alsoSet?: InputSideEffect[];
 }
 
 /**

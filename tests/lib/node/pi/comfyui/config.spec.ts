@@ -101,6 +101,31 @@ describe('coerceConfigLayer', () => {
     });
   });
 
+  test('parses fixed input side effects and rejects malformed declarations', () => {
+    const out = coerceConfigLayer({
+      workflows: {
+        edit: {
+          file: '~/edit.json',
+          inputs: {
+            width: {
+              node: '12',
+              key: 'width',
+              alsoSet: [{ node: '13', key: 'switch', value: true }],
+            },
+            bad: { node: '12', key: 'height', alsoSet: [{ node: '', key: 'switch', value: true }] },
+          },
+        },
+      },
+    });
+    expect(out.workflows?.edit?.inputs).toEqual({
+      width: {
+        node: '12',
+        key: 'width',
+        alsoSet: [{ node: '13', key: 'switch', value: true }],
+      },
+    });
+  });
+
   test('parses an images[] list and drops malformed entries', () => {
     const out = coerceConfigLayer({
       workflows: {
