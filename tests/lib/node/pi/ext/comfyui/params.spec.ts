@@ -95,6 +95,7 @@ describe('buildGenerateParams', () => {
         'variationOf',
         'width',
         'workflow',
+        'workflowFile',
       ].sort(),
     );
     // The mask role keeps the bbox synth spec in the `images` value union.
@@ -112,7 +113,16 @@ describe('buildGenerateParams', () => {
     // aspect (no dims), refine (no image input), inputImages/images (no image
     // slots), enhance/context (enhancer unavailable).
     expect(keys(config, caps, false)).toEqual(
-      ['background', 'ephemeral', 'previewMaxDimension', 'prompt', 'sendToModel', 'variationOf', 'workflow'].sort(),
+      [
+        'background',
+        'ephemeral',
+        'previewMaxDimension',
+        'prompt',
+        'sendToModel',
+        'variationOf',
+        'workflow',
+        'workflowFile',
+      ].sort(),
     );
   });
 

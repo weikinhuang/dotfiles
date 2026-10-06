@@ -42,6 +42,11 @@ function jobs(details: Partial<JobsDetails>): { details: Partial<JobsDetails> } 
 }
 
 describe('renderGenerateCall', () => {
+  test('shows the direct workflow file instead of an empty prompt', () => {
+    expect(out(renderGenerateCall({ workflowFile: './workflows/draft.api.json' }, theme))).toBe(
+      'generate_image ./workflows/draft.api.json',
+    );
+  });
   test('shows a trimmed, collapsed prompt preview', () => {
     expect(out(renderGenerateCall({ prompt: '  a   red\n cat  ' }, theme))).toBe('generate_image a red cat');
   });

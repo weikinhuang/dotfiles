@@ -143,6 +143,7 @@ export async function actCollect(
     });
     const collected = rt.recordGeneration({
       workflow: job.workflow,
+      ...(job.workflowFile !== undefined ? { workflowFile: job.workflowFile } : {}),
       promptId: job.promptId,
       prompt: job.prompt,
       negative: job.negative,

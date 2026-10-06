@@ -30,8 +30,10 @@ export type GenerationSource = 'foreground' | 'background' | 'ephemeral';
 export interface GenerationRecord {
   /** Registry-local id the model passes to `variationOf` / `refine` (e.g. "g1"). */
   id: string;
-  /** Named workflow that produced it. */
+  /** Named workflow or direct-file path that produced it. */
   workflow: string;
+  /** Direct-file origin, not a replayable graph snapshot. */
+  workflowFile?: string;
   /** ComfyUI prompt id, kept for dedup across collect / auto-download. */
   promptId?: string;
   /** Resolved positive prompt actually submitted. */
@@ -73,6 +75,7 @@ export interface GenerationRegistry {
 /** Fields a caller supplies when recording a freshly-landed generation. */
 export interface NewGeneration {
   workflow: string;
+  workflowFile?: string;
   promptId?: string;
   prompt: string;
   negative?: string;
@@ -114,6 +117,7 @@ export function addGeneration(
   const created: GenerationRecord = {
     id,
     workflow: gen.workflow,
+    ...(gen.workflowFile !== undefined ? { workflowFile: gen.workflowFile } : {}),
     promptId: gen.promptId,
     prompt: gen.prompt,
     negative: gen.negative,
@@ -190,7 +194,14 @@ export function formatGenerationDetail(rec: GenerationRecord): string {
   if (rec.width !== undefined && rec.height !== undefined) meta.push(`${rec.width}x${rec.height}`);
   if (meta.length > 0) lines.push(meta.join(' · '));
   if (rec.refineOf !== undefined) lines.push(`refined from: ${rec.refineOf}`);
-  lines.push(`prompt:   ${rec.prompt}`);
+  if (rec.workflowFile !== undefined) {
+    lines.push(`workflow file: ${rec.workflowFile}`);
+    lines.push(
+      'Submitted as authored; prompt/seed/dimensions were not inferred. The file may have changed since rendering.',
+    );
+  } else {
+    lines.push(`prompt:   ${rec.prompt}`);
+  }
   if (rec.negative !== undefined && rec.negative.length > 0) lines.push(`negative: ${rec.negative}`);
   for (const p of rec.savedPaths) lines.push(`file:     ${p}`);
   const refine = rec.refine;
@@ -212,6 +223,7 @@ function isGenerationRecord(value: unknown): value is GenerationRecord {
   const v = value as Record<string, unknown>;
   if (typeof v.id !== 'string' || v.id.length === 0) return false;
   if (typeof v.workflow !== 'string') return false;
+  if (v.workflowFile !== undefined && typeof v.workflowFile !== 'string') return false;
   if (typeof v.prompt !== 'string') return false;
   if (!Array.isArray(v.savedPaths)) return false;
   if (!(v.savedPaths as unknown[]).every((p) => typeof p === 'string')) return false;

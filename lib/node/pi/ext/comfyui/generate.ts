@@ -44,6 +44,8 @@ import {
 } from '../../comfyui/refine.ts';
 import { summarizeRenderedImages } from '../../comfyui/summary.ts';
 import { isRoleMap } from '../../comfyui/workflow.ts';
+import { prepareWorkflowFile } from '../../comfyui/workflow-file.ts';
+import type { ComfyWorkflow, WorkflowConfig } from '../../comfyui/types.ts';
 import { addCollapse } from '../../context-edit/directive.ts';
 import { truncate } from '../../shared.ts';
 import type { GenerateDetails } from './details.ts';
@@ -79,9 +81,20 @@ export async function executeGenerate(
     message: string,
   ): { content: { type: 'text'; text: string }[]; details: GenerateDetails; isError: true } => ({
     content: [{ type: 'text', text: message }],
-    details: { workflow: params.workflow ?? config.defaultWorkflow, savedPaths: [], error: message },
+    details: {
+      workflow: params.workflowFile ?? params.workflow ?? config.defaultWorkflow,
+      savedPaths: [],
+      error: message,
+    },
     isError: true,
   });
+
+  let fileWorkflow: { file: string; graph: ComfyWorkflow } | undefined;
+  if (params.workflowFile !== undefined) {
+    const prepared = prepareWorkflowFile(params, ctx.cwd, homedir());
+    if ('error' in prepared) return fail(prepared.error);
+    fileWorkflow = prepared;
+  }
 
   // Resolve generation reuse before picking the workflow. `variationOf`
   // inherits a prior render's workflow + prompt + negative + seed + dims
@@ -94,6 +107,11 @@ export async function executeGenerate(
   if (params.variationOf !== undefined) {
     reuse = findGeneration(rt.generations, params.variationOf);
     if (reuse === undefined) return fail(`unknown generation "${params.variationOf}" (see /comfyui gallery)`);
+    if (reuse.workflowFile !== undefined) {
+      return fail(
+        'variationOf cannot replay a workflowFile generation; pass workflowFile to run the current file again',
+      );
+    }
   }
   let refineImage: string | undefined;
   if (params.refine !== undefined) {
@@ -109,10 +127,12 @@ export async function executeGenerate(
     refineImage = src;
   }
 
-  const name = params.workflow ?? reuse?.workflow ?? config.defaultWorkflow;
+  const name = fileWorkflow?.file ?? params.workflow ?? reuse?.workflow ?? config.defaultWorkflow;
   const details: GenerateDetails = { workflow: name, savedPaths: [] };
 
-  const wf = config.workflows[name];
+  const wf: WorkflowConfig | undefined = fileWorkflow
+    ? { file: fileWorkflow.file, inputs: {} }
+    : config.workflows[name];
   if (!wf) {
     const known = Object.keys(config.workflows).join(', ') || '(none)';
     details.error = `unknown workflow "${name}"`;
@@ -145,8 +165,8 @@ export async function executeGenerate(
   }
 
   // Positive prompt comes from the call, else inherited from variationOf.
-  const effectivePrompt = params.prompt ?? reuse?.prompt;
-  if (effectivePrompt === undefined || effectivePrompt.trim().length === 0) {
+  const effectivePrompt = fileWorkflow ? '' : (params.prompt ?? reuse?.prompt);
+  if (effectivePrompt === undefined || (!fileWorkflow && effectivePrompt.trim().length === 0)) {
     details.error = 'prompt is required (or pass variationOf to reuse a prior prompt)';
     return { content: [{ type: 'text', text: details.error }], details, isError: true };
   }
@@ -161,13 +181,14 @@ export async function executeGenerate(
   // job returns no image to collapse); ignore it when backgrounding.
   const ephemeral = !background && (params.ephemeral ?? config.ephemeral);
 
-  const d = config.defaults;
+  const d = fileWorkflow ? undefined : config.defaults;
 
   // Auto-refine resolution: per-call `autoRefine` arg ?? per-workflow
   // `refine` ?? config `autoRefine`. Active only when a refiner is installed
   // (the `comfyui-critic` agent is present + not env-disabled); the loop
   // still no-ops gracefully if no vision-capable model resolves at runtime.
-  const wantRefine = wf.outputType === 'video' ? false : (params.autoRefine ?? wf.refine ?? config.autoRefine);
+  const wantRefine =
+    fileWorkflow || wf.outputType === 'video' ? false : (params.autoRefine ?? wf.refine ?? config.autoRefine);
   const refiner = wantRefine ? refinerAccess.getRefiner(ctx) : null;
   const refineActive = wantRefine && refiner?.isEnabled() === true;
   // Companion repair channels (img2img / inpaint / detailer / ground) are
@@ -255,6 +276,12 @@ export async function executeGenerate(
     pipeSignal: AbortSignal,
     pipeReport: (text: string) => void,
   ): Promise<PipelineResult> => {
+    if (fileWorkflow) {
+      pipeReport('submitting API workflow file to ComfyUI…');
+      const promptId = await submitPrompt(conn, fileWorkflow.graph, clientId, pipeSignal);
+      // No guessed metadata: a raw graph may have several prompts/seeds.
+      return { ok: true, promptId, prompt: '', enhanceNote: '', resolvedParams: { prompt: '' } };
+    }
     // Opt-in prompt enhancement: refine the positive + baseline negative
     // into the workflow's native protocol via the `comfyui-enhance`
     // subagent before building the graph. Best-effort - a missing agent,
@@ -395,6 +422,7 @@ export async function executeGenerate(
     const added = addJob(rt.registry, {
       promptId: '',
       workflow: name,
+      ...(fileWorkflow ? { workflowFile: fileWorkflow.file } : {}),
       prompt: effectivePrompt,
       negative: baselineNegative,
       saveDir,
@@ -688,6 +716,7 @@ export async function executeGenerate(
     // the ONE record for the final best-so-far, carrying the journey block.
     const generation = rt.recordGeneration({
       workflow: name,
+      ...(fileWorkflow ? { workflowFile: fileWorkflow.file } : {}),
       promptId,
       prompt: finalPrompt,
       negative: finalNegative,

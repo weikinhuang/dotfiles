@@ -37,7 +37,8 @@ websocket parsing - lives under [`../../../lib/node/pi/comfyui/`](../../../lib/n
 
 ## How a generation runs
 
-1. Resolve config and the named workflow (`workflow` arg, else `defaultWorkflow`).
+1. Resolve config and the named workflow (`workflow` arg, else `defaultWorkflow`). With `workflowFile`, use a snapshot
+   of that local API graph instead and skip parameter injection.
 2. Load and validate the API-format workflow JSON for that name.
 3. Upload each declared `inputImages`, `inputVideos`, and `inputAudios` entry through ComfyUI's binary-safe
    `POST /upload/image` input endpoint, then reference the stored names in the workflow's fixed image slots or
@@ -67,6 +68,7 @@ tool result so the model can self-correct.
 | `variationOf`         | string  | Reuse a prior generation id (`g3`) as a baseline (workflow / prompt / seed / dims), then override.                                       |
 | `refine`              | string  | Refine a prior generation id (`g3`): feed its image into an edit `workflow`; omit `inputImages`.                                         |
 | `workflow`            | string  | Named workflow; defaults to `defaultWorkflow`.                                                                                           |
+| `workflowFile`        | string  | Local API-format JSON/JSONC executed as authored, without registration. Only output controls may accompany it.                           |
 | `width`               | number  | Output width in pixels.                                                                                                                  |
 | `height`              | number  | Output height in pixels.                                                                                                                 |
 | `aspect`              | string  | Aspect preset (`16:9`, `portrait`, `square`, …) expanded to width/height. Explicit dims win.                                             |
@@ -102,6 +104,45 @@ configured, else ~1 MP), snapped to a multiple of 8. It accepts a named preset (
 `tall`, `wide` / `widescreen`, `cinema`) or a `W:H` / `W x H` ratio. An explicit per-call `width` / `height` overrides
 the aspect-derived value, and a workflow that maps neither dimension rejects `aspect` with a clear error (edit graphs
 take their size from the reference image).
+
+### Direct API-file execution (`workflowFile`)
+
+Use `workflowFile` to test a local API-format graph without adding a `workflows` entry or reloading pi:
+
+```json
+{
+  "workflowFile": "./workflows/experiment.api.json",
+  "background": true
+}
+```
+
+Paths may be relative to the session cwd, absolute, or start with `~/`. The file is read once at the start of each call,
+before background submission, so later edits affect the next call rather than a pending job. JSONC comments and trailing
+commas are accepted. The graph must be a non-empty API-format node map with `class_type` and `inputs` on each node, not
+a canvas/UI export. Local validation checks this structure; the server still validates node availability and
+connections.
+
+- **As-authored values.** No prompt is required or inferred. Baked prompts, seeds, dimensions, batch sizes, and node
+  links remain unchanged. Configured generation defaults, prompt enhancement, and auto-refinement are bypassed.
+- **Output controls only.** `background`, `sendToModel`, `ephemeral`, and `previewMaxDimension` retain their existing
+  behavior. Explicit `enhance: false` and `autoRefine: false` are harmless. Other supplied options, including
+  `workflow`, `prompt`, `seed`, references, `variationOf`, and `refine`, are rejected rather than guessed or silently
+  ignored.
+- **References are not uploaded.** File inputs baked into the graph must already be valid on the ComfyUI server. Use a
+  named workflow with explicit image/video/audio mappings for automatic local reference uploads.
+- **Existing connection and output handling.** The extension must already be enabled through configuration or
+  `PI_COMFYUI_URL`. Authentication, timeout, saving, background collection, and still-image previews use the normal
+  pipeline. Submitting the graph does not overwrite a server-stored workflow definition.
+- **Gallery provenance, not replay.** Records retain the absolute workflow-file path but do not infer a single prompt,
+  seed, or size from an arbitrary graph. `variationOf` and `/comfyui refine` reject these records because the file may
+  have changed and has no input mappings. Run `workflowFile` again for the current file, or use `refine` with a named
+  edit workflow to edit a saved image from the record.
+- **File permissions.** When [`filesystem.ts`](./filesystem.md) is enabled, the direct file argument goes through its
+  normal read policy and approval flow, including its documented lexical-path limitations. This does not sandbox node
+  execution on the ComfyUI server: run only graphs you trust.
+
+Named workflows and their parameter/reference mappings are unchanged. No mapping autodetection or configuration edits
+are performed in direct-file mode.
 
 ### Prompt enhancement (`enhance`)
 

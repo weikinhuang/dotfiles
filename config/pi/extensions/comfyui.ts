@@ -304,6 +304,7 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
     description:
       `Generate an image or video from a prompt via a ComfyUI server. ` +
       `Use when the user asks to create, draw, render, or generate visual media. ` +
+      `Or pass workflowFile to execute local API JSON as authored, without registration or prompt overrides. ` +
       `Each workflow bakes in its own checkpoint/sampler/scheduler; pick one by capability and prompt in its protocol. ` +
       `Available workflows (default ${defaultWorkflow}):\n${workflowMatrix}\n` +
       `Saved to disk; still images and video preview frames are returned so you can inspect them.`,

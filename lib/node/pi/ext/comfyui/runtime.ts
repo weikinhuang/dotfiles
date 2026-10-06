@@ -262,6 +262,7 @@ export class ComfyuiRuntime {
         if (doneJob) {
           this.recordGeneration({
             workflow: doneJob.workflow,
+            ...(doneJob.workflowFile !== undefined ? { workflowFile: doneJob.workflowFile } : {}),
             promptId: doneJob.promptId,
             prompt: doneJob.prompt,
             negative: doneJob.negative,

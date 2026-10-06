@@ -29,7 +29,8 @@ interface ToolResultLike {
 // ── generate_image ─────────────────────────────────────────────────────
 
 export function renderGenerateCall(args: unknown, theme: Theme): Text {
-  const prompt = ((args as { prompt?: string }).prompt ?? '').replace(/\s+/g, ' ').trim();
+  const input = args as { prompt?: string; workflowFile?: string };
+  const prompt = (input.workflowFile ?? input.prompt ?? '').replace(/\s+/g, ' ').trim();
   const preview = prompt.length > 60 ? `${prompt.slice(0, 60)}…` : prompt;
   const head = theme.fg('toolTitle', theme.bold('generate_image '));
   return new Text(`${head}${theme.fg('dim', preview)}`, 0, 0);

@@ -30,7 +30,12 @@ const maskValue = Type.Object({
 // buildGenerateParams). The `workflow` description's available-list is
 // likewise filled in at build time.
 const PROPS = {
-  prompt: Type.Optional(Type.String({ description: 'What to depict. Required unless `variationOf` reuses one.' })),
+  prompt: Type.Optional(
+    Type.String({
+      description:
+        'What to depict. Required for named workflows unless `variationOf` reuses one. Not with workflowFile.',
+    }),
+  ),
   negative: Type.Optional(Type.String({ description: 'What to avoid.' })),
   variationOf: Type.Optional(
     Type.String({
@@ -45,6 +50,12 @@ const PROPS = {
     }),
   ),
   workflow: Type.Optional(Type.String({ description: 'Workflow name (see the tool description for the list).' })),
+  workflowFile: Type.Optional(
+    Type.String({
+      description:
+        'Local API-format JSON/JSONC path (relative to cwd, absolute, or ~/). Submit as authored, without registration. Only output controls may accompany it; no workflow, prompt, seed, references, variationOf, or refine.',
+    }),
+  ),
   width: Type.Optional(Type.Number({ description: 'Output width (px).' })),
   height: Type.Optional(Type.Number({ description: 'Output height (px).' })),
   aspect: Type.Optional(

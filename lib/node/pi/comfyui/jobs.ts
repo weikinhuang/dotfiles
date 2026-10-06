@@ -30,8 +30,10 @@ export interface ImageJob {
    * Pollers treat an empty id as "still submitting", not a lost prompt.
    */
   promptId: string;
-  /** Named workflow that produced this job. */
+  /** Named workflow or direct-file path that produced this job. */
   workflow: string;
+  /** Direct-file origin propagated to the completed generation. */
+  workflowFile?: string;
   /** Seed used (echoed for reproduce/vary). */
   seed?: number;
   /** Positive prompt, kept for `list` / expanded rendering. */
@@ -76,6 +78,7 @@ export interface JobRegistry {
 export interface NewJob {
   promptId: string;
   workflow: string;
+  workflowFile?: string;
   seed?: number;
   prompt: string;
   negative?: string;
@@ -124,6 +127,7 @@ export function addJob(reg: JobRegistry, job: NewJob): { registry: JobRegistry; 
     id,
     promptId: job.promptId,
     workflow: job.workflow,
+    ...(job.workflowFile !== undefined ? { workflowFile: job.workflowFile } : {}),
     seed: job.seed,
     prompt: job.prompt,
     negative: job.negative,

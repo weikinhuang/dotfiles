@@ -4,6 +4,10 @@ Session-scoped approval gate for pi's built-in `read`, `write`, and `edit` tools
 `~/.pi/agent/filesystem.json` policy shared with the kernel-level [`sandbox.ts`](./sandbox.md) extension so the
 in-process gate and the syscall gate stay in lockstep.
 
+The `workflowFile` argument of [`generate_image`](./comfyui.md#direct-api-file-execution-workflowfile) also goes through
+the read gate before the local graph is loaded or submitted. It shares the normal approval flow and session allowlist;
+this does not inspect graph-internal server paths or sandbox server-side node execution.
+
 Together with [`bash-permissions.ts`](./bash-permissions.md) (regex-layer bash gate) and [`sandbox.ts`](./sandbox.md)
 (kernel-layer sandbox), this is one of three composable security gates - see plan section 2 for the full threat-model
 table.

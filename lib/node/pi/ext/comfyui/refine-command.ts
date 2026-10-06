@@ -65,6 +65,13 @@ export async function runRefineCommand(
     notify(`unknown generation "${id}" (see /comfyui gallery)`, 'warning');
     return;
   }
+  if (rec.workflowFile !== undefined) {
+    notify(
+      'workflowFile generations have no input mappings; edit and run the file, or use a named edit workflow',
+      'warning',
+    );
+    return;
+  }
   const sourcePath = rec.savedPaths.find((path) => mediaKindFromName(path) === 'image');
   if (sourcePath === undefined || !existsSync(sourcePath)) {
     notify(`generation "${id}" has no saved image on disk to refine`, 'warning');

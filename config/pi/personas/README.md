@@ -12,19 +12,50 @@ ignores `README.md` / `readme.md`, so this index can stay frontmatter-free.
 
 ## Index
 
-| Persona                                      | `agent:` ref | writeRoots  | One-liner                                                                                |
-| -------------------------------------------- | ------------ | ----------- | ---------------------------------------------------------------------------------------- |
-| [`chat.md`](./chat.md)                       | -            | (none)      | Long-form Q&A with web access; no writes.                                                |
-| [`daemon-waveform.md`](./daemon-waveform.md) | -            | (none)      | Voice-only overlay used by `waveform-indicator`'s dynamic head; not a real work persona. |
-| [`debug.md`](./debug.md)                     | -            | (none)      | Reproduce-and-instrument; cannot modify files.                                           |
-| [`explain.md`](./explain.md)                 | -            | (none)      | Walk through code already in context, no tools beyond read.                              |
-| [`journal.md`](./journal.md)                 | -            | `journal/`  | Date-templated reflective log.                                                           |
-| [`kb.md`](./kb.md)                           | -            | `notes/`    | Curate knowledge base + memories.                                                        |
-| [`plan.md`](./plan.md)                       | `plan`       | `plans/`    | Drop a plan doc; never edits source.                                                     |
-| [`research.md`](./research.md)               | -            | `research/` | Interactive research notes (sibling of `/research`).                                     |
-| [`review.md`](./review.md)                   | `explore`    | `reviews/`  | Read-only on source, drop a markdown PR review.                                          |
-| [`roleplay.md`](./roleplay.md)               | -            | `drafts/`   | Fiction / brainstorming with persistent character notes.                                 |
-| [`shell.md`](./shell.md)                     | -            | (none)      | Ops persona: AI runs commands but never edits files.                                     |
+| Persona                                      | `agent:` ref | writeRoots   | One-liner                                                                                |
+| -------------------------------------------- | ------------ | ------------ | ---------------------------------------------------------------------------------------- |
+| [`chat.md`](./chat.md)                       | -            | (none)       | Long-form Q&A with web access; no writes.                                                |
+| [`comfy-prompter.md`](./comfy-prompter.md)   | -            | (none)       | Ideation and model-aware prompts, including character references; no rendering.          |
+| [`comfy-director.md`](./comfy-director.md)   | -            | (none)       | Visual briefs, shot plans, and requested concept renders.                                |
+| [`comfy-operator.md`](./comfy-operator.md)   | -            | (none)       | Bounded image/video generation and controlled comparisons; no workflow edits.            |
+| [`comfy-engineer.md`](./comfy-engineer.md)   | -            | `workflows/` | Local API workflow authoring, diagnostics, and requested smoke renders.                  |
+| [`daemon-waveform.md`](./daemon-waveform.md) | -            | (none)       | Voice-only overlay used by `waveform-indicator`'s dynamic head; not a real work persona. |
+| [`debug.md`](./debug.md)                     | -            | (none)       | Reproduce-and-instrument; cannot modify files.                                           |
+| [`explain.md`](./explain.md)                 | -            | (none)       | Walk through code already in context, no tools beyond read.                              |
+| [`journal.md`](./journal.md)                 | -            | `journal/`   | Date-templated reflective log.                                                           |
+| [`kb.md`](./kb.md)                           | -            | `notes/`     | Curate knowledge base + memories.                                                        |
+| [`plan.md`](./plan.md)                       | `plan`       | `plans/`     | Drop a plan doc; never edits source.                                                     |
+| [`research.md`](./research.md)               | -            | `research/`  | Interactive research notes (sibling of `/research`).                                     |
+| [`review.md`](./review.md)                   | `explore`    | `reviews/`   | Read-only on source, drop a markdown PR review.                                          |
+| [`roleplay.md`](./roleplay.md)               | -            | `drafts/`    | Fiction / brainstorming with persistent character notes.                                 |
+| [`shell.md`](./shell.md)                     | -            | (none)       | Ops persona: AI runs commands but never edits files.                                     |
+
+## ComfyUI roles
+
+Use `/persona comfy-prompter` for ideation and prompt writing, `/persona comfy-director` for visual direction and shot
+plans, `/persona comfy-operator` for controlled generation, and `/persona comfy-engineer` for local API JSON. Switching
+roles is optional: prompter to operator is enough for many single-image tasks. All four leave the selected model,
+thinking level, and provider settings unchanged. The prompter never renders; the other three use the existing
+[`generate_image` / `image_jobs` tools](../extensions/comfyui.md) as appropriate to their tasks.
+
+The prompter, director, and operator cannot author files. The engineer's default write scope is `workflows/`, relative
+to the session cwd; override it through persona settings when a project keeps its graphs elsewhere. These write scopes
+cover authored files, not the generation tool's configured output directory. None of these roles manages server-stored
+workflows or server installations.
+
+The bodies are self-contained, with short procedures and `scratchpad` handoffs rather than a separate orchestration
+layer. For the rendering roles, an explicit generation request permits one run unless a larger budget is agreed. Image
+inspection is separate from display: the assistant may inspect a returned image while the user opens the saved media
+externally. Video preview frames do not establish motion or audio quality.
+
+The prompter includes a character-sheet procedure: establish fixed identity traits, use readable views of the same
+character, preserve character-relative asymmetry, and carry the accepted reference into later scene prompts. It
+separates prompt drafting from visual verification and does not promise that reference conditioning guarantees
+consistency.
+
+The engineer uses [direct-file execution](../extensions/comfyui.md#direct-api-file-execution-workflowfile) for local
+experiments without registration or reload. Named workflows retain their mapped prompt/reference controls. Background
+collection currently uses the configured preview-size limit, not the original call's per-call limit.
 
 ## How to add a persona
 

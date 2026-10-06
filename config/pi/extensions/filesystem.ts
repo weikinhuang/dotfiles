@@ -155,11 +155,13 @@ function makeFilesystemToolCallHandler(
 ): (event: ToolCallEvent, ctx: ExtensionContext) => Promise<{ block: true; reason: string } | undefined> {
   const { sessionAllow, defaultFallback, warnings } = opts;
   return async (event, ctx) => {
-    const isRead = isToolCallEventType('read', event);
+    const workflowFile = event.toolName === 'generate_image' ? event.input?.workflowFile : undefined;
+    const isWorkflowRead = typeof workflowFile === 'string' && workflowFile.trim().length > 0;
+    const isRead = isToolCallEventType('read', event) || isWorkflowRead;
     const isWrite = isToolCallEventType('write', event) || isToolCallEventType('edit', event);
     if (!isRead && !isWrite) return undefined;
 
-    const inputPath = getToolCallPathInput(event);
+    const inputPath = isWorkflowRead ? workflowFile.trim() : getToolCallPathInput(event);
     if (!inputPath) return undefined;
 
     const { policy, warnings: layerWarnings } = resolveActivePolicy(ctx.cwd);
