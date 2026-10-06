@@ -14,7 +14,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -38,7 +38,8 @@ function git(...args: string[]): void {
 }
 
 beforeEach(() => {
-  cwd = mkdtempSync(join(tmpdir(), 'sandbox-git-tracked-'));
+  // Git canonicalizes the main repo path in linked worktrees (e.g. /var -> /private/var on macOS).
+  cwd = realpathSync(mkdtempSync(join(tmpdir(), 'sandbox-git-tracked-')));
 });
 
 afterEach(() => {
