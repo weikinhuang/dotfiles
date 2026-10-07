@@ -82,6 +82,21 @@ import {
 import { clearAvatarInput, setAvatarInput } from '../../../lib/node/pi/avatar/input.ts';
 import { COMFYUI_IMAGE_CHANNEL, isImageGeneratedEvent } from '../../../lib/node/pi/comfyui/events.ts';
 import { loadRoleplayConfig } from '../../../lib/node/pi/roleplay/config.ts';
+import {
+  getRoleplayImageModeOverride,
+  isRoleplayImageMode,
+  replaceRoleplayImageTools,
+  restoreRoleplayImageMode,
+  ROLEPLAY_IMAGE_MODE_ENTRY,
+  selectRoleplayImageTools,
+  setRoleplayImageModeOverride,
+} from '../../../lib/node/pi/roleplay/image-tools.ts';
+import { buildVisualContext, extractVisualIdentities } from '../../../lib/node/pi/roleplay/visual-identity.ts';
+import { extractSceneContext, type SceneMessage } from '../../../lib/node/pi/comfyui/scene-context.ts';
+import { getComfyuiGenerator } from '../../../lib/node/pi/ext/comfyui/service.ts';
+import { renderGenerateCall, renderGenerateResult } from '../../../lib/node/pi/ext/comfyui/render.ts';
+import type { GenerateDetails } from '../../../lib/node/pi/ext/comfyui/details.ts';
+import type { GenerateToolResult } from '../../../lib/node/pi/ext/comfyui/generate.ts';
 import { selectWithinBudget, type LoreChunk } from '../../../lib/node/pi/roleplay/budget.ts';
 import {
   applyInsertions,
@@ -426,6 +441,9 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
    * (a whole re-prefill on llama.cpp). `null` when nothing fires. Mirrors
    * the `pendingEvent` slot pattern. */
   let pendingLore: string | null = null;
+  /** Only lore actually selected for this turn may contribute visual identity. */
+  let keywordVisualLore: readonly LoreChunk[] = [];
+  let depthVisualLore: readonly LoreChunk[] = [];
   /** Most-recent `context` message array, captured so `/roleplay event` can read the scene. */
   let lastMessages: readonly unknown[] = [];
   /** Memoized character-sheet n-gram exclusion set for repetition detection; rebuilt on state change. */
@@ -552,6 +570,8 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     turnCount = 0;
     timingState = {};
     sceneTimingState = {};
+    keywordVisualLore = [];
+    depthVisualLore = [];
     excludeCache = null;
     loreEmptyCache = null;
     if (cast === null) {
@@ -602,15 +622,28 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
    * `## Roleplay` injection is turned off.
    */
   const gateRoleplayTool = (): void => {
-    if (activeCast() !== null) return;
+    const persona = getActivePersona();
     const tools = pi.getActiveTools();
-    if (tools.includes('roleplay')) pi.setActiveTools(tools.filter((t) => t !== 'roleplay'));
+    const registered = new Set(pi.getAllTools().map((tool) => tool.name));
+    const selected = selectRoleplayImageTools(
+      // An omitted allowlist is unrestricted, even after off mode removed every active image tool.
+      persona?.tools ?? (activeCast() !== null ? [...registered] : tools),
+      registered,
+      activeCast() !== null,
+      getRoleplayImageModeOverride() ?? loadRoleplayConfig(cwd).imageMode,
+    );
+    let next = replaceRoleplayImageTools(tools, selected);
+    if (activeCast() === null) next = next.filter((tool) => tool !== 'roleplay');
+    if (next.join('\u0000') !== tools.join('\u0000')) pi.setActiveTools(next);
   };
 
   /** Force a re-resolve + scan (session lifecycle hooks). */
   const resync = (ctx: ExtensionContext): void => {
     cwd = ctx.cwd;
     resetWindowState();
+    keywordVisualLore = [];
+    depthVisualLore = [];
+    lastMessages = [];
     applyCast(activeCast(), ctx);
     gateRoleplayTool();
   };
@@ -750,6 +783,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   };
 
   const buildLoreInjection = (scanText: string): string | null => {
+    keywordVisualLore = [];
     if (!lorebookEnabled) return null;
     // Depth-tagged lore is injected at depth via the `context` event, not here.
     // Empty-bodied lore is dropped up front so it never consumes a timing slot.
@@ -784,15 +818,22 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       .map((entry) => ({ entry, body: bodyOf(entry).trim() }))
       .filter((c) => c.body.length > 0);
     if (chunks.length === 0) return null;
-    return formatLoreBlock(selectWithinBudget(chunks, cfg.loreCharBudget));
+    const selected = selectWithinBudget(chunks, cfg.loreCharBudget);
+    keywordVisualLore = selected.kept;
+    return formatLoreBlock(selected);
   };
 
-  pi.on('session_start', (_event, ctx) => resync(ctx));
-  pi.on('session_tree', (_event, ctx) => resync(ctx));
+  const restoreImageMode = (ctx: ExtensionContext): void => {
+    setRoleplayImageModeOverride(restoreRoleplayImageMode(ctx.sessionManager.getBranch()));
+    resync(ctx);
+  };
+  pi.on('session_start', (_event, ctx) => restoreImageMode(ctx));
+  pi.on('session_tree', (_event, ctx) => restoreImageMode(ctx));
 
   pi.on('before_agent_start', (event, ctx) => {
     // A persona may have been activated since session_start; re-resolve.
     resyncIfChanged(ctx);
+    gateRoleplayTool();
 
     // Backstop the session-lifecycle gate for a mid-session persona switch
     // (a `/persona` change between turns). Per setActiveTools' "takes effect
@@ -814,6 +855,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
 
     if (!autoInjectEnabled) {
       pendingLore = null;
+      keywordVisualLore = [];
       return undefined;
     }
     turnCount += 1;
@@ -839,6 +881,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
 
   /** Depth-tagged fired lore for the current turn, budgeted, as inject chunks. */
   const buildDepthLore = (scanText: string): LoreDepthChunk[] => {
+    depthVisualLore = [];
     if (!lorebookEnabled) return [];
     const empties = emptyLoreIds();
     const depthLore = state.entries.filter(
@@ -854,6 +897,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       }))
       .filter((c) => c.body.length > 0);
     const { kept } = selectWithinBudget(chunks, loadRoleplayConfig(cwd, envCharBudget).loreCharBudget);
+    depthVisualLore = kept;
     return kept.map((c) => ({ name: c.entry.name, body: c.body, depth: c.entry.lore?.depth ?? 0 }));
   };
 
@@ -2280,6 +2324,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
 
   pi.on('session_shutdown', () => {
     try {
+      setRoleplayImageModeOverride(undefined);
       clearActiveRoleplay();
       if (avatarDriveEnabled) clearAvatarInput();
       if (unsubscribeImageEvents) {
@@ -2673,6 +2718,102 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     },
   });
 
+  // This facade shares ComfyUI's executor, but exposes only scene intent to the model.
+  const ImageParams = Type.Object(
+    {
+      prompt: Type.String({
+        minLength: 1,
+        maxLength: 4000,
+        description:
+          'Describe the visible scene in ordinary language. Name the depicted characters when possible. Do not write tags or an image-model prompt.',
+      }),
+    },
+    { additionalProperties: false },
+  );
+  pi.registerTool<typeof ImageParams, GenerateDetails>({
+    name: 'roleplay_image',
+    label: 'Illustrate scene',
+    description:
+      'Illustrate a roleplay moment from a short scene description. Character visual identities and workflow-specific prompt writing are supplied automatically. Only describe what should be visible; do not choose a workflow, write tags, or add a negative prompt.',
+    promptSnippet:
+      'Use roleplay_image to illustrate a scene with one ordinary-language description; the tool writes the image-model prompt.',
+    promptGuidelines: [
+      'Describe subjects, actions and mood in ordinary language. Illustration or anime style does not imply Danbooru tags. Never call ComfyUI HTTP endpoints directly.',
+    ],
+    parameters: ImageParams,
+    async execute(toolCallId, params, signal, onUpdate, ctx) {
+      resyncIfChanged(ctx);
+      const cfg = loadRoleplayConfig(ctx.cwd);
+      const error = (message: string): GenerateToolResult => ({
+        content: [{ type: 'text' as const, text: message }],
+        details: { workflow: cfg.imageWorkflow ?? '(default)', savedPaths: [] as string[], error: message },
+        isError: true,
+      });
+      if (activeCast() === null || (getRoleplayImageModeOverride() ?? cfg.imageMode) !== 'simple') {
+        return error('roleplay_image requires an active roleplay persona and simple image mode');
+      }
+      const generate = getComfyuiGenerator();
+      if (!generate) return error('ComfyUI is unavailable; enable the comfyui extension and configure a workflow');
+      const persona = getActivePersona();
+      const identities = [...(persona?.visualIdentities ?? [])].map((identity) => {
+        const character = substituteMacros(identity.character, macroCtx());
+        return Object.assign({}, identity, { character, body: substituteMacros(identity.body, macroCtx(character)) });
+      });
+      const warnings: string[] = [];
+      for (const entry of state.entries.filter((record) => record.kind === 'character')) {
+        const extracted = extractVisualIdentities(
+          substituteMacros(readEntryBody(state.cast, entry) ?? '', macroCtx(entry.name)),
+          `character ${entry.name}`,
+          1,
+        );
+        identities.push(...extracted.identities);
+        warnings.push(...extracted.warnings);
+      }
+      for (const chunk of [...keywordVisualLore, ...depthVisualLore]) {
+        const extracted = extractVisualIdentities(chunk.body, `active lore ${chunk.entry.name}`, 2);
+        identities.push(...extracted.identities);
+        warnings.push(...extracted.warnings);
+      }
+      const visual = buildVisualContext({
+        request: params.prompt,
+        recentScene: extractSceneContext(lastMessages as readonly SceneMessage[], 2000),
+        identities,
+        characters: state.entries
+          .filter((entry) => entry.kind === 'character')
+          .map((entry) => ({
+            name: entry.name,
+            aliases: [entry.id, ...(entry.character?.aliases ?? [])],
+          })),
+        fallbackCharacters: [...(persona?.characters ?? []), ...(persona?.pov ? [persona.pov] : [])],
+      });
+      for (const warning of [...warnings, ...visual.warnings]) {
+        if (!surfacedWarnings.has(warning)) {
+          surfacedWarnings.add(warning);
+          ctx.ui.notify(`roleplay images: ${warning}`, 'warning');
+        }
+      }
+      return await generate({
+        toolCallId,
+        signal,
+        onUpdate,
+        ctx,
+        requireEnhance: true,
+        isolatedContext: true,
+        params: {
+          prompt: params.prompt,
+          context: visual.context,
+          ...(cfg.imageWorkflow ? { workflow: cfg.imageWorkflow } : {}),
+          enhance: true,
+          background: false,
+          ephemeral: true,
+          autoRefine: false,
+        },
+      });
+    },
+    renderCall: (args, theme) => renderGenerateCall(args, theme),
+    renderResult: (result, options, theme, context) => renderGenerateResult(result, options, theme, context),
+  });
+
   // ── /roleplay command ───────────────────────────────────────────────
   // Human-readable readout of the last context-window pass for `/roleplay
   // context`. Reads the per-turn snapshot captured by the context hook.
@@ -2696,6 +2837,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         cast: { description: 'Switch / set the active cast', args: () => listCasts().map((c) => ({ label: c })) },
         import: { description: 'Import a SillyTavern card (.json/.png) into the active cast' },
         event: { description: 'Queue a one-shot scene complication (LLM-generated, or from the deck)' },
+        images: { description: 'Show or change the image interface', args: ['simple', 'full', 'off'] },
         newscene: { description: 'Start a fresh scene: archive + clear the recap / timeline / fact carry-overs' },
         dir: { description: 'Print the roleplay store dir' },
         rescan: { description: 'Rescan the active cast from disk' },
@@ -2722,6 +2864,29 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       if (verb === 'context' || verb === 'ctx' || verb === 'window') {
         const win = (ctx.model as { contextWindow?: number } | undefined)?.contextWindow;
         ctx.ui.notify(formatContextWindow(win), 'info');
+        return;
+      }
+      if (verb === 'images') {
+        const mode = rest.join(' ').trim();
+        if (mode.length === 0) {
+          const cfg = loadRoleplayConfig(ctx.cwd);
+          ctx.ui.notify(
+            `Image mode: ${getRoleplayImageModeOverride() ?? cfg.imageMode}\nSimple workflow: ${cfg.imageWorkflow ?? '(ComfyUI default)'}\nUsage: /roleplay images simple|full|off`,
+            'info',
+          );
+          return;
+        }
+        if (!isRoleplayImageMode(mode)) {
+          ctx.ui.notify('Usage: /roleplay images simple|full|off', 'warning');
+          return;
+        }
+        setRoleplayImageModeOverride(mode);
+        pi.appendEntry(ROLEPLAY_IMAGE_MODE_ENTRY, mode);
+        gateRoleplayTool();
+        ctx.ui.notify(
+          `Roleplay image mode: ${mode}${dormant ? ' (takes effect under a roleplay persona)' : ''}`,
+          'info',
+        );
         return;
       }
       if (verb === 'cast') {

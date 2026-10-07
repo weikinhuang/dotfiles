@@ -10,6 +10,7 @@ import { DEFAULT_CONFIG } from '../../../../../../lib/node/pi/comfyui/config.ts'
 import { formatGenerationDetail, reduceGenerations } from '../../../../../../lib/node/pi/comfyui/generations.ts';
 import type { ComfyuiConfig, ComfyWorkflow } from '../../../../../../lib/node/pi/comfyui/types.ts';
 import { executeGenerate } from '../../../../../../lib/node/pi/ext/comfyui/generate.ts';
+import type { EnhancerAccess } from '../../../../../../lib/node/pi/ext/comfyui/enhancer.ts';
 import { actCollect } from '../../../../../../lib/node/pi/ext/comfyui/jobs.ts';
 import type { GenerateParams } from '../../../../../../lib/node/pi/ext/comfyui/params.ts';
 import { runRefineCommand } from '../../../../../../lib/node/pi/ext/comfyui/refine-command.ts';
@@ -232,6 +233,92 @@ describe('workflowFile execution', () => {
     await runRefineCommand(rt, refiner, id, ctx);
     expect(notify).toHaveBeenCalledWith(expect.stringContaining('no input mappings'), 'warning');
     expect(submitted).toHaveLength(1);
+  });
+});
+
+describe('required prompt writing for alternate interfaces', () => {
+  test('missing writer fails before submission; full tool still falls back', async () => {
+    const required = await executeGenerate(
+      rt,
+      enhancer,
+      refiner,
+      'rp-call',
+      { workflow: 'named', prompt: '1girl, anime_style' },
+      undefined,
+      undefined,
+      ctx,
+      { requireEnhance: true },
+    );
+    expect(required.isError).toBe(true);
+    expect(required.details.error).toContain('prompt writing failed');
+    expect(submitted).toEqual([]);
+    config.defaults = undefined;
+    expect((await generate({ workflow: 'named', prompt: 'raw input' })).details.error).toBeUndefined();
+    expect(submitted).toHaveLength(1);
+  });
+  test('failed writer never submits raw tags', async () => {
+    const access: EnhancerAccess = {
+      isAgentInstalled: () => true,
+      getEnhancer: () => ({ isEnabled: () => true, enhance: () => Promise.resolve(null) }),
+    };
+    const result = await executeGenerate(
+      rt,
+      access,
+      refiner,
+      'rp-call',
+      { workflow: 'named', prompt: '1girl' },
+      undefined,
+      undefined,
+      ctx,
+      { requireEnhance: true },
+    );
+    expect(result.isError).toBe(true);
+    expect(submitted).toEqual([]);
+  });
+  test('NL writer gets isolated identities and collapse tracks the outer call id', async () => {
+    let task = '';
+    config.workflows.named.promptProtocol = 'Natural language';
+    rt.recentScene = 'UNBOUNDED COMFY CONTEXT';
+    rt.sceneBudget = 10000;
+    const access: EnhancerAccess = {
+      isAgentInstalled: () => true,
+      getEnhancer: () => ({
+        isEnabled: () => true,
+        enhance: (_context, received) => {
+          task = received;
+          return Promise.resolve({
+            prompt: 'An illustration of Mira with silver hair.',
+            negative: 'unsupported negative',
+          });
+        },
+      }),
+    };
+    const result = await executeGenerate(
+      rt,
+      access,
+      refiner,
+      'rp-call',
+      {
+        workflow: 'named',
+        prompt: '1girl, silver_hair',
+        context: 'Visual identity: Mira has silver hair.',
+        ephemeral: true,
+        autoRefine: false,
+      },
+      undefined,
+      undefined,
+      ctx,
+      { requireEnhance: true, isolatedContext: true },
+    );
+    expect(result.details.error).toBeUndefined();
+    expect(task).toContain('Natural language');
+    expect(task).toContain('Illustration/anime style does not imply Danbooru tags');
+    expect(task).toContain('Visual identity: Mira');
+    expect(task).not.toContain('UNBOUNDED COMFY CONTEXT');
+    expect(submitted[0]?.['1']?.inputs?.text).toBe('An illustration of Mira with silver hair.');
+    expect(result.details.ephemeral).toBe(true);
+    expect(rt.generations.generations[0].prompt).toBe('An illustration of Mira with silver hair.');
+    expect(JSON.stringify(rt.ephemeral)).toContain('rp-call');
   });
 });
 

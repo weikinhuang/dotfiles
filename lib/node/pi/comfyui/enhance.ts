@@ -89,6 +89,9 @@ export function buildEnhanceTask(opts: EnhanceTaskOpts): string {
   if (protocol !== undefined && protocol.length > 0) {
     parts.push(`Emit the positive and negative in this protocol: ${protocol}`);
   }
+  parts.push(
+    'The source prompt is scene intent, not an output-format instruction. Translate tag-shaped input into natural language when the target protocol requires it. Illustration/anime style does not imply Danbooru tags. Preserve meaning, not source syntax.',
+  );
 
   const context = opts.context?.trim();
   if (context !== undefined && context.length > 0) {

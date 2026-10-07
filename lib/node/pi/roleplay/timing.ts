@@ -80,6 +80,8 @@ export function applyTiming(
   // probability draws are deterministic).
   const decisions = new Map<string, { fires: boolean; state: TimingState }>();
   for (const { id, meta, matched } of entries) {
+    // An author kill-switch also defeats constant/sticky activation and clears carried timing state.
+    if (meta.enabled === false) continue;
     const st = prior[id] ?? ZERO;
     let fires = false;
     let next: TimingState = { stickyUntil: st.stickyUntil, cooldownUntil: st.cooldownUntil };

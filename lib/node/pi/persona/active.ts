@@ -22,6 +22,10 @@
  */
 export interface ActivePersonaSnapshot {
   readonly name: string;
+  /** Original allowlist, before roleplay chooses an image interface. */
+  readonly tools?: readonly string[];
+  /** Extracted blocks only, never the full persona body. */
+  readonly visualIdentities?: readonly VisualIdentity[];
   readonly resolvedWriteRoots: readonly string[];
   readonly bashAllow: readonly string[];
   readonly bashDeny: readonly string[];
@@ -44,6 +48,7 @@ export interface ActivePersonaSnapshot {
 }
 
 import { createGlobalSlot } from '../global-slot.ts';
+import type { VisualIdentity } from '../roleplay/visual-identity.ts';
 
 interface ActivePersonaSlot {
   active?: ActivePersonaSnapshot;
@@ -53,6 +58,8 @@ const getSlot = createGlobalSlot<ActivePersonaSlot>('@dotfiles/pi/persona/active
 
 export interface ActivePersonaInput {
   name: string;
+  tools?: readonly string[];
+  visualIdentities?: readonly VisualIdentity[];
   resolvedWriteRoots: readonly string[];
   bashAllow?: readonly string[];
   bashDeny?: readonly string[];
@@ -74,6 +81,10 @@ export function setActivePersona(snapshot: ActivePersonaInput | undefined): void
   }
   slot.active = {
     name: snapshot.name,
+    tools: snapshot.tools ? Object.freeze([...snapshot.tools]) : undefined,
+    visualIdentities: snapshot.visualIdentities
+      ? Object.freeze(snapshot.visualIdentities.map((identity) => Object.freeze({ ...identity })))
+      : undefined,
     resolvedWriteRoots: Object.freeze([...snapshot.resolvedWriteRoots]),
     bashAllow: Object.freeze([...(snapshot.bashAllow ?? [])]),
     bashDeny: Object.freeze([...(snapshot.bashDeny ?? [])]),

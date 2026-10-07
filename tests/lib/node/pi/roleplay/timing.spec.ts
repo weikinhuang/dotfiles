@@ -33,6 +33,32 @@ describe('applyTiming', () => {
     expect(res.fired).toEqual(['c']);
   });
 
+  it('disabled lore cannot fire by match, constant, or sticky carry and never draws rng', () => {
+    const res = applyTiming(
+      [
+        entry('matched', true, { enabled: false, probability: 50 }),
+        entry('constant', false, { enabled: false, constant: true, probability: 50 }),
+        entry('sticky', false, { enabled: false }),
+        entry('active', true),
+      ],
+      1,
+      { sticky: { stickyUntil: 99, cooldownUntil: 100 } },
+      NO_RNG,
+    );
+    expect(res.fired).toEqual(['active']);
+    expect(res.nextState).toEqual({});
+  });
+
+  it('re-enabling lore does not resurrect a disabled sticky window', () => {
+    const disabled = applyTiming(
+      [entry('a', false, { enabled: false })],
+      1,
+      { a: { stickyUntil: 99, cooldownUntil: 100 } },
+      NO_RNG,
+    );
+    expect(applyTiming([entry('a', false)], 2, disabled.nextState, NO_RNG).fired).toEqual([]);
+  });
+
   it('delay gates eligibility until turn >= delay', () => {
     const e = [entry('a', true, { delay: 2 })];
     expect(applyTiming(e, 0, {}, NO_RNG).fired).toEqual([]);

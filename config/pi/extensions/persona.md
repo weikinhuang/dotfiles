@@ -73,6 +73,12 @@ See [`../../../lib/node/pi/persona/`](../../../lib/node/pi/persona/) for the par
 
 ## Agent inheritance (`agent: <name>` ref)
 
+Roleplay personas may include named `<visual-identity character="Name">` blocks in their prompt body/addenda/override.
+Only those compact blocks are published to the scene-image prompt writer, never the full persona text. Image-capable
+personas allowlist `generate_image` or `roleplay_image`; the roleplay image mode selects simple/full/off without
+granting image permissions to other personas. See [roleplay scene images](./roleplay.md#scene-images-simple-full-or-off)
+for syntax, budgets, precedence, and configuration.
+
 A persona file with `agent: plan` resolves the name through the same layered agent registry the
 [`subagent.ts`](./subagent.ts) extension uses - `<cwd>/.pi/agents/` overrides `~/.pi/agent/agents/` overrides
 [`../agents/`](../agents/), first hit wins. The inherited record contributes `tools`, `model`, `thinkingLevel`, and

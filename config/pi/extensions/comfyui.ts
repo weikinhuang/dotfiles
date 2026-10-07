@@ -82,6 +82,7 @@ import { ComfyuiRuntime } from '../../../lib/node/pi/ext/comfyui/runtime.ts';
 import { buildGenerateParams } from '../../../lib/node/pi/ext/comfyui/params.ts';
 import { resolveUsageGuidance } from '../../../lib/node/pi/ext/comfyui/usage-guidance.ts';
 import { executeGenerate } from '../../../lib/node/pi/ext/comfyui/generate.ts';
+import { installComfyuiGenerator } from '../../../lib/node/pi/ext/comfyui/service.ts';
 import { actCancel, actCollect, actListJobs } from '../../../lib/node/pi/ext/comfyui/jobs.ts';
 import type { LooseMessage } from '../../../lib/node/pi/context-edit/target.ts';
 
@@ -242,6 +243,19 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
   // runtime per extension load; the hooks + tool bodies below delegate to
   // it (see ext/comfyui/runtime.ts).
   const rt = new ComfyuiRuntime({ pi, loadConfig });
+  const uninstallGenerator = installComfyuiGenerator((request) =>
+    executeGenerate(
+      rt,
+      enhancerAccess,
+      refinerAccess,
+      request.toolCallId,
+      request.params,
+      request.signal,
+      request.onUpdate,
+      request.ctx,
+      { requireEnhance: request.requireEnhance, isolatedContext: request.isolatedContext },
+    ),
+  );
 
   // Multi-line capability matrix (description / tags / mapped params /
   // image slots / prompt protocol per workflow) baked into the immutable
@@ -270,9 +284,14 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
   // A branch switch (edit/rewind) replays a different history, so re-derive
   // the persisted overlays from the new branch.
   pi.on('session_tree', (_event, ctx) => rt.onSessionTree(ctx));
-  pi.on('session_shutdown', (_event, ctx) => rt.onShutdown(ctx));
+  pi.on('session_shutdown', (_event, ctx) => {
+    uninstallGenerator();
+    rt.onShutdown(ctx);
+  });
   pi.on('before_agent_start', (event, ctx) => {
     rt.beforeAgentStart(ctx);
+    // Alternate interfaces supply their own small guidance, not the full workflow protocol.
+    if (!pi.getActiveTools().includes('generate_image')) return undefined;
     // Inject the main-agent usage-guidance block (empty unless the user set
     // usageGuidanceFile / usageGuidanceEnhancedFile). Recompute enhancer
     // availability against the live session cwd so the "enhanced" variant is

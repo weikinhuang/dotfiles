@@ -25,8 +25,13 @@ import { readJsoncOrUndefined } from '../fs-safe.ts';
 import { envTruthy, parseClampedPositiveInt, parseNonNegativeInt } from '../parse-env.ts';
 import { piAgentPath, piProjectPath } from '../pi-paths.ts';
 import { MAX_RECURSION_CAP } from './recursion.ts';
+import { isRoleplayImageMode, type RoleplayImageMode } from './image-tools.ts';
 
 export interface RoleplayConfig {
+  /** Full keeps the current ComfyUI interface; simple delegates prompt writing; off hides image tools. */
+  imageMode: RoleplayImageMode;
+  /** Optional named workflow for simple mode; absent follows ComfyUI's defaultWorkflow. */
+  imageWorkflow?: string;
   /** Soft cap on the injected `## Roleplay` cast-index block, in characters. */
   charBudget: number;
   /** Soft cap on the injected fired-lore section, in characters. */
@@ -90,6 +95,7 @@ export interface RoleplayConfig {
 
 /** Shipped defaults - lowest config layer. Parity with memory's 3000-char cap. */
 export const DEFAULT_CONFIG: RoleplayConfig = {
+  imageMode: 'full',
   charBudget: 3000,
   loreCharBudget: 3000,
   maxRecursion: 0,
@@ -159,6 +165,10 @@ export function coerceConfigLayer(raw: unknown): Partial<RoleplayConfig> {
   if (!raw || typeof raw !== 'object') return {};
   const v = raw as Record<string, unknown>;
   const out: Partial<RoleplayConfig> = {};
+  if (isRoleplayImageMode(v.imageMode)) out.imageMode = v.imageMode;
+  if (typeof v.imageWorkflow === 'string' && v.imageWorkflow.trim().length > 0) {
+    out.imageWorkflow = v.imageWorkflow.trim();
+  }
   if (typeof v.charBudget === 'number' && Number.isFinite(v.charBudget)) {
     out.charBudget = Math.max(MIN_CHAR_BUDGET, Math.floor(v.charBudget));
   }

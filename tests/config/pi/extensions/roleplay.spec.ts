@@ -24,6 +24,7 @@ const ROLEPLAY_SUBVERBS: SubverbSpec = {
   cast: { description: 'Switch / set the active cast', args: () => [{ label: 'exusiai' }, { label: 'texas' }] },
   import: { description: 'Import a SillyTavern card (.json/.png) into the active cast' },
   event: { description: 'Queue a one-shot scene complication (LLM-generated, or from the deck)' },
+  images: { description: 'Show or change the image interface', args: ['simple', 'full', 'off'] },
   newscene: { description: 'Start a fresh scene: archive + clear the recap / timeline / fact carry-overs' },
   dir: { description: 'Print the roleplay store dir' },
   rescan: { description: 'Rescan the active cast from disk' },
@@ -33,7 +34,7 @@ const ROLEPLAY_SUBVERBS: SubverbSpec = {
 test('roleplay command lists every subverb (including event) at level 1', () => {
   const all = completeSubverbs('', ROLEPLAY_SUBVERBS);
   const labels = (all ?? []).map((c) => c.label);
-  expect(labels).toEqual(['list', 'cast', 'import', 'event', 'newscene', 'dir', 'rescan', 'casts']);
+  expect(labels).toEqual(['list', 'cast', 'import', 'event', 'images', 'newscene', 'dir', 'rescan', 'casts']);
 });
 
 test('roleplay command completes the event subverb from a prefix', () => {
@@ -50,6 +51,11 @@ test('roleplay command completes the event subverb from a prefix', () => {
 test('event is a terminal subverb - the freeform hint takes no completions', () => {
   expect(completeSubverbs('event ', ROLEPLAY_SUBVERBS)).toBeNull();
   expect(completeSubverbs('event a storm', ROLEPLAY_SUBVERBS)).toBeNull();
+});
+
+test('image mode completion carries the entire prefix and is documented', () => {
+  expect(completeSubverbs('images s', ROLEPLAY_SUBVERBS)).toEqual([{ value: 'images simple', label: 'simple' }]);
+  expect(ROLEPLAY_USAGE).toContain('images [simple|full|off]');
 });
 
 test('ROLEPLAY_USAGE documents the event subverb', () => {

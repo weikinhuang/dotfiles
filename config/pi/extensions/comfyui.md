@@ -27,6 +27,7 @@ import the pi runtime or `sharp`:
 - `render.ts` + `details.ts` - tool-result rendering and the shared `details` shapes.
 - `images.ts` - the `sharp` model-facing downscale + bbox-mask synthesis.
 - `enhancer.ts` - the opt-in prompt-enhancer subagent wiring.
+- `service.ts` - lifecycle-scoped executor access for alternate interfaces, including roleplay scene illustrations.
 - `refiner.ts` - the opt-in auto-refine vision-critic subagent wiring (the output-side mirror of `enhancer.ts`).
 - `refine-loop.ts` - the shared refine engine wiring (corrective-render primitive + the refiner-aware loop driver).
 - `refine-command.ts` - the standalone `/comfyui refine <gX>` body.
@@ -180,6 +181,12 @@ graph.
   unparseable output silently falls back to the original prompt + baseline negative. Set `PI_COMFYUI_DISABLE_ENHANCE` to
   hard-disable it. When the prompt was enhanced, the result echoes the enhanced positive so the model can reuse it via
   `variationOf`; the registry records the enhanced prompt (what was actually rendered).
+
+The roleplay [`simple image interface`](./roleplay.md#scene-images-simple-full-or-off) reuses the same executor and
+enhancer with a prompt-only schema and bounded authored visual identities. Unlike the full tool, it requires successful
+prompt writing and never submits raw input on writer failure. Workflow guidance and `enhanceModel` remain shared.
+ComfyUI's main-agent usage guidance is injected only while `generate_image` is active, so alternate interfaces do not
+inherit the full tool's prompting instructions.
 
 ### Prompt refinement (`autoRefine`)
 

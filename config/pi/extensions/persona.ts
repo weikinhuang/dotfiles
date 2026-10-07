@@ -122,6 +122,9 @@ import { loadAgents, defaultAgentLayers } from '../../../lib/node/pi/subagent/lo
 import { readTextOrNull } from '../../../lib/node/pi/fs-safe.ts';
 import { createNotifyOnce } from '../../../lib/node/pi/notify-once.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
+import { loadRoleplayConfig } from '../../../lib/node/pi/roleplay/config.ts';
+import { getRoleplayImageModeOverride, selectRoleplayImageTools } from '../../../lib/node/pi/roleplay/image-tools.ts';
+import { extractVisualIdentities } from '../../../lib/node/pi/roleplay/visual-identity.ts';
 
 const STATUS_KEY = 'persona';
 const CUSTOM_TYPE = 'persona-state';
@@ -453,13 +456,29 @@ export default function personaExtension(pi: ExtensionAPI): void {
       if (invalid.length > 0) {
         ctx.ui.notify(`persona "${name}": unknown tools ignored: ${invalid.join(', ')}`, 'warning');
       }
-      if (valid.length > 0) pi.setActiveTools(valid);
+      if (valid.length > 0)
+        pi.setActiveTools(
+          selectRoleplayImageTools(
+            valid,
+            allToolNames,
+            resolved.parsed.roleplay === true && !envTruthy(process.env.PI_ROLEPLAY_DISABLED),
+            getRoleplayImageModeOverride() ?? loadRoleplayConfig(ctx.cwd).imageMode,
+          ),
+        );
     }
 
     activeName = name;
     active = resolved;
+    const visual = extractVisualIdentities(
+      [resolved.systemPromptOverride, resolved.systemPromptAddendum].filter(Boolean).join('\n\n'),
+      `persona ${name}`,
+      0,
+    );
+    for (const warning of visual.warnings) ctx.ui.notify(warning, 'warning');
     setActivePersona({
       name,
+      tools: requestedTools,
+      ...(visual.identities.length > 0 ? { visualIdentities: visual.identities } : {}),
       resolvedWriteRoots: resolved.resolvedWriteRoots,
       bashAllow: resolved.parsed.bashAllow,
       bashDeny: resolved.parsed.bashDeny,

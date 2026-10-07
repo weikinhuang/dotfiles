@@ -593,6 +593,84 @@ may change only those fields); `save` / `update` of a `character` entry accept `
 `order` (the scene-fold knobs - see [Scene](#scene-folding-full-character-sheets-characters--pov--pinned)). All actions
 operate on the **active cast**.
 
+## Scene images: simple, full, or off
+
+`/roleplay images` shows the current interface. `/roleplay images simple|full|off` changes it for this session,
+persisted on the selected branch across resume, reload, and tree navigation. Set `imageMode` in the normal project/user
+configuration for a persistent default; the session override wins. The shipped default is `full`.
+
+| Mode     | Model-facing interface                                                     | Behavior                                                                                               |
+| -------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `simple` | `roleplay_image({ "prompt": "Illustrate Mira beside the rainy window." })` | One scene description, automatic identity context, required prompt writer, foreground ephemeral image. |
+| `full`   | Existing `generate_image` and allowlisted `image_jobs`                     | Existing workflow, reference, reuse, background, and refinement controls.                              |
+| `off`    | Neither image interface                                                    | Roleplay continues without model-callable image generation.                                            |
+
+A persona with an explicit tool allowlist must include `generate_image` or `roleplay_image` to grant image access; the
+mode selects the interface, not permission. Include `image_jobs` too if full-mode background collection is wanted. An
+explicit allowlist omitting both image tools remains image-free in every mode; without an allowlist, registered image
+interfaces are available. Coding personas keep their normal ComfyUI tools and never receive `roleplay_image`. The facade
+requires the enabled/configured ComfyUI extension.
+
+```jsonc
+// roleplay.json, user-global or project-local
+{
+  "imageMode": "simple",
+  "imageWorkflow": "qwen-image-edit-2.1", // optional; otherwise use ComfyUI's defaultWorkflow
+}
+```
+
+Simple mode hides the full tool schema and skips ComfyUI's main-agent usage-guidance files. The roleplay model describes
+subjects, actions, and mood in ordinary language. The existing `comfyui-enhance` agent writes the selected workflow's
+native protocol using its global/per-workflow guidance; illustration/anime style does not imply Danbooru tags, and
+tag-shaped input is translated when the workflow expects natural language. Model selection and timeout remain
+`enhanceModel` / `enhanceTimeoutMs` in ComfyUI configuration. A missing, disabled, timed-out, or unsuccessful writer
+fails without submitting the raw prompt; full mode retains its existing best-effort fallback.
+
+The facade shares ComfyUI's executor and gallery, image-generated event, cancellation, and ephemeral collapse state.
+Only mapped generation defaults apply; unsupported negative prompts are ignored. Simple mode uses a named still-image
+workflow with no supplied references, forces foreground ephemeral output, and disables automatic refinement. Use full
+mode for reference-dependent workflows, video, background jobs, and direct workflow files. Ephemeral images appear to
+the user but never enter the roleplay model's context. The saved full-resolution files remain available in the gallery.
+
+### Authored visual identities
+
+Put compact, workflow-independent appearance prose inside named blocks in a persona body (including its inherited body,
+addendum, or system-prompt override), character sheet, or active lore entry:
+
+```xml
+<visual-identity character="Mira">
+Mira is an adult woman with shoulder-length silver hair, green eyes,
+and a lean build. A small scar cuts through her left eyebrow.
+Her usual outfit is a dark red jacket, black trousers, and leather boots.
+The jacket is usual clothing, not a permanent identity feature.
+</visual-identity>
+```
+
+Tags must occupy their own lines and names must use double quotes. Multiple named blocks are allowed. Keep each body at
+or below 2000 characters; empty, malformed, nested, unclosed, and oversized blocks are skipped with local diagnostics.
+No block means no whole-persona/sheet fallback. Write plain visual facts, not Danbooru tags, quality tokens, workflow
+instructions, or a finished prompt. These blocks do not reduce the persona text sent to the roleplay model itself.
+
+Persona blocks are extracted at activation. Character-sheet blocks are read from the active cast at image-call time;
+normal macros are resolved. Only lore actually selected for keyword/depth injection contributes blocks, respecting
+enabled flags, active bundles, and the normal injection budgets. Image requests never activate dormant lore.
+
+Character names, ids, and aliases in the image request select identities. Without named subjects, recent scene mentions
+and persona-declared characters/POV provide background candidates, not a command to depict the whole cast. Conflicts
+resolve by **active lore > character sheet > persona**, then first source in selection order; identical duplicates are
+silent and conflicting sources produce a local diagnostic. This is whole-block replacement: an overriding lore identity
+should include the complete appearance, not just a clothing fragment. Current scene clothing, pose, injuries, and
+expression remain separate temporary state, and deliberate alternate-appearance requests can override canon.
+
+The writer receives only the scene request, relevant extracted identities, up to 2000 characters of recent
+user/assistant scene text, and workflow guidance. The continuity context has a strict 6000-character total cap; whole
+identities take priority over dialogue. It never includes entire persona files or unselected lore, and does not append
+ComfyUI's independently captured conversation. Missing identities and budget omissions are reported locally, not
+injected into the roleplay conversation.
+
+Extraction/context planning lives in [`visual-identity.ts`](../../../lib/node/pi/roleplay/visual-identity.ts); tool
+selection and branch-mode restoration live in [`image-tools.ts`](../../../lib/node/pi/roleplay/image-tools.ts).
+
 ## `/roleplay` command
 
 - `/roleplay` (or `/roleplay list`) - show the active cast (or the dormant note).
@@ -600,6 +678,7 @@ operate on the **active cast**.
 - `/roleplay import <path.json|.png>` - import a SillyTavern character card into the active cast (see below).
 - `/roleplay event [hint]` - queue a one-shot scene complication for your next reply (LLM-generated, or drawn from the
   `events` deck).
+- `/roleplay images [simple|full|off]` - show or change the image interface (see above).
 - `/roleplay newscene` - start a fresh scene: archive + clear the recap / timeline / captured-fact carry-overs so the
   next turn cold-starts (opt-out of the silent carry-over seed).
 - `/roleplay dir` - print the store root + active cast dir.
@@ -639,6 +718,8 @@ built-in default.
 
 ```jsonc
 {
+  "imageMode": "full", // full (default), simple prompt-only scene illustrations, or off
+  "imageWorkflow": "qwen-image-edit-2.1", // optional simple-mode workflow; absent = ComfyUI default
   "charBudget": 4000, // cast-index block cap (default 3000, floor 500)
   "loreCharBudget": 4000, // fired-lore section cap (default 3000, floor 500)
   "maxRecursion": 1, // lorebook recursion passes, 0 = off (default 0, ceiling 2)
@@ -722,7 +803,7 @@ is optional - with none set the event generator inherits the parent session mode
 | [`persona.ts`](./persona.md) | The master gate. `roleplay: true` (+ optional `cast:`) in persona frontmatter activates this extension; `authorNote` / `authorNoteDepth` drive the depth-injected author's note; the resolved persona is read via the singleton.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | [`memory.ts`](./memory.md)   | Independent. Coding memory is untouched; roleplay has its own root, tool, and injected block. Both can be active at once.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | [`avatar.ts`](./avatar.md)   | Phase 6: roleplay publishes the active character's sprite-set into the avatar-input slot ([`avatar/input.ts`](../../../lib/node/pi/avatar/input.ts)) so the avatar shows the _character_. The set slug resolves in precedence order: an explicit persona `avatarSet` &gt; the first non-POV `characters` entry &gt; the first `characters` entry &gt; the `cast` slug. `avatarSet` exists to decouple the avatar face from the cast store - e.g. `cast: exusiai-isekai` + `avatarSet: exusiai` keeps a distinct scenario cast while reusing the shared `exusiai` sprites (without it the `exusiai-isekai` slug has no `avatar/emotes/<slug>/` dir and the avatar falls back to the ASCII kaomoji). If a `portraits/<slug>.png` exists for the active character it is pushed as the avatar's override image (static portrait wins over the animated sprite). Gated by `PI_ROLEPLAY_DISABLE_AVATAR`. |
-| [`comfyui.ts`](./comfyui.md) | Phase 6C: roleplay subscribes to comfyui's neutral image-generated bus ([`comfyui/events.ts`](../../../lib/node/pi/comfyui/events.ts)) and, while a scene is active, mirrors the latest `generate_image` render into the avatar's `scene` banner. Image prompting stays model-driven (the active image-prompting skill); roleplay only routes the saved PNG. comfyui has no dependency on roleplay or the avatar. Gated by `PI_ROLEPLAY_DISABLE_SCENEGEN` (and `PI_ROLEPLAY_DISABLE_AVATAR`).                                                                                                                                                                                                                                                                                                                                                                                                      |
+| [`comfyui.ts`](./comfyui.md) | Phase 6C: roleplay subscribes to comfyui's neutral image-generated bus ([`comfyui/events.ts`](../../../lib/node/pi/comfyui/events.ts)) and, while a scene is active, mirrors the latest `generate_image` render into the avatar's `scene` banner. Full mode keeps model-driven prompting; simple mode delegates prompt writing with bounded visual identities. Roleplay routes saved PNGs to the banner. comfyui has no dependency on roleplay or the avatar. Gated by `PI_ROLEPLAY_DISABLE_SCENEGEN` (and `PI_ROLEPLAY_DISABLE_AVATAR`).                                                                                                                                                                                                                                                                                                                                                          |
 
 ## Pure helpers
 

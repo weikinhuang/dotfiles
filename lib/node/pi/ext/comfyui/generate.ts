@@ -74,6 +74,7 @@ export async function executeGenerate(
   signal: AbortSignal | undefined,
   onUpdate: AgentToolUpdateCallback<GenerateDetails> | undefined,
   ctx: ExtensionContext,
+  options: { requireEnhance?: boolean; isolatedContext?: boolean } = {},
 ): Promise<GenerateToolResult> {
   const config = rt.loadConfig(ctx.cwd);
 
@@ -146,6 +147,9 @@ export async function executeGenerate(
   if (params.autoRefine === true && wf.outputType === 'video') {
     return fail(`workflow "${name}" outputs video and does not support autoRefine`);
   }
+  if (options.requireEnhance && (fileWorkflow || wf.outputType === 'video')) {
+    return fail('the prompt-only image interface requires a named still-image workflow');
+  }
 
   // Image inputs are either positional (`inputImages`) or role-keyed
   // (`images`), set by the workflow; reject the wrong arg up front for
@@ -181,7 +185,13 @@ export async function executeGenerate(
   // job returns no image to collapse); ignore it when backgrounding.
   const ephemeral = !background && (params.ephemeral ?? config.ephemeral);
 
-  const d = fileWorkflow ? undefined : config.defaults;
+  const d = fileWorkflow ? undefined : options.requireEnhance ? { ...config.defaults } : config.defaults;
+  // A prompt-only caller cannot repair unrelated global defaults for a different workflow.
+  if (options.requireEnhance && d) {
+    for (const key of ['width', 'height', 'steps', 'cfg', 'denoise', 'count', 'negative'] as const) {
+      if (!wf.inputs[key === 'count' ? 'batch' : key]) delete d[key];
+    }
+  }
 
   // Auto-refine resolution: per-call `autoRefine` arg ?? per-workflow
   // `refine` ?? config `autoRefine`. Active only when a refiner is installed
@@ -292,7 +302,8 @@ export async function executeGenerate(
     let promptForRender = effectivePrompt;
     const baselineNegative = params.negative ?? reuse?.negative ?? d?.negative;
     let enhancedNegative: string | undefined;
-    const wantEnhance = params.enhance ?? wf.enhance ?? config.enhance;
+    const wantEnhance = options.requireEnhance === true ? true : (params.enhance ?? wf.enhance ?? config.enhance);
+    let enhancementSucceeded = false;
     if (wantEnhance) {
       const enh = enhancerAccess.getEnhancer(ctx);
       if (enh?.isEnabled()) {
@@ -305,7 +316,7 @@ export async function executeGenerate(
           ...(wf.tags !== undefined ? { tags: wf.tags } : {}),
           ...(wf.promptProtocol !== undefined ? { promptProtocol: wf.promptProtocol } : {}),
           ...((): { context?: string } => {
-            const merged = rt.mergedSceneContext(params.context);
+            const merged = options.isolatedContext ? params.context : rt.mergedSceneContext(params.context);
             return merged !== undefined ? { context: merged } : {};
           })(),
         });
@@ -319,10 +330,20 @@ export async function executeGenerate(
           task,
         );
         if (enhanceResult) {
+          enhancementSucceeded = true;
           promptForRender = enhanceResult.prompt;
-          if (enhanceResult.negative !== undefined) enhancedNegative = enhanceResult.negative;
+          if (enhanceResult.negative !== undefined && (!options.requireEnhance || wf.inputs.negative)) {
+            enhancedNegative = enhanceResult.negative;
+          }
         }
       }
+    }
+    if (options.requireEnhance && !enhancementSucceeded) {
+      return {
+        ok: false,
+        error:
+          'prompt writing failed or is unavailable; no image was submitted. Configure comfyui-enhance/enhanceModel or use full image mode.',
+      };
     }
     const enhancedPrompt = promptForRender !== effectivePrompt;
 

@@ -28,6 +28,16 @@ test('coerceConfigLayer accepts a valid charBudget and floors it', () => {
   expect(coerceConfigLayer({ charBudget: 1234.9 })).toEqual({ charBudget: 1234 });
 });
 
+test('image mode is opt-in, validated, and layered with an optional workflow', () => {
+  expect(DEFAULT_CONFIG.imageMode).toBe('full');
+  expect(coerceConfigLayer({ imageMode: 'simple', imageWorkflow: '  qwen  ' })).toEqual({
+    imageMode: 'simple',
+    imageWorkflow: 'qwen',
+  });
+  expect(coerceConfigLayer({ imageMode: 'auto', imageWorkflow: ' ' })).toEqual({});
+  expect(mergeConfigLayers({ imageMode: 'simple' }, { imageMode: 'off' }).imageMode).toBe('off');
+});
+
 test('coerceConfigLayer ignores junk', () => {
   expect(coerceConfigLayer(null)).toEqual({});
   expect(coerceConfigLayer('nope')).toEqual({});

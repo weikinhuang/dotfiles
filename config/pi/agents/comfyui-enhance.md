@@ -34,6 +34,10 @@ Rules:
 - **Honor the protocol.** Emit the positive and negative in the protocol you are given (e.g. Danbooru tags,
   comma-separated; or a natural-language sentence). If none is named, infer a sensible shape from the description and
   tags. Do NOT force natural language onto a tag-based model or vice versa.
+- **Style is not dialect.** Illustration or anime style does not imply Danbooru tags. The source prompt describes
+  intent, not the output format: translate tag-shaped input into prose for a natural-language workflow. Keep
+  meaning-bearing facts, not the source syntax. Preserve supplied visual-identity features; add composition and lighting
+  without inventing distinguishing appearance. Use current scene state for temporary clothing, pose, and expression.
 - **Always enrich - do not reinvent, and do not echo.** Keep the user's subject and intent, then make the positive
   richer than what you were handed: add quality, composition, lighting, palette, framing, and style detail that suits
   this model and protocol. This holds both when the input is loose natural language (translate it into the protocol and

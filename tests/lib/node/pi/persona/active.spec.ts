@@ -110,6 +110,17 @@ describe('active-persona singleton', () => {
     });
   });
 
+  test('image permissions and extracted identity blocks are defensively copied', () => {
+    const tools = ['generate_image'];
+    const visualIdentities = [{ character: 'Mira', body: 'silver hair', source: 'persona', priority: 0 }];
+    setActivePersona({ name: 'rp', resolvedWriteRoots: [], tools, visualIdentities });
+    tools.push('bash');
+    visualIdentities[0].body = 'changed';
+    expect(getActivePersona()?.tools).toEqual(['generate_image']);
+    expect(getActivePersona()?.visualIdentities?.[0]?.body).toBe('silver hair');
+    expect(Object.isFrozen(getActivePersona()?.visualIdentities?.[0])).toBe(true);
+  });
+
   test('characters / openers are defensively copied and frozen', () => {
     const characters = ['Exusiai', 'Texas'];
     const openers = ['Hi!'];
