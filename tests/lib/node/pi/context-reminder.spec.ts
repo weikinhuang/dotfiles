@@ -88,6 +88,31 @@ test('injects a framed block onto the last user message', () => {
   expect(msgs[0].content).toEqual([{ type: 'text', text: 'hello' }]);
 });
 
+test.each(['string', 'multipart'])('injects on a custom %s tail without mutating its content or metadata', (kind) => {
+  const content = kind === 'string' ? 'scheduled prompt' : [{ type: 'text', text: 'scheduled prompt' }];
+  const message: ReminderMessage = {
+    role: 'custom',
+    customType: 'scheduled-prompt',
+    display: true,
+    details: { id: 'fixture' },
+    timestamp: 123,
+    content,
+  };
+  const original = structuredClone(message);
+  const once = applyContextReminder([message], { id: 'roleplay-lore', body: 'LORE' });
+  expect(reminderBlocks(once, 'roleplay-lore')).toEqual([frameReminder('roleplay-lore', 'LORE')]);
+  expect(once[0]).toMatchObject({
+    role: 'custom',
+    customType: 'scheduled-prompt',
+    display: true,
+    details: { id: 'fixture' },
+    timestamp: 123,
+  });
+  expect(message).toEqual(original);
+  expect(applyContextReminder(once, { id: 'roleplay-lore', body: 'LORE' })).toEqual(once);
+  expect(stripReminder(once, 'roleplay-lore')[0].content).toEqual([{ type: 'text', text: 'scheduled prompt' }]);
+});
+
 test('does not mutate the input array or messages', () => {
   const msgs = [userText('hello')];
   const snapshot = JSON.stringify(msgs);

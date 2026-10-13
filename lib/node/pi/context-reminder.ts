@@ -41,7 +41,7 @@
  * ─────────
  * The reminder is framed as a `<system-reminder id="...">…</system-reminder>`
  * text block (the same convention Claude Code uses for its ephemeral
- * reminders) and spliced into the content of the LAST user / toolResult
+ * reminders) and spliced into the content of the LAST user / custom / toolResult
  * message - i.e. the thing the assistant is about to respond to. Splicing
  * INTO an existing message (rather than appending a fresh turn) keeps the
  * role sequence valid for `convertToLlm`, which is strict about what may
@@ -130,8 +130,8 @@ export const REMINDER_TAG_MARKER = '<system-reminder';
 const TAG_OPEN_PREFIX = `${REMINDER_TAG_MARKER} id="`;
 const TAG_CLOSE = '</system-reminder>';
 
-/** Roles a reminder may be spliced into (what the assistant responds to). */
-export const INJECTABLE_ROLES: ReadonlySet<string> = new Set(['user', 'toolResult']);
+/** Custom messages become user messages in pi's convertToLlm, after context producers run. */
+export const INJECTABLE_ROLES: ReadonlySet<string> = new Set(['user', 'custom', 'toolResult']);
 
 /** The opening tag for a given id. A block belongs to this id iff its text starts with it. */
 function openTagFor(id: string): string {
@@ -196,10 +196,10 @@ export function hasInjectableTail(messages: readonly ReminderMessage[]): boolean
 /**
  * Strip any prior block of `spec.id`, then (when `spec.body` is non-empty)
  * splice a fresh framed reminder block onto the END of the last
- * user/toolResult message's content.
+ * user/custom/toolResult message's content.
  *
  * The block goes on the LAST message, and only when that message is a
- * user/toolResult - i.e. the turn the assistant is about to answer.
+ * user/custom/toolResult - i.e. the turn the assistant is about to answer.
  * Before a `context` call the trailing message is always one of those;
  * guarding on it (rather than scanning backwards into history) avoids
  * ever splicing a reminder into a message the assistant has already
@@ -221,7 +221,7 @@ export function applyContextReminder<M extends ReminderMessage>(messages: readon
   if (!body) return stripped;
 
   // Inject only into the trailing message, and only when it's the kind
-  // the assistant responds to (user / toolResult).
+  // the assistant responds to (user / custom / toolResult).
   if (!hasInjectableTail(stripped)) return stripped;
 
   const target = stripped.length - 1;

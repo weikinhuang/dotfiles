@@ -47,6 +47,32 @@ test('new user runs append snapshots without removing historical ones', () => {
   expect(second.slice(0, first.length)).toEqual(first);
 });
 
+test('a custom-triggered run captures a stable snapshot without changing its historical message', () => {
+  const lifecycle = createReminderLifecycle();
+  const first = lifecycle.project(inject([user], 'first run')).messages;
+  const custom: ReminderMessage = {
+    role: 'custom',
+    customType: 'scheduled-prompt',
+    content: [{ type: 'text', text: 'continue the scene' }],
+    timestamp: 2,
+    display: true,
+  };
+  lifecycle.refresh();
+  const current = lifecycle.project(inject([user, custom], 'scheduled run'));
+  expect(current.captured?.specs).toEqual([{ id: 'todo-plan', body: 'scheduled run' }]);
+  expect(current.messages.slice(0, first.length)).toEqual(first);
+  expect(current.messages[first.length]).toEqual(custom);
+  expect(custom.content).toEqual([{ type: 'text', text: 'continue the scene' }]);
+  const next = lifecycle.project(
+    inject([user, custom, { role: 'toolResult', content: 'tool output', timestamp: 3 }], 'changed mid-run'),
+  );
+  expect(next.messages.slice(0, current.messages.length)).toEqual(current.messages);
+  lifecycle.restore([current.captured!]);
+  expect(lifecycle.project(inject([user, custom], 'changed on resume')).messages.slice(-2)).toEqual(
+    current.messages.slice(-2),
+  );
+});
+
 test('composition sorts stable IDs and replay is a fixpoint', () => {
   expect(
     composeReminderSpecs([

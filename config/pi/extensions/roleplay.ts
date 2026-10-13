@@ -859,11 +859,12 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       return undefined;
     }
     turnCount += 1;
+    const prompt = event.messageType === 'user' ? event.prompt : messageContentToText(event.message.content);
     // Scan the recent-message window (prior turns, incl. assistant) plus the
-    // current prompt for name-keyed character folds; the sticky window covers
+    // current user/custom prompt for name-keyed character folds; the sticky window covers
     // the one-turn lag in `lastMessages` (captured in the `context` hook).
     const sceneScanDepth = loadRoleplayConfig(cwd, envCharBudget).scanDepth;
-    const sceneScanText = `${concatRecentMessageText(lastMessages, sceneScanDepth)}\n${event.prompt ?? ''}`;
+    const sceneScanText = `${concatRecentMessageText(lastMessages, sceneScanDepth)}\n${prompt}`;
     const scene = buildSceneBlock(ctx, sceneScanText);
     const index = formatRoleplayBlock(state, { maxChars: charBudget() });
     // Keyword-fired lore is VOLATILE per-turn state (membership shifts on
@@ -873,7 +874,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     // `pendingLore`; the `context` hook injects it as an ephemeral
     // `<system-reminder id="roleplay-lore">` on the tail. Only the stable
     // POV/pinned `scene` block and the cast `index` stay at the head.
-    pendingLore = buildLoreInjection(event.prompt ?? '');
+    pendingLore = buildLoreInjection(prompt);
     const additions = [scene, index].filter((s): s is string => Boolean(s));
     if (additions.length === 0) return undefined;
     return { systemPrompt: [event.systemPrompt, ...additions].join('\n\n') };

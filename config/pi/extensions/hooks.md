@@ -4,6 +4,9 @@ Claude Code–style user hook system for pi. Drop a shell script at a tool-call 
 TypeScript extension. Matches the upstream `PreToolUse` / `PostToolUse` / `UserPromptSubmit` / `Stop` / `SessionStart`
 shape closely enough that existing Claude Code hook scripts work with minimal rewriting.
 
+`UserPromptSubmit` runs only for user-message starts. Extension-triggered custom runs, such as scheduled prompts or
+recovery nudges, do not invoke these hooks.
+
 ## Baseline example
 
 [`../hooks-example.json`](../hooks-example.json) is an annotated JSONC starter with one commented-out example per event

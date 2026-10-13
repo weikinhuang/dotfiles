@@ -241,18 +241,11 @@ export default function hooks(pi: ExtensionAPI): void {
   // ──────────────────────────────────────────────────────────────────
 
   pi.on('before_agent_start', async (event, ctx) => {
+    if (event.messageType !== 'user') return undefined;
     const candidates = loadEvent(ctx.cwd, 'UserPromptSubmit');
     if (candidates.length === 0) return undefined;
 
-    const prompt = (() => {
-      const raw =
-        (event as { userPrompt?: unknown; prompt?: unknown }).userPrompt ?? (event as { prompt?: unknown }).prompt;
-      return typeof raw === 'string' ? raw : '';
-    })();
-    const systemPrompt = (() => {
-      const raw = (event as { systemPrompt?: unknown }).systemPrompt;
-      return typeof raw === 'string' ? raw : '';
-    })();
+    const { prompt, systemPrompt } = event;
     const appended: string[] = [];
     for (const hook of candidates) {
       const payload: PromptPayload = {

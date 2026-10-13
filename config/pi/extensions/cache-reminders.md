@@ -11,6 +11,10 @@ the original tail. Its anchor is a SHA-256 of the unmodified tail message. Later
 unchanged, even when producers render different state. Tool results communicate mid-run changes immediately. No
 additional model call is requested. The leading system message and tool declarations are left untouched.
 
+Custom-message runs, such as idle scheduled prompts and background completion nudges, use the same snapshot lifecycle.
+The producer helper accepts custom tails because pi converts those messages to user messages after the `context` hooks.
+This preserves reminder delivery without changing the stored custom message or adding a real user submit.
+
 Snapshot bytes and anchors are persisted as branch-local custom data, not transient model output. On later real user
 turns a new snapshot is appended; earlier ones remain byte-identical. Resume and tree navigation restore only the
 selected branch. Compaction refreshes once; snapshots whose anchors were removed are not reintroduced. Existing consumer

@@ -143,8 +143,9 @@ model turn. Opt-in; only fires when concrete candidates were found.
 **Nag-fatigue gating.** A reminder on every compaction would be noise, so the nudge is suppressed unless there is
 plausibly something unsaved to capture: there must have been at least one user turn since the last successful save this
 session. Each user submit increments a counter; a successful `memory save` resets it to zero, so back-to-back
-compactions with no intervening user activity stay quiet. The nudge is also suppressed entirely when memory can't be
-written (`PI_MEMORY_READONLY=1` - no point nudging a save you can't make) or when it is turned off
+compactions with no intervening user activity stay quiet. Custom-message runs, including scheduled prompts and recovery
+nudges, do not increment this counter. The nudge is also suppressed entirely when memory can't be written
+(`PI_MEMORY_READONLY=1` - no point nudging a save you can't make) or when it is turned off
 (`PI_MEMORY_DISABLE_CAPTURE=1`).
 
 Candidate extraction reuses the compaction summary (no extra model call); a heavier transcript-analysis pass with its

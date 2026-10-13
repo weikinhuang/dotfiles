@@ -126,9 +126,10 @@ in-memory only - it resets when pi restarts or the cast switches (chat-metadata 
 pass applies to the keyword-fired lorebook (computed once per turn in `before_agent_start`, see below); depth-injected
 lore (entries with a `depth`) still uses plain matching in v1.
 
-> **Phase 2 scan window:** matching runs in `before_agent_start`, which only exposes the _latest user message_, so lore
-> fires on the current prompt. Scanning the recent N turns and inserting at `depth` happens in the `context` event
-> (Phase 4, below).
+> **Phase 2 scan window:** matching runs in `before_agent_start` against the text that starts the run: the user prompt
+> or the text parts of a custom message, including scheduled prompts. Timing advances once per started run, including
+> custom-message runs, not once per provider request. Scanning the recent N turns and inserting at `depth` happens in
+> the `context` event (Phase 4, below).
 
 ### Optional lore bundles
 

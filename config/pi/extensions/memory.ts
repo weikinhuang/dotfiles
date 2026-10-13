@@ -340,7 +340,8 @@ export default function memoryExtension(pi: ExtensionAPI): void {
   });
 
   // Only count activity here. The index never rebuilds the leading system prompt.
-  pi.on('before_agent_start', () => {
+  pi.on('before_agent_start', (event) => {
+    if (event.messageType !== 'user') return;
     // Count this submit as user activity for the capture-assist gate.
     userTurnsSinceLastSave += 1;
   });

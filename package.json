@@ -19,9 +19,9 @@
   },
   "devDependencies": {
     "@anthropic-ai/sandbox-runtime": "^0.0.78",
-    "@earendil-works/pi-ai": "^1.0.0",
-    "@earendil-works/pi-coding-agent": "^1.0.0",
-    "@earendil-works/pi-tui": "^1.0.0",
+    "@earendil-works/pi-ai": "^1.2.0",
+    "@earendil-works/pi-coding-agent": "^1.2.0",
+    "@earendil-works/pi-tui": "^1.2.0",
     "@eslint/json": "^2.1.0",
     "@types/node": "^26.6.4",
     "@vitest/coverage-v8": "^5.0.3",
