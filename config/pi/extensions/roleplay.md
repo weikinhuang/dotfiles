@@ -78,27 +78,28 @@ records are described below.
 ## Lorebook (`lore` kind)
 
 The SillyTavern "World Info" equivalent and the main scaling lever: instead of one giant always-injected blob, world
-detail lives in `lore` records that inject **only when their keywords appear in the latest user message**. This lets a
-large canon stay on disk and surface relevance-gated, a few entries at a time.
+detail lives in `lore` records that inject **when their keywords appear in the latest narrative prompt**, or in the
+frozen recent window for depth-tagged records (below). This lets a large canon stay on disk and surface relevance-gated,
+a few entries at a time.
 
 Lore frontmatter (all optional beyond the core three keys):
 
-| Field           | Type             | Meaning                                                                                               |
-| --------------- | ---------------- | ----------------------------------------------------------------------------------------------------- |
-| `triggers`      | `[a, b, …]`      | Primary keywords, OR-combined. Any whole-word, case-insensitive hit fires the entry.                  |
-| `secondaryKeys` | `[x, y, …]`      | Optional gate applied after a primary hit.                                                            |
-| `secondaryMode` | `AND`/`OR`/`NOT` | How `secondaryKeys` combine: all present / any present / none present. Default `AND`.                 |
-| `constant`      | `true`/`false`   | Always inject (budget permitting), ignoring triggers. Default `false`.                                |
-| `order`         | integer          | Priority; higher wins when the char budget forces eviction. Default `0`.                              |
-| `depth`         | integer          | Inserted at this depth in the message array via the `context` event (Phase 4), not the system prompt. |
-| `recurse`       | `true`/`false`   | Opt in to having this entry's body re-scanned to trigger further lore. Default `false`.               |
-| `probability`   | `0`-`100`        | Chance the entry fires even when matched. Default `100` (always).                                     |
-| `sticky`        | integer          | Once fired, stay active this many further turns without a re-match. Default `0`.                      |
-| `cooldown`      | integer          | After its active window ends, cannot fire again for this many turns. Default `0`.                     |
-| `delay`         | integer          | Not eligible to fire until this many turns into the chat. Default `0`.                                |
-| `group`         | string           | Inclusion-group name; among fired members of a group only ONE survives per turn. Default `''`.        |
-| `groupWeight`   | integer          | Relative weight for the group's weighted-random pick. Default `100`.                                  |
-| `enabled`       | `true`/`false`   | Author kill-switch. `false` silences the entry (never fires, never injects). Default `true`.          |
+| Field           | Type             | Meaning                                                                                              |
+| --------------- | ---------------- | ---------------------------------------------------------------------------------------------------- |
+| `triggers`      | `[a, b, …]`      | Primary keywords, OR-combined. Any whole-word, case-insensitive hit fires the entry.                 |
+| `secondaryKeys` | `[x, y, …]`      | Optional gate applied after a primary hit.                                                           |
+| `secondaryMode` | `AND`/`OR`/`NOT` | How `secondaryKeys` combine: all present / any present / none present. Default `AND`.                |
+| `constant`      | `true`/`false`   | Always inject (budget permitting), ignoring triggers. Default `false`.                               |
+| `order`         | integer          | Priority; higher wins when the char budget forces eviction. Default `0`.                             |
+| `depth`         | integer          | Insert this many messages from the end at the narrative boundary; keep placement fixed during tools. |
+| `recurse`       | `true`/`false`   | Opt in to having this entry's body re-scanned to trigger further lore. Default `false`.              |
+| `probability`   | `0`-`100`        | Chance the entry fires even when matched. Default `100` (always).                                    |
+| `sticky`        | integer          | Once fired, stay active this many further turns without a re-match. Default `0`.                     |
+| `cooldown`      | integer          | After its active window ends, cannot fire again for this many turns. Default `0`.                    |
+| `delay`         | integer          | Not eligible to fire until this many turns into the chat. Default `0`.                               |
+| `group`         | string           | Inclusion-group name; among fired members of a group only ONE survives per turn. Default `''`.       |
+| `groupWeight`   | integer          | Relative weight for the group's weighted-random pick. Default `100`.                                 |
+| `enabled`       | `true`/`false`   | Author kill-switch. `false` silences the entry (never fires, never injects). Default `true`.         |
 
 Keyword matching is **whole-word** (`RI` matches `RI` / `(RI)` but not `spring`) and case-insensitive; multi-word and
 punctuation-bearing keys (`Northern Outpost`, `Dr. Vance`) match literally between token boundaries. Fired entries are
@@ -123,13 +124,12 @@ turns after the active window), `probability` (an rng gate on each fresh activat
 further turns once fired, no re-roll), and `group` (among fired members of a named group, keep one, weighted by
 `groupWeight`). A fresh fire arms the sticky+cooldown window in one shot; group losers do not arm any window. State is
 in-memory only - it resets when pi restarts or the cast switches (chat-metadata persistence is deferred). The timing
-pass applies to the keyword-fired lorebook (computed once per turn in `before_agent_start`, see below); depth-injected
-lore (entries with a `depth`) still uses plain matching in v1.
+pass applies to keyword-fired lore, computed once per narrative turn in `before_agent_start` (see below). Depth-tagged
+lore retains plain recent-window matching, without the keyword timing pass.
 
-> **Phase 2 scan window:** matching runs in `before_agent_start` against the text that starts the run: the user prompt
-> or the text parts of a custom message, including scheduled prompts. Timing advances once per started run, including
-> custom-message runs, not once per provider request. Scanning the recent N turns and inserting at `depth` happens in
-> the `context` event (Phase 4, below).
+> **Narrative boundary:** matching runs against the initiating user prompt or a `scheduled-prompt` custom message.
+> Timing advances once per narrative run, not once per provider request. Background completions, guardrail nudges, and
+> retry notices do not select fresh lore, advance scene/lore timing, or consume queued scene events.
 
 ### Optional lore bundles
 
@@ -182,79 +182,104 @@ the active selection into live state; the complete inventory is an index-only co
 ## Depth injection: author's note + depth-tagged lore
 
 The `before_agent_start` block above appends the stable scene + cast index to the **system prompt** and computes the
-turn's keyword-fired lore, which is injected separately on the message tail as an ephemeral reminder (see "Injected
-`## Roleplay` block" below) rather than in the cached prefix. The SillyTavern "insert at depth N" lever is a distinct
-third path: text is spliced into the **message array** near the live turn and recomputed every call. The extension does
-this in the `context` event, which hands a deep copy of the messages and lets the extension return a replacement
-(non-persistent - it never touches the saved session). Two things ride this path:
+turn's keyword-fired lore, which is injected separately as a reminder after the initiating input (see "Injected
+`## Roleplay` block" below) rather than in the cached system prefix. The SillyTavern "insert at depth N" lever is a
+distinct third path: standing instructions are positioned in the **message array** near the live turn. Two things ride
+this path:
 
 - **Author's note** - a short standing instruction from the active persona's `authorNote` frontmatter, inserted at
   `authorNoteDepth` (default 4) messages from the end. Use it for tone / style / pacing reminders that should sit close
   to the model's next turn rather than fade at the top of a long system prompt.
 - **Depth-tagged lore** - any `lore` entry with a `depth:` field. These are _excluded_ from the keyword-fired lore block
-  and instead fire against the **recent `scanDepth` messages** (default 10, not just the latest prompt) and splice in at
-  their `depth`. Budgeted by `loreCharBudget` like the keyword-fired lore.
+  and instead match the **prior `scanDepth` messages** (default 10) plus the initiating narrative prompt, not just the
+  latest prompt. They are budgeted by `loreCharBudget` like keyword-fired lore. Depth lore skips the timing pass (plain
+  `matchLore`, no `applyTiming`), so a `constant` depth record fires on **every narrative turn**, not every tool
+  request.
 
-Depth counts from the end: `depth: 0` appends after the last message, `depth: 1` inserts just before it, and a depth
-larger than the history clamps to the start. Disable the whole path with `PI_ROLEPLAY_DISABLE_DEPTH_INJECT=1`.
+Depth counts from the end of the initial conversation: `depth: 0` appends after the initiating input, `depth: 1` inserts
+just before it, and a depth larger than the history clamps to the start. The first narrative `context` request resolves
+positions after rolling-window reduction. A depth that would split an assistant's tool-call/result batch is moved before
+that batch instead. Disable the whole path with `PI_ROLEPLAY_DISABLE_DEPTH_INJECT=1`.
 
-### Delivery shape for `depth: 0`: standalone messages (default) or a merged tail block (opt-in)
+### Delivery shape for `depth: 0`: standalone messages (default) or a merged snapshot block (opt-in)
 
 By default every insertion becomes its **own `user`-role message**. For `depth: 0` that means N instruction-only user
-turns appended _after_ the user's real message, so the model's immediate stimulus before generation is a stack of
-standing instructions with the actual user message several turns back. On a chat template with no mid-conversation
-system role that can read as an instruction handoff to acknowledge: on `llama-cpp/gemma4-31b-fast` a cast with four
-`constant: true, depth: 0` records (~4.6 KB of second-person imperative prose) drew a `// [OOC: I've absorbed …]`
-compliance preamble on 13.4% of replies, and 23 of those 27 preambles named an injected `depth: 0` record. Note also
-that depth lore skips the timing pass (plain `matchLore`, no `applyTiming`), so a `constant` depth record fires on
-**every** turn.
+messages after the user's real message, so the model's immediate stimulus before generation can be a stack of standing
+instructions with the actual user message several messages back. On a chat template with no mid-conversation system role
+that can read as an instruction handoff to acknowledge.
 
-Setting `depthLoreInlineTail: true` in `roleplay.json` changes only the **message structure**: everything resolving to
-depth 0 (the depth-0 lore, in order, plus an author's note whose resolved depth is 0, last) is concatenated into one
-block joined by blank lines and spliced onto the **end of the trailing user / toolResult message** instead of appended
-as new messages. Per-chunk `[Lore — <name>: …]` framing is unchanged, so the prose the model reads is the same;
-`depth > 0` keeps the standalone path untouched. Tradeoffs to weigh before opting in:
+Historical measurements on `llama-cpp/gemma4-31b-fast`, using the earlier per-request standalone transport, found that
+four `constant: true, depth: 0` records (~4.6 KB of second-person imperative prose) drew a `// [OOC: I've absorbed …]`
+compliance preamble on 13.4% of replies; 23 of those 27 preambles named an injected `depth: 0` record. These
+observations explain the delivery-shape option, not a benchmark of the current anchored transport.
 
-- The block is delivered through the same [`context-reminder.ts`](../../../lib/node/pi/context-reminder.ts) seam as
-  `roleplay-lore`, so it gains `<system-reminder id="roleplay-depth">` framing. That is a deliberate behavior change:
-  the text is now inside a reminder envelope (already explained to non-Claude models by the system-prompt primer in
-  [`reminder-primer.ts`](../../../lib/node/pi/reminder-primer.ts)), and it keeps
-  [`cache-breakpoint.ts`](./cache-breakpoint.md) working as before, since that detector puts the conversation breakpoint
-  on the last **non-reminder** block and aggregates any number of reminder blocks past it. A bare text block would have
-  taken the breakpoint instead.
-- **Order on the trailing message is deterministic**: real user content, then the merged depth block (`roleplay-depth`),
-  then `roleplay-lore`, then `roleplay-repetition`, then `roleplay-event`. The depth block is applied before the
-  reminder specs, and each spec strips its own id before re-appending, so re-running the whole `context` transform over
-  its own output is a fixpoint.
-- When the trailing message is **not** injectable (not `user` / `toolResult`) the depth-0 chunks **fall back** to the
-  standalone-message path, so a chunk can never be silently dropped.
-- `PI_ROLEPLAY_DISABLE_DEPTH_INJECT=1` still disables the whole path, flag or no flag, and macro substitution +
-  `loreCharBudget` selection stay upstream of the merge (the merged block obeys the same budget as today).
-- **Re-measure before adopting.** The `depth: 0` tail position is load-bearing for prose-tic suppression on this model
-  (a tail-injected instruction measured 17% -> 3% on one tic and 62% -> 19% on another, where the same wording in the
-  system prompt did nothing). The merged block keeps the text at the tail but moves it _inside_ the user's message,
-  which is a different position in the rendered template. The flag exists so that can be an A/B rather than a leap.
+Setting `depthLoreInlineTail: true` in `roleplay.json` changes the **message structure**: everything resolving to depth
+0 (the depth-0 lore, in order, plus an author's note whose resolved depth is 0, last) is concatenated into one block
+joined by blank lines in the initiating input's managed snapshot. Per-chunk `[Lore — <name>: …]` framing is unchanged,
+so the lore prose is the same; `depth > 0` keeps the standalone path. Tradeoffs to weigh before opting in:
+
+- The merged block uses `<system-reminder id="roleplay-depth">` framing, like keyword-fired lore. This is a deliberate
+  behavior change: the text is inside a reminder envelope, explained to non-Claude models by
+  [`reminder-primer`](./reminder-primer.md). It also lets [`cache-breakpoint`](./cache-breakpoint.md) distinguish
+  reminder blocks from ordinary conversation content; a bare text block would count as conversation content instead.
+- **Chunk order is deterministic:** selected depth-0 lore first, author's note last. The coordinator sorts reminder
+  block IDs and replays the same rendered snapshot rather than re-appending blocks on every request.
+- Positive-depth chunks retain their own message positions with either setting. Macro substitution and `loreCharBudget`
+  selection stay upstream of the merge; the flag does not change which records match or their budget.
+- `PI_ROLEPLAY_DISABLE_DEPTH_INJECT=1` disables both shapes. Tool continuations do not fall back to a fresh standalone
+  injection; they only replay the existing snapshot.
+- **Re-measure before adopting.** Earlier measurements found a tail-injected instruction reduced one prose tic from 17%
+  to 3% and another from 62% to 19%, while the same wording in the system prompt did nothing. Standalone messages,
+  reminder framing, and position in the rendered template can all change model behavior. Keep this an A/B choice rather
+  than assuming the merged shape preserves those rates under anchored delivery.
+
+### Turn-scoped selection and fixed placement
+
+[`cache-reminders`](./cache-reminders.md) persists the rendered bodies and before/after message anchors alongside the
+run's keyword lore, events, and repetition guidance. Depth-0 placement therefore gives:
+
+```text
+User message -> Lore snapshot -> Assistant tool call -> Tool result -> Assistant reply
+```
+
+Later tool requests only replay that snapshot. Tool-output keywords, changing lore files, and random/time macros cannot
+select new lore or move its placement during the run. Original conversation messages are never rewritten; snapshots are
+stored as branch-local metadata and projected into requests. No snapshot is freshly appended after a tool-result
+continuation, including after recovery.
+
+A new narrative input selects fresh lore and resolves fresh depth positions. Inserting farther back can reduce
+prefix-cache reuse at that boundary; tool continuations do not recalculate positions. Initial request planning may try
+smaller windows before accepting the final placement, without rereading bodies, rerolling macros, or advancing timing.
+Persisted session-entry IDs identify origins and targets rather than mutable text hashes. Queued startup guidance stays
+after the initiating input and its depth-0 content.
+
+Earlier snapshots remain unchanged until their anchors leave the active context. Compaction and branch restore retain
+placements whose initiating input and targets survive; missing targets are omitted, not relocated. Final request sizing
+counts historical and pending snapshot payloads, and final sanitization covers standalone depth messages as well as
+framed blocks. If the latest input plus mandatory context cannot fit, the request aborts instead of sending an oversized
+payload or consuming a queued event.
 
 ## Injected `## Roleplay` block
 
 Each turn (under a roleplay persona) the active cast's **index** - one line per record, names + descriptions only - is
 appended to the system prompt under a `## Roleplay — cast: <slug>` header, capped by `charBudget` (default 3000, floor
-500). Full character bodies are fetched on demand via `roleplay read <id>`. Any **fired lore** for the current turn is
-injected in full under a `## Roleplay lore` header (capped separately by `loreCharBudget`); this is the one case where
-bodies are injected outright, since the point of keyword triggering is to put the relevant detail in-context without a
-tool call. Once a cap is hit the block stops adding entries and emits a trailer.
+500). Full character bodies are fetched on demand via `roleplay read <id>`. Any **keyword-fired lore** for the current
+turn is injected in full under a `## Roleplay lore` header (capped separately by `loreCharBudget`); this is the one case
+where bodies are injected outright, since the point of keyword triggering is to put the relevant detail in-context
+without a tool call. Once a cap is hit the block stops adding entries and emits a trailer.
 
 The scene block and cast index are **stable head state** and stay in the system prompt (cached prefix). The fired-lore
 block, by contrast, is **volatile per-turn state** - its membership shifts on every topic change - so it is NOT placed
 in the system prompt (where each shift would bust the whole prompt-prefix cache, re-prefilling the conversation on
 llama.cpp). Instead `before_agent_start` computes it once (running the timing pass exactly once per turn) and stashes it
-in a `pendingLore` slot; the `context` event injects that slot as an ephemeral `<system-reminder id="roleplay-lore">` on
-the trailing message via [`context-reminder.ts`](../../../lib/node/pi/context-reminder.ts), like `roleplay-repetition` /
-`roleplay-event`. The default-on [`cache-reminders`](./cache-reminders.md) coordinator captures these standalone blocks
-once per run, sorts their IDs, and projects a distinct branch-recoverable snapshot with byte-stable historical items.
-Mid-run state updates do not rewrite that snapshot. On later user runs only newly firing state is captured; historical
-event/lore snapshots remain context history, not newly queued events. Scene folds, rolling context reduction, and bare
-depth-insertion messages remain separate mechanisms and can still change a prefix. See the delivery rule in
+in a `pendingLore` slot; the first narrative `context` request emits that slot via
+[`context-reminder.ts`](../../../lib/node/pi/context-reminder.ts), like `roleplay-depth`, `roleplay-repetition`, and
+`roleplay-event`. Later requests emit no fresh roleplay blocks. The default-on [`cache-reminders`](./cache-reminders.md)
+coordinator captures these standalone blocks once per run, sorts their IDs, and projects a distinct branch-recoverable
+snapshot with byte-stable historical items. Mid-run state updates do not rewrite that snapshot. On later user runs only
+newly firing state is captured; historical event/lore snapshots remain context history, not newly queued events.
+Operational custom runs retain the previous scene block and cast index without advancing narrative timing. Scene folds
+and rolling context reduction remain separate mechanisms and can still change a prefix. See the delivery rule in
 [`AGENTS.md`](./AGENTS.md) § "Cache-safe reminder delivery". Returns nothing when the cast is empty and no lore fired.
 
 ## Scene: folding full character sheets (`characters` / `pov` / `pinned`)
@@ -310,8 +335,8 @@ sticky / cooldown / probability windows).
 | `delay`       | `0`                  | Not eligible to fold until this many turns into the chat. Default `0`.                                |
 
 Author list fields with **inline** arrays (`[a, b]`) - pi's frontmatter parser does not accept block (`- item`) lists.
-The recent-message scan window is the same `scanDepth` the depth-lore scan uses. Leave everything unset and a character
-folds only when its name is mentioned (or the persona declares it) - backward compatible with pre-`pinned` casts.
+The recent-message scan window is controlled by `scanDepth`. Leave everything unset and a character folds only when its
+name is mentioned (or the persona declares it) - backward compatible with pre-`pinned` casts.
 
 `/persona opener [n]` prints the active persona's greeting lines (all numbered, or just entry `n`); see
 [`persona.md`](./persona.md).
@@ -335,8 +360,8 @@ first `:` keeps its case.
 
 Resolution is forgiving: an unknown macro, or `{{user}}` / `{{char}}` with no value in context, is **left literal**
 rather than blanked - a misconfiguration stays visible instead of mangling grammar. Macros are applied to folded
-character sheets, fired lore bodies (system-prompt and depth-injected), and the author's note. They do not nest or
-recurse (a single left-to-right pass). Openers are surfaced by `persona` and are not macro-substituted.
+character sheets, fired lore bodies, and the author's note. They do not nest or recurse (a single left-to-right pass).
+Openers are surfaced by `persona` and are not macro-substituted.
 
 ## Relationship state (`relationship` kind)
 
@@ -554,10 +579,13 @@ memoized per cast and rebuilt on any store change. Tuned by the `repetition*` co
 ## Event system (`/roleplay event`)
 
 `/roleplay event [hint]` queues a one-shot in-world **complication** - a knock at the door, a revealed motive, a sudden
-choice - injected as a private director note for the **next reply only** (consume-once: cleared at the following turn
-boundary). Like the repetition nudge it rides the `context` event under the `roleplay-event` id and never rewrites the
-transcript. With stable projection enabled, the delivered snapshot is retained as historical context rather than being
-removed on the following call. It is not requeued as a new event on later user runs.
+choice - injected as a private director note for the **next narrative reply only**. It is acknowledged only when the
+coordinator captures its frozen generation, then cleared at the following narrative boundary. A newly queued event gets
+a new generation even when its text is identical, so an older acknowledgement cannot consume it. Operational
+notifications and events queued during a tool loop do not consume it. Like the repetition nudge it rides the `context`
+event under the `roleplay-event` id and never rewrites the transcript. With stable projection enabled, the delivered
+snapshot is retained as historical context rather than being removed on the following call. It is not requeued as a new
+event on later user runs.
 
 Source order:
 
@@ -653,8 +681,8 @@ No block means no whole-persona/sheet fallback. Write plain visual facts, not Da
 instructions, or a finished prompt. These blocks do not reduce the persona text sent to the roleplay model itself.
 
 Persona blocks are extracted at activation. Character-sheet blocks are read from the active cast at image-call time;
-normal macros are resolved. Only lore actually selected for keyword/depth injection contributes blocks, respecting
-enabled flags, active bundles, and the normal injection budgets. Image requests never activate dormant lore.
+normal macros are resolved. Only lore selected for the current narrative snapshot contributes blocks, respecting enabled
+flags, active bundles, and the normal injection budgets. Image requests never activate dormant lore.
 
 Character names, ids, and aliases in the image request select identities. Without named subjects, recent scene mentions
 and persona-declared characters/POV provide background candidates, not a command to depict the whole cast. Conflicts
@@ -724,8 +752,8 @@ built-in default.
   "charBudget": 4000, // cast-index block cap (default 3000, floor 500)
   "loreCharBudget": 4000, // fired-lore section cap (default 3000, floor 500)
   "maxRecursion": 1, // lorebook recursion passes, 0 = off (default 0, ceiling 2)
-  "scanDepth": 10, // recent messages scanned for depth-tagged lore (default 10, max 100)
-  "depthLoreInlineTail": false, // merge depth-0 lore into the trailing user message (default false, opt-in)
+  "scanDepth": 10, // recent messages scanned for depth lore, character folds, and scene events (default 10, max 100)
+  "depthLoreInlineTail": false, // merge depth-0 chunks in the input's snapshot; other depths keep anchored placements
   "relationshipDecayPerDay": 1, // affinity points drifted toward baseline per idle day (default 1, >=0)
   "relationshipBaseline": 50, // neutral resting affinity decay converges to (default 50, 0-100)
   "summarizeMinMessages": 4, // min evicted messages before auto-summarization fires (default 4, >=1)
@@ -758,11 +786,11 @@ is optional - with none set the event generator inherits the parent session mode
 ## Environment variables
 
 - `PI_ROLEPLAY_DISABLED=1` - skip the extension entirely (no tool, no command, no injection).
-- `PI_CACHE_REMINDERS_DISABLED=1` - suppress managed lore/depth/repetition/event reminders globally, without restoring
+- `PI_CACHE_REMINDERS_DISABLED=1` - suppress managed lore/note/repetition/event reminders globally, without restoring
   legacy tail delivery. Scene/index prompts and context-window management remain independent.
 - `PI_ROLEPLAY_DISABLE_AUTOINJECT=1` - keep the tool but skip the `## Roleplay` block.
 - `PI_ROLEPLAY_DISABLE_LOREBOOK=1` - keep the cast-index injection but skip keyword-triggered lore.
-- `PI_ROLEPLAY_DISABLE_DEPTH_INJECT=1` - skip the `context`-event depth injection (author's note + depth-tagged lore).
+- `PI_ROLEPLAY_DISABLE_DEPTH_INJECT=1` - skip depth-tagged lore and author's-note placements.
 - `PI_ROLEPLAY_DISABLE_SUMMARIZE=1` - drop recap mode (no `summary/auto` recap, no threshold ownership); the rolling
   window degrades to the condense-only floor.
 - `PI_ROLEPLAY_DISABLE_CONTEXT_WINDOW=1` - skip the rolling in-context reduction entirely and defer to pi (keeps only
@@ -801,7 +829,7 @@ is optional - with none set the event generator inherits the parent session mode
 
 | Extension                    | Interaction                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`persona.ts`](./persona.md) | The master gate. `roleplay: true` (+ optional `cast:`) in persona frontmatter activates this extension; `authorNote` / `authorNoteDepth` drive the depth-injected author's note; the resolved persona is read via the singleton.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| [`persona.ts`](./persona.md) | The master gate. `roleplay: true` (+ optional `cast:`) in persona frontmatter activates this extension; `authorNote` / `authorNoteDepth` supply the turn-anchored author's note and its depth; the resolved persona is read via the singleton.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | [`memory.ts`](./memory.md)   | Independent. Coding memory is untouched; roleplay has its own root, tool, and injected block. Both can be active at once.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | [`avatar.ts`](./avatar.md)   | Phase 6: roleplay publishes the active character's sprite-set into the avatar-input slot ([`avatar/input.ts`](../../../lib/node/pi/avatar/input.ts)) so the avatar shows the _character_. The set slug resolves in precedence order: an explicit persona `avatarSet` &gt; the first non-POV `characters` entry &gt; the first `characters` entry &gt; the `cast` slug. `avatarSet` exists to decouple the avatar face from the cast store - e.g. `cast: exusiai-isekai` + `avatarSet: exusiai` keeps a distinct scenario cast while reusing the shared `exusiai` sprites (without it the `exusiai-isekai` slug has no `avatar/emotes/<slug>/` dir and the avatar falls back to the ASCII kaomoji). If a `portraits/<slug>.png` exists for the active character it is pushed as the avatar's override image (static portrait wins over the animated sprite). Gated by `PI_ROLEPLAY_DISABLE_AVATAR`. |
 | [`comfyui.ts`](./comfyui.md) | Phase 6C: roleplay subscribes to comfyui's neutral image-generated bus ([`comfyui/events.ts`](../../../lib/node/pi/comfyui/events.ts)) and, while a scene is active, mirrors the latest `generate_image` render into the avatar's `scene` banner. Full mode keeps model-driven prompting; simple mode delegates prompt writing with bounded visual identities. Roleplay routes saved PNGs to the banner. comfyui has no dependency on roleplay or the avatar. Gated by `PI_ROLEPLAY_DISABLE_SCENEGEN` (and `PI_ROLEPLAY_DISABLE_AVATAR`).                                                                                                                                                                                                                                                                                                                                                          |
@@ -820,9 +848,9 @@ without the pi runtime; this file holds only the pi-coupled glue + disk I/O.
 - [`recursion.ts`](../../../lib/node/pi/roleplay/recursion.ts) - bounded, opt-in re-scan of fired lore bodies.
 - [`timing.ts`](../../../lib/node/pi/roleplay/timing.ts) - timed-effect + inclusion-group pass (delay / probability /
   sticky / cooldown / group) over matched lore.
-- [`prompt.ts`](../../../lib/node/pi/roleplay/prompt.ts) - render the fired-lore system-prompt section.
-- [`inject.ts`](../../../lib/node/pi/roleplay/inject.ts) - plan + apply depth insertions (author's note + depth lore)
-  for the `context` event.
+- [`prompt.ts`](../../../lib/node/pi/roleplay/prompt.ts) - render the fired-lore snapshot section.
+- [`inject.ts`](../../../lib/node/pi/roleplay/inject.ts) - narrative eligibility, depth planning/framing, and stable
+  placement-anchor resolution for snapshots.
 - [`scene.ts`](../../../lib/node/pi/roleplay/scene.ts) - resolve + fold full character sheets (`characters` / `pov`)
   into the `## Roleplay scene` block.
 - [`scene-fold.ts`](../../../lib/node/pi/roleplay/scene-fold.ts) - name-keyed character-fold selection (`pinned` +

@@ -1,10 +1,12 @@
 import { convertToLlm, type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
+import { EventEmitter } from 'node:events';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test, vi, type MockInstance } from 'vitest';
 
+import cacheReminders from '../../../../../config/pi/extensions/cache-reminders.ts';
 import hooks from '../../../../../config/pi/extensions/hooks.ts';
 import memory from '../../../../../config/pi/extensions/memory.ts';
 import roleplay from '../../../../../config/pi/extensions/roleplay.ts';
@@ -18,10 +20,12 @@ import { createReminderLifecycle } from '../../../../../lib/node/pi/reminder-lif
 interface RuntimeHarness {
   pi: ExtensionAPI;
   emit: (name: string, event: unknown, ctx: ExtensionContext) => Promise<unknown[]>;
+  project: (messages: ReminderMessage[], ctx: ExtensionContext) => Promise<ReminderMessage[]>;
 }
 
 function createHarness(): RuntimeHarness {
   const handlers = new Map<string, ((event: unknown, ctx: ExtensionContext) => unknown)[]>();
+  const bus = new EventEmitter();
   const pi = {
     on: (name: string, handler: (event: unknown, ctx: ExtensionContext) => unknown) => {
       const registered = handlers.get(name) ?? [];
@@ -34,10 +38,32 @@ function createHarness(): RuntimeHarness {
     getActiveTools: () => ['roleplay'],
     getAllTools: () => [{ name: 'roleplay' }],
     setActiveTools: vi.fn(),
+    events: {
+      on: (name: string, listener: (value: unknown) => void) => {
+        bus.on(name, listener);
+        return () => {
+          bus.off(name, listener);
+        };
+      },
+      emit: (name: string, value: unknown) => {
+        bus.emit(name, value);
+      },
+    },
   } as unknown as ExtensionAPI;
   return {
     pi,
     emit: (name, event, ctx) => Promise.all((handlers.get(name) ?? []).map((handler) => handler(event, ctx))),
+    project: (messages, ctx) =>
+      [...(handlers.get('context') ?? []), ...(handlers.get('context_with_system') ?? [])].reduce<
+        Promise<ReminderMessage[]>
+      >(
+        (chain, handler) =>
+          chain.then(async (current) => {
+            const result = (await handler({ messages: current }, ctx)) as { messages?: ReminderMessage[] } | undefined;
+            return result?.messages ?? current;
+          }),
+        Promise.resolve(structuredClone(messages)),
+      ),
   };
 }
 
@@ -229,6 +255,7 @@ describe('roleplay run-start runtime', () => {
     harness = createHarness();
     ctx = createContext(dir);
     roleplay(harness.pi);
+    cacheReminders(harness.pi);
     await harness.emit('session_start', {}, ctx);
   });
 
@@ -253,7 +280,7 @@ describe('roleplay run-start runtime', () => {
     expect(JSON.stringify(started)).toContain('STATIC');
     expect(JSON.stringify(started)).toContain('CHARACTER_BODY_MARKER');
     expect(JSON.stringify(started)).not.toContain('HARBOR_BODY_MARKER');
-    const projected = await harness.emit('context', { messages: [event.message] }, ctx);
+    const projected = await harness.project([event.message as ReminderMessage], ctx);
     expect(JSON.stringify(projected)).toContain('roleplay-lore');
     expect(JSON.stringify(projected)).toContain('HARBOR_BODY_MARKER');
     expect(event.message).toEqual(original);
@@ -263,7 +290,7 @@ describe('roleplay run-start runtime', () => {
     const event = { ...USER_START, prompt: 'Alice visits harbor' };
     const started = await harness.emit('before_agent_start', event, ctx);
     expect(JSON.stringify(started)).toContain('CHARACTER_BODY_MARKER');
-    const projected = await harness.emit('context', { messages: [{ role: 'user', content: event.prompt }] }, ctx);
+    const projected = await harness.project([{ role: 'user', content: event.prompt }], ctx);
     expect(JSON.stringify(projected)).toContain('HARBOR_BODY_MARKER');
   });
 
@@ -273,7 +300,7 @@ describe('roleplay run-start runtime', () => {
     ]);
     const started = await harness.emit('before_agent_start', event, ctx);
     expect(JSON.stringify(started)).not.toContain('CHARACTER_BODY_MARKER');
-    const projected = await harness.emit('context', { messages: [event.message] }, ctx);
+    const projected = await harness.project([event.message as ReminderMessage], ctx);
     expect(JSON.stringify(projected)).not.toContain('HARBOR_BODY_MARKER');
   });
 
@@ -281,18 +308,18 @@ describe('roleplay run-start runtime', () => {
     const event = customStart('scheduled-prompt', 'tide');
     await harness.emit('before_agent_start', event, ctx);
     const repeated = await Promise.all(
-      Array.from({ length: 3 }, () => harness.emit('context', { messages: [event.message] }, ctx)),
+      Array.from({ length: 3 }, () => harness.project([event.message as ReminderMessage], ctx)),
     );
     expect(JSON.stringify(repeated)).not.toContain('TIDE_BODY_MARKER');
     await harness.emit('before_agent_start', event, ctx);
-    const projected = await harness.emit('context', { messages: [event.message] }, ctx);
+    const projected = await harness.project([event.message as ReminderMessage], ctx);
     expect(JSON.stringify(projected)).toContain('TIDE_BODY_MARKER');
   });
 
   test('custom starts remain dormant without a roleplay persona', async () => {
     clearActivePersona();
     const event = customStart('scheduled-prompt', 'Alice visits harbor');
-    expect(await harness.emit('before_agent_start', event, ctx)).toEqual([undefined]);
-    expect(await harness.emit('context', { messages: [event.message] }, ctx)).toEqual([undefined]);
+    expect((await harness.emit('before_agent_start', event, ctx)).every((result) => result === undefined)).toBe(true);
+    expect(await harness.project([event.message as ReminderMessage], ctx)).toMatchObject([event.message]);
   });
 });

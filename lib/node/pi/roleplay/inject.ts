@@ -8,9 +8,9 @@
  * array before each LLM call; returning a new array replaces it for that
  * call only (non-persistent). This module decides *where* to splice
  * standing instructions: an author's note and any depth-tagged lore are
- * inserted at a configured depth counted from the end of the
- * conversation, so they ride close to the live turn and are recomputed
- * every call.
+ * positioned at a configured depth counted from the end of the
+ * conversation at the narrative boundary. Resolved anchors and rendered
+ * bodies are retained in the turn snapshot, not recomputed on tool calls.
  *
  * Positioning is generic over the message type `T`: the caller supplies a
  * `makeMessage(text)` factory so this module never imports pi message
@@ -28,8 +28,8 @@
  *    (measured: compliance preambles naming an injected depth-0 record).
  * 2. MERGED TAIL BLOCK (opt-in, {@link planDepthTailMerge}). Everything that
  *    resolves to depth 0 is concatenated, in the same order, into ONE block
- *    which the caller splices onto the END of the trailing user /
- *    toolResult message's content instead of appending messages. The
+ *    which the caller emits in the initiating input's managed snapshot
+ *    instead of appending N standalone messages. The
  *    per-insertion framing is unchanged, so the text the model reads is
  *    byte-identical; only the message structure differs. Depth > 0 always
  *    keeps shape 1.
@@ -41,6 +41,9 @@
  */
 
 /** Default author's-note depth (messages from the end) when a persona omits one. */
+import { reminderMessageAnchor, type ReminderPlacement } from '../reminder-lifecycle.ts';
+import type { ReminderMessage } from '../context-reminder.ts';
+
 export const DEFAULT_AUTHOR_NOTE_DEPTH = 4;
 
 export interface DepthInsertion {
@@ -89,6 +92,30 @@ export function buildInsertions(params: {
 /** Normalized depth used for positioning: negatives and fractions collapse the way {@link applyInsertions} clamps them. */
 function normalizeDepth(depth: number): number {
   return Math.max(0, Math.floor(depth));
+}
+
+/** Operational custom notices are not new narrative turns. Scheduled scene prompts are. */
+export function isNarrativeRoleplayStart(event: { messageType: string; message?: { customType?: string } }): boolean {
+  return (
+    event.messageType === 'user' || (event.messageType === 'custom' && event.message?.customType === 'scheduled-prompt')
+  );
+}
+
+/** Resolve relative depths once to stable message anchors, without splitting tool-call/result batches. */
+export function resolveDepthInsertions(
+  messages: readonly ReminderMessage[],
+  insertions: readonly DepthInsertion[],
+): ReminderPlacement[] {
+  const history = messages.filter((message) => message.cacheReminderSnapshot !== true);
+  if (history.length === 0) return [];
+  return insertions.map((insertion) => {
+    let index = Math.max(0, history.length - normalizeDepth(insertion.depth));
+    // A user instruction cannot interrupt an assistant's pending tool results.
+    while (index > 0 && history[index]?.role === 'toolResult') index -= 1;
+    const before = index < history.length;
+    const target = history[before ? index : history.length - 1];
+    return { anchor: reminderMessageAnchor(target), before, text: insertion.text };
+  });
 }
 
 /** Blank line between the merged depth-0 parts, so each keeps its own paragraph. */

@@ -1,36 +1,9 @@
 /**
- * Tests for the roleplay extension's keyword-fired-lore INJECTION SITE, plus
- * the DEPTH-INJECTION site that shares the same trailing message.
- *
- * Cache-correctness contract (see
- * `config/pi/extensions/AGENTS.md` § "Auto-injecting state every turn" and
- * `config/pi/extensions/cache-breakpoint.md`): keyword-fired lore is
- * VOLATILE per-turn state (its membership shifts on every topic change),
- * so it must NOT ride in the system prompt - there it would bust the
- * prompt-prefix cache on each shift. The extension computes the fired-lore
- * block ONCE per turn in `before_agent_start` (so the timing pass advances
- * exactly once), stashes it in a `pendingLore` slot, and the `context`
- * hook injects that slot as an ephemeral `<system-reminder id="roleplay-lore">`
- * on the trailing message. The stable POV/pinned scene block and cast
- * index stay at the head.
- *
- * Layout note: like `hooks.spec.ts` / `sandbox.spec.ts`, this spec sits
- * under `tests/config/pi/extensions/` to document the extension shell but
- * runs without a pi runtime (the shell imports `@earendil-works/*`, which
- * is not on the test path). It MIRRORS the exact lore-routing wiring from
- * `roleplay.ts` (the `pendingLore` slot, the `before_agent_start` compute,
- * the `context`-hook `applyContextReminder` call) while driving the REAL
- * pure helpers - `matchLore`, `applyTiming`, `formatLoreBlock`,
- * `selectWithinBudget`, `applyContextReminder`. If the real shell changes
- * where fired lore is computed or injected, mirror it here.
- *
- * The second describe block mirrors the `context`-hook DEPTH-INJECT block
- * (`buildInsertions` -> `planDepthTailMerge` -> `applyInsertions` /
- * `applyContextReminder`) and the opt-in `depthLoreInlineTail` config flag,
- * including the documented tail ORDER of the merged depth block relative to
- * `roleplay-lore`. One deliberate deviation from the shell: the mirror's
- * `makeMessage` omits the `timestamp: Date.now()` field, so outgoing arrays
- * are comparable across runs.
+ * Pure helper compositions for keyword lore and both depth-delivery shapes.
+ * These fixtures test matching, timing, budgets, framing and relative-depth
+ * planning; they do not simulate the final request snapshot coordinator.
+ * Actual narrative-boundary, positioned-snapshot and tool-loop behavior is
+ * tested in tests/lib/node/pi/ext/roleplay-reminders-runtime.spec.ts.
  */
 
 import { describe, expect, test } from 'vitest';
@@ -287,9 +260,8 @@ interface DepthOpts {
 }
 
 /**
- * Mirror of the `context` hook's depth-inject block. Returns the messages
- * with depth insertions applied, either as standalone user messages (default)
- * or with everything at depth 0 merged into the trailing message.
+ * Exercise relative-depth planning and merge helpers independently of the
+ * actual shell, which resolves positions once and persists anchored placements.
  */
 function depthPass(
   messages: readonly ReminderMessage[],
@@ -317,7 +289,7 @@ function depthPass(
   return out;
 }
 
-/** Mirror of the full `context` transform: depth pass, then the reminder specs. */
+/** Compose depth/keyword rendering helpers; request snapshot projection is tested separately. */
 function contextPass(
   messages: readonly ReminderMessage[],
   chunks: readonly LoreDepthChunk[],
@@ -441,7 +413,7 @@ describe('roleplay depth-lore delivery shape', () => {
     const opts: DepthOpts = { inlineTail: true, pendingLore: '## Roleplay lore\n\nThe reef glows.' };
     const once = contextPass(history(), DEPTH_CHUNKS, opts);
     const ids = tailTexts(once).map((t) => /^<system-reminder id="([^"]+)">/.exec(t)?.[1] ?? 'real-content');
-    // Documented order on the trailing message: real user text, then the
+    // Helper composition order on the trailing message: real user text, then the
     // merged depth block, then the keyword-fired lore reminder.
     expect(ids).toStrictEqual(['real-content', DEPTH_REMINDER_ID, REMINDER_ID]);
 

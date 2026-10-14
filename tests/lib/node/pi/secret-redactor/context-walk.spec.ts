@@ -78,7 +78,7 @@ describe('redactMessages', () => {
     const redact = vi.fn(upper);
     const messages = [
       { role: 'assistant', content: 'string-not-array' },
-      { role: 'system', content: 'nope' },
+      { role: 'unsupported', content: 'nope' },
       null,
       42,
     ];
@@ -87,6 +87,18 @@ describe('redactMessages', () => {
     expect(changed).toBe(false);
     // A string on an assistant message is NOT model-bound-text for this walk.
     expect(redact).not.toHaveBeenCalled();
+  });
+
+  test('redacts system and custom message text which becomes model-visible later', () => {
+    const messages = [
+      { role: 'system', content: 'private system value' },
+      { role: 'custom', content: 'private custom value' },
+      { role: 'custom', content: [{ type: 'text', text: 'private multipart value' }] },
+    ];
+    expect(redactMessages(messages, upper)).toBe(true);
+    expect(messages[0].content).toBe('PRIVATE SYSTEM VALUE');
+    expect(messages[1].content).toBe('PRIVATE CUSTOM VALUE');
+    expect(messages[2].content).toEqual([{ type: 'text', text: 'PRIVATE MULTIPART VALUE' }]);
   });
 
   test('reports changed=true if ANY message changes', () => {

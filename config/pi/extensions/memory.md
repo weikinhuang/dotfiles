@@ -98,8 +98,8 @@ model is expected to call `memory` action `read` when it needs a full body.
 
 [`cache-reminders`](./cache-reminders.md) captures that index once per run in a distinct, persistent request projection
 by default. The legacy system-prompt index path is removed. Index mutations and age annotations no longer rebuild the
-leading system prompt. Historical snapshots stay unchanged; new user turns, resume, branch navigation, and compaction
-recover current state through the existing disk index.
+leading system prompt. New user turns capture current state from the disk index. Resume, branch navigation, and
+compaction replay already-delivered snapshots whose input anchors survive, without creating fresh tool-tail snapshots.
 
 **Stale annotation.** `project`-type entries older than `PI_MEMORY_STALE_DAYS` (default 30, measured from `updated`
 falling back to `created`, truncated to whole days) get a tiny `(Nd)` age marker appended in the injected index - a soft
@@ -123,15 +123,16 @@ When an embedding backend is available, recall returns as a semantic layer. The 
 Compaction is the moment context - and any durable fact that surfaced mid-session but was never `memory save`d - is
 summarized away. On `session_before_compact` the extension arms a one-shot flag; then on `session_compact` it mines the
 just-generated summary's `## Constraints & Preferences` and `## Key Decisions` sections for concrete save-worthy
-candidates (free - the summarizer already extracted them), drops any already saved, and the next `context` hook splices
-a `<system-reminder>` listing those candidates into the turn (falling back to a generic timing reminder when no
-candidates are found). The model carries the [`memory-first`](../skills/memory-first/SKILL.md) skill describing _what_
-to save; this adds _when_ + _which_.
+candidates (free - the summarizer already extracted them), drops any already saved, and the next eligible user-run
+snapshot captures a `<system-reminder>` listing those candidates (falling back to a generic timing reminder when no
+candidates are found). Tool continuations and operational custom starts do not consume it; the pending flag clears only
+when the coordinator acknowledges the matching capture generation. The model carries the
+[`memory-first`](../skills/memory-first/SKILL.md) skill describing _what_ to save; this adds _when_ + _which_.
 
 Pi's `session_before_compact` handler can only cancel or replace the compaction - it cannot inject conversation context
 
-- so the reminder rides the following turn via the `context` producer and stable snapshot coordinator to reach the model
-  itself, rather than only the UI.
+- so the reminder waits for the following eligible user run via the `context` producer and stable snapshot coordinator
+  to reach the model itself, rather than only the UI.
 
 **Delivery mode (`PI_MEMORY_CAPTURE_TURN`).** By default the nudge rides the next user turn as a `<system-reminder>` -
 invisible, cache-cheap, and effective on frontier models. Small/weak self-hosted models, however, attend to the primary

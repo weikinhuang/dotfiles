@@ -52,6 +52,13 @@ import { createNotifyOnce } from '../../../lib/node/pi/notify-once.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 import { loadRedactorConfig } from '../../../lib/node/pi/secret-redactor/config.ts';
 import { redactMessages } from '../../../lib/node/pi/secret-redactor/context-walk.ts';
+import {
+  REMINDER_COORDINATOR,
+  REMINDER_CAPABILITIES,
+  REMINDER_SANITIZE,
+  type ReminderCapabilities,
+  type ReminderSanitizeRequest,
+} from '../../../lib/node/pi/reminder-lifecycle.ts';
 import { createLruMemo } from '../../../lib/node/pi/secret-redactor/memo.ts';
 import {
   DEFAULT_CONFIG,
@@ -123,24 +130,41 @@ export default function secretRedactor(pi: ExtensionAPI): void {
     );
   });
 
+  const sanitize = (messages: readonly unknown[], ctx: ExtensionContext): void => {
+    const changed = redactMessages(messages, (text) => memo.get(text));
+    updateStatus(ctx);
+    if (!changed) return;
+    trace(`context: redacted provider copy, ${store.redactedCount()} active / ${store.size()} tracked this session`);
+    if (verbose)
+      notify(ctx, `secret-redactor: ${store.redactedCount()} secret(s) redacted from the provider copy`, 'info');
+  };
+  const subscriptions = [
+    pi.events.on(REMINDER_CAPABILITIES, (data) => {
+      (data as ReminderCapabilities).sanitizerRequired = true;
+    }),
+    pi.events.on(REMINDER_SANITIZE, (data) => {
+      const request = data as ReminderSanitizeRequest;
+      sanitize(request.messages, request.context as ExtensionContext);
+      request.handled = true;
+    }),
+  ];
   pi.on('session_shutdown', () => {
+    for (const unsubscribe of subscriptions) unsubscribe();
     store.clear();
     rehydrateSession.clear();
     memo.clear();
   });
 
-  // ────────────────────────────────────────────────────────────────────
-  // context hook: redact the model-bound copy
-  // ────────────────────────────────────────────────────────────────────
-
-  pi.on('context', (event, ctx) => {
-    const changed = redactMessages(event.messages, (text) => memo.get(text));
-    updateStatus(ctx);
-    if (!changed) return undefined;
-    trace(`context: redacted provider copy, ${store.redactedCount()} active / ${store.size()} tracked this session`);
-    if (verbose)
-      notify(ctx, `secret-redactor: ${store.redactedCount()} secret(s) redacted from the provider copy`, 'info');
-    return { messages: event.messages };
+  // The coordinator invokes the synchronous bridge after replaying all snapshots,
+  // regardless of extension registration order. Without it, sanitize the full
+  // transcript at the final context phase. Never rewrite persisted snapshot data.
+  pi.on('context_with_system', (event, ctx) => {
+    const coordinator = { active: false };
+    pi.events.emit(REMINDER_COORDINATOR, coordinator);
+    if (coordinator.active) return undefined;
+    const messages = structuredClone(event.messages);
+    sanitize(messages, ctx);
+    return { messages };
   });
 
   // ────────────────────────────────────────────────────────────────────

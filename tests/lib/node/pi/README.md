@@ -30,8 +30,10 @@ npx vitest tests/lib/node/pi/bash-permissions.spec.ts
   `@earendil-works/*` packages resolve from `node_modules`), just under the relaxed oxlint override.
 - **Tests import from lib directly.** No mirroring, no jiti, no build step. If a helper's behavior changes the tests see
   it immediately.
-- **Pi-coupled code stays in `config/pi/extensions/*.ts`.** Dialog flows, `pi.on('tool_call', …)` handlers, and command
-  registration are too UI/runtime-bound to usefully unit-test without mocks; they're exercised manually by running pi.
+- **Pi-coupled code stays in `config/pi/extensions/*.ts`.** Dialog flows and registrations remain extension glue.
+  Integration specs under [`ext/`](./ext) compose actual factories with the installed SDK's extension runner and real
+  session projection when request ordering, identity, or cross-extension behavior is the contract. Live pi smoke tests
+  separately exercise normal discovery and model delivery.
 - **Exception - extension command-surface specs.** Deep-research / autoresearch ship with
   [`tests/config/pi/extensions/*.spec.ts`](../../../../tests/config/pi/extensions) spec files that mirror their
   extension shells. Those specs still drive only pure helpers (no pi-runtime imports); the path lives under

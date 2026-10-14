@@ -18,6 +18,7 @@ import {
   type EventGenerator,
   type EventRunResult,
   formatEventDirector,
+  isCurrentEventCapture,
   pickDeckEvent,
   resolveEventSettings,
   validateEvent,
@@ -85,6 +86,63 @@ test('formatEventDirector frames the event as a private stage direction', () => 
   const out = formatEventDirector('  A courier bursts in with bad news.  ');
   expect(out).toContain('Director note');
   expect(out).toContain('A courier bursts in with bad news.');
+});
+
+test('isCurrentEventCapture rejects an older capture even when the newly queued body is identical', () => {
+  const frozenBody = 'A courier bursts in with bad news.';
+  const capture = {
+    pendingGeneration: 2,
+    frozenGeneration: 1,
+    frozenBody,
+    specs: [{ id: 'roleplay-event', body: frozenBody }],
+  };
+  expect(isCurrentEventCapture(capture)).toBe(false);
+  expect(isCurrentEventCapture({ ...capture, frozenGeneration: 2 })).toBe(true);
+});
+
+test.each([
+  { frozenGeneration: null, frozenBody: 'An event.' },
+  { frozenGeneration: 1, frozenBody: null },
+  { frozenGeneration: 1, frozenBody: '' },
+])('isCurrentEventCapture rejects missing generation or body: %j', ({ frozenGeneration, frozenBody }) => {
+  expect(
+    isCurrentEventCapture({
+      pendingGeneration: 1,
+      frozenGeneration,
+      frozenBody,
+      specs: [{ id: 'roleplay-event', body: frozenBody ?? '' }],
+    }),
+  ).toBe(false);
+});
+
+test.each([
+  { specs: [] },
+  { specs: [{ id: 'other-event', body: 'An event.' }] },
+  { specs: [{ id: 'roleplay-event', body: 'Another event.' }] },
+  {
+    specs: [
+      { id: 'other-event', body: 'An event.' },
+      { id: 'roleplay-event', body: 'Another event.' },
+    ],
+  },
+])('isCurrentEventCapture requires the matching ID and body in one captured spec: %j', ({ specs }) => {
+  expect(isCurrentEventCapture({ pendingGeneration: 1, frozenGeneration: 1, frozenBody: 'An event.', specs })).toBe(
+    false,
+  );
+});
+
+test('isCurrentEventCapture accepts the current generation among unrelated captured specs', () => {
+  expect(
+    isCurrentEventCapture({
+      pendingGeneration: 0,
+      frozenGeneration: 0,
+      frozenBody: 'An event.',
+      specs: [
+        { id: 'other-event', body: 'Other content.' },
+        { id: 'roleplay-event', body: 'An event.' },
+      ],
+    }),
+  ).toBe(true);
 });
 
 test('pickDeckEvent draws deterministically and skips blanks', () => {

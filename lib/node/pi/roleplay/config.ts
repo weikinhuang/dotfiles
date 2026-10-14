@@ -11,8 +11,8 @@
  * Phase 1 exposes only `charBudget` (the injected `## Roleplay` block
  * cap). Phase 2 adds `loreCharBudget` (the fired-lore section cap) and
  * `maxRecursion` (bounded lorebook recursion). Phase 4 adds `scanDepth`
- * (recent messages scanned for depth-injected lore in the `context`
- * event) plus `depthLoreInlineTail` (opt-in merged depth-0 tail delivery;
+ * (recent messages frozen at narrative start for depth-injected lore)
+ * plus `depthLoreInlineTail` (opt-in merged depth-0 snapshot delivery;
  * see `inject.ts`). Phase 7 adds `relationshipDecayPerDay` + `relationshipBaseline`
  * (the toward-baseline affinity-decay convention; see `relationship.ts`),
  * plus `summarizeMinMessages` + `summarizeMaxChars` (the auto-summarization
@@ -38,13 +38,13 @@ export interface RoleplayConfig {
   loreCharBudget: number;
   /** Bounded lorebook recursion passes (0 = off). Clamped to `MAX_RECURSION_CAP`. */
   maxRecursion: number;
-  /** Recent messages scanned for depth-injected lore in the `context` event (Phase 4). */
+  /** Recent messages frozen at narrative start for depth lore, character folds, and events. */
   scanDepth: number;
   /**
    * Deliver `depth: 0` lore (and an author's note resolving to depth 0) as ONE
-   * block spliced into the trailing user message instead of N standalone
-   * user-role messages. Opt-in; default `false` keeps today's byte-identical
-   * message array.
+   * managed snapshot block after the initiating input instead of N
+   * standalone messages. Other depths keep their own anchored positions.
+   * Opt-in; default `false` retains standalone depth delivery.
    */
   depthLoreInlineTail: boolean;
   /** Affinity points a relationship decays toward `relationshipBaseline` per idle day (Phase 7). */

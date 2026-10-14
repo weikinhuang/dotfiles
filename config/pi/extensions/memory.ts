@@ -89,6 +89,7 @@ import {
   contextRemindersEnabled,
   type ReminderMessage,
 } from '../../../lib/node/pi/context-reminder.ts';
+import type { ReminderSnapshot } from '../../../lib/node/pi/reminder-lifecycle.ts';
 import {
   buildCandidateNudge,
   CAPTURE_NUDGE,
@@ -294,7 +295,7 @@ export default function memoryExtension(pi: ExtensionAPI): void {
   // durable fact worth nudging about; `0` keeps the nudge quiet.
   let userTurnsSinceLastSave = 0;
   // Capture-assist: set true when compaction fires (and the nag-gate allows),
-  // consumed once by the next `context` hook which splices a model-facing
+  // consumed only when an eligible user-run snapshot captures the model-facing
   // <system-reminder> into the turn. `session_before_compact` can only
   // cancel/replace the compaction - it cannot inject context - so the nudge
   // has to ride the following turn to actually reach the model.
@@ -303,6 +304,9 @@ export default function memoryExtension(pi: ExtensionAPI): void {
   // in `session_compact` (Depth B). `null` => fall back to the generic
   // CAPTURE_NUDGE. Consumed + cleared with `capturePending`.
   let pendingCaptureBody: string | null = null;
+  let captureGeneration = 0;
+  let renderedCaptureGeneration: number | null = null;
+  let captureEligible = false;
   const surfacedWarnings = new Set<string>();
 
   const readOnlyError = (action: string): { content: string; details: MemoryDetails; isError: boolean } => {
@@ -331,17 +335,29 @@ export default function memoryExtension(pi: ExtensionAPI): void {
     }
   };
 
+  const resetCaptureState = (): void => {
+    userTurnsSinceLastSave = 0;
+    capturePending = false;
+    pendingCaptureBody = null;
+    renderedCaptureGeneration = null;
+    captureEligible = false;
+    captureGeneration += 1;
+  };
   pi.on('session_start', (_event, ctx) => {
+    resetCaptureState();
     rebuildFromDisk(ctx);
   });
 
   pi.on('session_tree', (_event, ctx) => {
+    resetCaptureState();
     rebuildFromDisk(ctx);
   });
 
   // Only count activity here. The index never rebuilds the leading system prompt.
   pi.on('before_agent_start', (event) => {
-    if (event.messageType !== 'user') return;
+    captureEligible = event.messageType === 'user';
+    renderedCaptureGeneration = null;
+    if (!captureEligible) return;
     // Count this submit as user activity for the capture-assist gate.
     userTurnsSinceLastSave += 1;
   });
@@ -363,16 +379,29 @@ export default function memoryExtension(pi: ExtensionAPI): void {
   // (never the system prompt, so the KV cache prefix stays byte-stable) and
   // fires once after a compaction (see below). Nothing pending injects nothing.
   if (captureEnabled && remindersEnabled) {
+    const unsubscribeCapture = pi.events.on('cache-reminders:captured', (data) => {
+      const snapshot = data as ReminderSnapshot | undefined;
+      if (
+        capturePending &&
+        renderedCaptureGeneration === captureGeneration &&
+        snapshot?.specs.some(
+          (spec) => spec.id === 'memory-capture' && spec.body === (pendingCaptureBody ?? CAPTURE_NUDGE).trim(),
+        )
+      ) {
+        capturePending = false;
+        pendingCaptureBody = null;
+        renderedCaptureGeneration = null;
+      }
+    });
+    pi.on('session_shutdown', () => unsubscribeCapture());
     pi.on('context', (event) => {
       let messages = event.messages as unknown as ReminderMessage[];
       let changed = false;
-      if (capturePending) {
-        // One-shot: consume the flag whether or not we inject, so a stale
-        // nudge never lingers across turns. Prefer the concrete
-        // candidate-listing body (Depth B); fall back to the generic nudge.
-        capturePending = false;
+      if (capturePending && captureEligible) {
+        // A post-compaction tool request may discard fresh producer blocks.
+        // Keep the one-shot pending until an eligible input snapshot captures it.
+        renderedCaptureGeneration = captureGeneration;
         const body = pendingCaptureBody ?? CAPTURE_NUDGE;
-        pendingCaptureBody = null;
         messages = applyContextReminder(messages, { id: 'memory-capture', body });
         changed = true;
       }
@@ -393,6 +422,7 @@ export default function memoryExtension(pi: ExtensionAPI): void {
     pi.on('session_before_compact', () => {
       if (shouldNudgeCapture({ userTurnsSinceLastSave, readOnly, disabled: captureDisabled })) {
         capturePending = true;
+        captureGeneration += 1;
       }
       return undefined;
     });
@@ -526,7 +556,7 @@ export default function memoryExtension(pi: ExtensionAPI): void {
     }
     // A successful save clears the capture-assist gate: nothing fresh is
     // unsaved until the next user turn.
-    userTurnsSinceLastSave = 0;
+    resetCaptureState();
     const prefix = warnings.length > 0 ? `${warnings.join('\n')}\n\n` : '';
     return {
       content: `${prefix}Saved memory [${scope}/${type}] ${slug} - ${entry.name}\n\n${formatText(state)}`,

@@ -101,6 +101,22 @@ export function formatEventDirector(event: string): string {
   );
 }
 
+/** Check that a captured event still belongs to the pending delivery generation. */
+export function isCurrentEventCapture(params: {
+  pendingGeneration: number;
+  frozenGeneration: number | null;
+  frozenBody: string | null;
+  specs: readonly { id: string; body: string }[];
+}): boolean {
+  return (
+    params.frozenGeneration !== null &&
+    params.frozenGeneration === params.pendingGeneration &&
+    params.frozenBody !== null &&
+    params.frozenBody.length > 0 &&
+    params.specs.some((spec) => spec.id === 'roleplay-event' && spec.body === params.frozenBody)
+  );
+}
+
 /**
  * Pick a deck entry at random (the no-model fallback). Returns
  * `undefined` for an empty / all-blank deck so the caller can report

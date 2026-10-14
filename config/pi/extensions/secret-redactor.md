@@ -14,17 +14,22 @@ only redacts when confident; a missed secret just means this one layer did not c
 
 ## Core property: redact the model-bound copy, never destroy the value
 
-Redaction runs in the `context` hook, which hands extensions a **mutable deep copy** of the messages right before each
-LLM call. The extension rewrites text in that copy only:
+Redaction runs on the **fully projected model-bound copy** immediately before delivery, not just the earlier
+conversation-only `context` phase. With [`cache-reminders`](./cache-reminders.md), a synchronous finalization bridge
+scrubs replayed snapshots, standalone depth lore, author notes, and ordinary system/user/custom/assistant/tool text.
+Without that coordinator, a `context_with_system` fallback protects the complete transcript. Factory registration order
+does not change coverage. The extension rewrites text in a detached copy only:
 
 - The real value stays in the displayed transcript, the on-disk session, and the **live shell environment**. So auth'd
   bash commands keep working via `$VAR` / sourced files without the model ever seeing the literal, and nothing is
   unrecoverable.
-- Redaction is deterministic, so the model-bound prefix is byte-stable across turns and the prompt cache holds.
+- Redaction is deterministic while configuration and approvals remain unchanged, so the model-bound prefix stays stable.
+  `/unredact` intentionally changes later rendered bytes; security and explicit approvals take precedence over cache
+  reuse. Frozen snapshot metadata is never permanently replaced with placeholders.
 
 Composition note: [`cache-breakpoint`](./cache-breakpoint.md) operates later, on the provider payload in
-`before_provider_request`, not on the `context` messages - the two never mutate the same object. Because redaction is
-deterministic, the previous-user-message bytes cache-breakpoint relocates onto stay stable.
+`before_provider_request`, after final context projection/redaction - the two never mutate the same object. Because
+redaction is deterministic, the previous-user-message bytes cache-breakpoint relocates onto stay stable.
 
 ## Detection
 

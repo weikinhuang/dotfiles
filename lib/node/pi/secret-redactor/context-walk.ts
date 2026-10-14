@@ -1,11 +1,11 @@
 /**
- * Message-structure walk for the `secret-redactor` extension's `context`
- * hook. Pure - no pi imports - so the traversal that decides WHICH text
+ * Message-structure walk for the `secret-redactor` extension's model-bound
+ * finalization passes. Pure - no pi imports - so the traversal that decides WHICH text
  * fields are model-bound gets its own vitest coverage, separate from the
  * `redactText` correctness suite.
  *
  * The redactor rewrites the model-bound deep copy of the conversation in
- * place: every `text` part, `thinking` part, and string `user` content is
+ * place: every `text` part, `thinking` part, and string system/user/custom content is
  * passed through the injected `redact` function and overwritten when the
  * result differs. The caller supplies `redact` (a memoized `redactText`
  * wrapper) so this module stays free of the store / config.
@@ -41,7 +41,7 @@ function redactParts(parts: unknown[], redact: RedactFn): boolean {
 function redactMessage(msg: unknown, redact: RedactFn): boolean {
   if (!msg || typeof msg !== 'object') return false;
   const m = msg as { role?: string; content?: unknown };
-  if (m.role === 'user') {
+  if (m.role === 'user' || m.role === 'custom' || m.role === 'system') {
     if (typeof m.content === 'string') {
       const red = redact(m.content);
       if (red !== m.content) {

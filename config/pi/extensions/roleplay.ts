@@ -12,8 +12,8 @@
  * `roleplay read <id>`.
  *
  * Phase 1 ships the `character` kind only. Phase 2+ adds `lore`
- * (keyword-triggered World Info injection), depth injection via the
- * `context` event, relationship state, and auto-summarization. See
+ * (keyword-triggered World Info injection), turn-anchored depth placement,
+ * relationship state, and auto-summarization. See
  * `plans/pi-roleplay-sillytavern.md`.
  *
  * Pure logic lives in `../../../lib/node/pi/roleplay/*.ts` (vitest-
@@ -26,8 +26,7 @@
  *                                        before_agent_start block.
  *   PI_ROLEPLAY_DISABLE_LOREBOOK=1       skip keyword-triggered lore
  *                                        injection (cast index still injects).
- *   PI_ROLEPLAY_DISABLE_DEPTH_INJECT=1   skip the context-event depth
- *                                        injection (author's note + depth lore).
+ *   PI_ROLEPLAY_DISABLE_DEPTH_INJECT=1   skip depth-tagged lore and author notes.
  *   PI_ROLEPLAY_DISABLE_SUMMARIZE=1      skip auto-summarization on compaction.
  *   PI_ROLEPLAY_DISABLE_REPETITION=1     skip the multi-turn repetition / anti-slop nudge.
  *   PI_ROLEPLAY_DISABLE_EVENTS=1         disable `/roleplay event` scene complications.
@@ -99,8 +98,8 @@ import type { GenerateDetails } from '../../../lib/node/pi/ext/comfyui/details.t
 import type { GenerateToolResult } from '../../../lib/node/pi/ext/comfyui/generate.ts';
 import { selectWithinBudget, type LoreChunk } from '../../../lib/node/pi/roleplay/budget.ts';
 import {
-  applyInsertions,
   buildInsertions,
+  isNarrativeRoleplayStart,
   planDepthTailMerge,
   type LoreDepthChunk,
 } from '../../../lib/node/pi/roleplay/inject.ts';
@@ -144,6 +143,7 @@ import {
   createEventGenerator,
   type EventGenerator,
   formatEventDirector,
+  isCurrentEventCapture,
   pickDeckEvent,
   resolveEventSettings,
 } from '../../../lib/node/pi/roleplay/event.ts';
@@ -151,9 +151,19 @@ import { buildExcludeSet, detectRepetition, formatRepetitionNudge } from '../../
 import {
   applyContextReminder,
   contextRemindersEnabled,
-  hasInjectableTail,
   type ReminderMessage,
 } from '../../../lib/node/pi/context-reminder.ts';
+import {
+  REMINDER_CAPABILITIES,
+  REMINDER_LIMIT,
+  REMINDER_PROJECTED,
+  type ReminderSnapshot,
+  type ReminderCapabilities,
+  type ReminderLimitRequest,
+  type ReminderProjectedRequest,
+} from '../../../lib/node/pi/reminder-lifecycle.ts';
+import { ensureReminderIdentities } from '../../../lib/node/pi/reminder-identity.ts';
+import { limitReminderContext, reminderRequestChars } from '../../../lib/node/pi/reminder-budget.ts';
 import {
   type AgentDef,
   defaultAgentLayers,
@@ -232,13 +242,6 @@ import {
 } from '../../../lib/node/pi/message-text.ts';
 import { truncate } from '../../../lib/node/pi/shared.ts';
 
-/**
- * Reminder id for the opt-in merged depth-0 block (`depthLoreInlineTail`).
- * Distinct from `roleplay-lore` so the two coexist and each strips only its
- * own block; applied first, so it sits ahead of `roleplay-lore` on the tail.
- */
-const DEPTH_TAIL_REMINDER_ID = 'roleplay-depth';
-
 // ──────────────────────────────────────────────────────────────────────
 // Tool params
 // ──────────────────────────────────────────────────────────────────────
@@ -297,8 +300,7 @@ const RoleplayParams = Type.Object({
   ),
   depth: Type.Optional(
     Type.Number({
-      description:
-        'Lore only: context-insertion depth (reserved for depth injection; system-prompt-appended until then).',
+      description: 'Lore only: messages from the end at the narrative boundary; placement stays fixed during tools.',
     }),
   ),
   recurse: Type.Optional(
@@ -425,22 +427,33 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   let sceneTimingState: Record<string, TimingState> = {};
   /** Unsubscribe handle for the comfyui image-generated bus (cleared on shutdown). */
   let unsubscribeImageEvents: (() => void) | null = null;
+  let unsubscribeReminderSnapshots: (() => void) | null = null;
+  const unsubscribePipeline: (() => void)[] = [];
   const surfacedWarnings = new Set<string>();
   /** Queued one-shot scene complication from `/roleplay event`; injected for the next reply only. */
   let pendingEvent: string | null = null;
-  /** Set once `pendingEvent` has been injected; the next turn boundary clears the event. */
+  let pendingEventGeneration = 0;
+  /** Set only after snapshot capture; the next narrative boundary clears the event. */
   let eventConsumed = false;
   /**
    * Per-turn slot for the keyword-fired lore block. Computed ONCE in
    * `before_agent_start` (so the timing pass - sticky / cooldown /
    * probability / delay - advances exactly once per turn) and injected as an
-   * ephemeral `<system-reminder id="roleplay-lore">` tail reminder by the
-   * `context` hook, which may fire several times per turn. Kept off the
+   * `<system-reminder id="roleplay-lore">` block by the first narrative
+   * `context` request. The coordinator replays it during tool continuations. Kept off the
    * system prompt: fired-lore membership shifts topic-to-topic, so on the
    * cached prefix it would bust the prompt-prefix cache every topic change
    * (a whole re-prefill on llama.cpp). `null` when nothing fires. Mirrors
    * the `pendingEvent` slot pattern. */
   let pendingLore: string | null = null;
+  /** Only the first request of an eligible narrative run may emit new roleplay reminders. */
+  let roleplayRemindersPending = false;
+  /** Recent-window scan frozen at the narrative boundary, never extended with this run's tool output. */
+  let pendingDepthScan: string | null = null;
+  let pendingEventForRun: string | null = null;
+  let pendingEventGenerationForRun: number | null = null;
+  /** Operational runs preserve the previous narrative head without advancing scene timing. */
+  let lastSceneBlock: string | null = null;
   /** Only lore actually selected for this turn may contribute visual identity. */
   let keywordVisualLore: readonly LoreChunk[] = [];
   let depthVisualLore: readonly LoreChunk[] = [];
@@ -479,6 +492,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   let charsPerToken = DEFAULT_CHARS_PER_TOKEN;
   /** Estimated chars of the prompt we sent last turn, for usage calibration next turn. */
   let lastSentEstChars = 0;
+  let projectedFloorAnchor: string | undefined;
   /** Lowercased fact names captured this process, to skip re-writing the same fact. */
   const capturedFacts = new Set<string>();
   /** Lazy `roleplay-fact-extractor` runner + one-shot init guard. */
@@ -497,6 +511,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     recapGen += 1;
     recapInFlight = false;
     lastSentEstChars = 0;
+    projectedFloorAnchor = undefined;
     capturedFacts.clear();
     if (recapAbort) {
       try {
@@ -572,6 +587,12 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     sceneTimingState = {};
     keywordVisualLore = [];
     depthVisualLore = [];
+    pendingLore = null;
+    pendingDepthScan = null;
+    pendingEventForRun = null;
+    pendingEventGenerationForRun = null;
+    roleplayRemindersPending = false;
+    lastSceneBlock = null;
     excludeCache = null;
     loreEmptyCache = null;
     if (cast === null) {
@@ -669,12 +690,12 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     if (params.secondaryMode !== undefined) meta.secondaryMode = params.secondaryMode;
     if (params.constant !== undefined) meta.constant = params.constant;
     if (params.order !== undefined) meta.order = Math.floor(params.order);
-    if (params.recurse !== undefined) meta.recurse = params.recurse;
     if (params.depth !== undefined) {
-      const d = Math.floor(params.depth);
-      if (d >= 0) meta.depth = d;
+      const depth = Math.floor(params.depth);
+      if (depth >= 0) meta.depth = depth;
       else delete meta.depth;
     }
+    if (params.recurse !== undefined) meta.recurse = params.recurse;
     return meta;
   };
 
@@ -785,7 +806,6 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   const buildLoreInjection = (scanText: string): string | null => {
     keywordVisualLore = [];
     if (!lorebookEnabled) return null;
-    // Depth-tagged lore is injected at depth via the `context` event, not here.
     // Empty-bodied lore is dropped up front so it never consumes a timing slot.
     const empties = emptyLoreIds();
     const lore = state.entries.filter((e) => e.kind === 'lore' && e.lore?.depth === undefined && !empties.has(e.id));
@@ -834,6 +854,11 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     // A persona may have been activated since session_start; re-resolve.
     resyncIfChanged(ctx);
     gateRoleplayTool();
+    pendingLore = null;
+    pendingDepthScan = null;
+    pendingEventForRun = null;
+    pendingEventGenerationForRun = null;
+    roleplayRemindersPending = false;
 
     // Backstop the session-lifecycle gate for a mid-session persona switch
     // (a `/persona` change between turns). Per setActiveTools' "takes effect
@@ -846,26 +871,37 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       return undefined;
     }
 
-    // Consume-once boundary: an event injected during the previous turn's
-    // `context` calls is cleared here so it colors exactly one reply.
+    if (!isNarrativeRoleplayStart(event)) {
+      keywordVisualLore = [];
+      depthVisualLore = [];
+      if (!autoInjectEnabled) return undefined;
+      const additions = [lastSceneBlock, formatRoleplayBlock(state, { maxChars: charBudget() })].filter(
+        (s): s is string => Boolean(s),
+      );
+      return additions.length > 0 ? { systemPrompt: [event.systemPrompt, ...additions].join('\n\n') } : undefined;
+    }
+
+    // Clear an acknowledged scene event only at the next narrative boundary.
     if (eventsEnabled && eventConsumed) {
       pendingEvent = null;
       eventConsumed = false;
     }
 
+    roleplayRemindersPending = true;
+    pendingEventForRun = eventsEnabled && pendingEvent ? formatEventDirector(pendingEvent) : null;
+    pendingEventGenerationForRun = pendingEventForRun ? pendingEventGeneration : null;
+    const prompt = event.messageType === 'user' ? event.prompt : messageContentToText(event.message.content);
+    // Character folds and depth lore use the window frozen before this run's tools.
+    const sceneScanDepth = loadRoleplayConfig(cwd, envCharBudget).scanDepth;
+    const sceneScanText = `${concatRecentMessageText(lastMessages, sceneScanDepth)}\n${prompt}`;
+    pendingDepthScan = depthInjectEnabled ? sceneScanText : null;
     if (!autoInjectEnabled) {
-      pendingLore = null;
       keywordVisualLore = [];
       return undefined;
     }
     turnCount += 1;
-    const prompt = event.messageType === 'user' ? event.prompt : messageContentToText(event.message.content);
-    // Scan the recent-message window (prior turns, incl. assistant) plus the
-    // current user/custom prompt for name-keyed character folds; the sticky window covers
-    // the one-turn lag in `lastMessages` (captured in the `context` hook).
-    const sceneScanDepth = loadRoleplayConfig(cwd, envCharBudget).scanDepth;
-    const sceneScanText = `${concatRecentMessageText(lastMessages, sceneScanDepth)}\n${prompt}`;
     const scene = buildSceneBlock(ctx, sceneScanText);
+    lastSceneBlock = scene;
     const index = formatRoleplayBlock(state, { maxChars: charBudget() });
     // Keyword-fired lore is VOLATILE per-turn state (membership shifts on
     // every topic change), so it does NOT go in the system prompt - it would
@@ -880,26 +916,23 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     return { systemPrompt: [event.systemPrompt, ...additions].join('\n\n') };
   });
 
-  /** Depth-tagged fired lore for the current turn, budgeted, as inject chunks. */
+  /** Depth-tagged lore is selected and rendered once for the frozen narrative window. */
   const buildDepthLore = (scanText: string): LoreDepthChunk[] => {
     depthVisualLore = [];
     if (!lorebookEnabled) return [];
     const empties = emptyLoreIds();
-    const depthLore = state.entries.filter(
-      (e) => e.kind === 'lore' && e.lore?.depth !== undefined && !empties.has(e.id),
+    const lore = state.entries.filter(
+      (entry) => entry.kind === 'lore' && entry.lore?.depth !== undefined && !empties.has(entry.id),
     );
-    if (depthLore.length === 0) return [];
-    const fired = matchLore(depthLore, scanText);
-    if (fired.length === 0) return [];
-    const chunks: LoreChunk[] = fired
+    const chunks: LoreChunk[] = matchLore(lore, scanText)
       .map((entry) => ({
         entry,
         body: normalizeInjectedBody(substituteMacros(readEntryBody(state.cast, entry) ?? '', macroCtx())),
       }))
-      .filter((c) => c.body.length > 0);
+      .filter((chunk) => chunk.body.length > 0);
     const { kept } = selectWithinBudget(chunks, loadRoleplayConfig(cwd, envCharBudget).loreCharBudget);
     depthVisualLore = kept;
-    return kept.map((c) => ({ name: c.entry.name, body: c.body, depth: c.entry.lore?.depth ?? 0 }));
+    return kept.map((chunk) => ({ name: chunk.entry.name, body: chunk.body, depth: chunk.entry.lore?.depth ?? 0 }));
   };
 
   /** N-gram exclusion set built from the cast's character bodies (signature phrases are never flagged). */
@@ -1693,7 +1726,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     }
   };
 
-  if (contextWindowEnabled || depthInjectEnabled || repetitionEnabled || eventsEnabled) {
+  if (contextWindowEnabled || lorebookEnabled || depthInjectEnabled || repetitionEnabled || eventsEnabled) {
     // Recover a running recap from the SESSION BRANCH (custom recap-audit
     // entries), which travels with pi's session tree and carries the exact
     // coverage boundary. This is the authoritative resume source when the
@@ -1730,13 +1763,18 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       if (activeCast() === null) return undefined;
       // Capture the live scene so the `/roleplay event` command (which runs
       // between turns, without message access) can read recent context.
-      lastMessages = event.messages;
+      const identified = ensureReminderIdentities(
+        event.messages as unknown as ReminderMessage[],
+        ctx.sessionManager.buildSessionProjection?.(),
+        true,
+      );
+      lastMessages = identified;
 
-      let messages = event.messages as unknown as readonly Record<string, unknown>[];
-      let changed = false;
+      let messages = identified as unknown as readonly Record<string, unknown>[];
+      let changed = identified.some((message, index) => message !== event.messages[index]);
 
       // Rolling window: bounded recap drop (recap mode) or condense-only
-      // floor. Runs first so depth-inject / reminders below operate on the
+      // floor. Runs first so narrative reminders below operate on the
       // already-reduced list (they are tail-oriented, unaffected by the drop).
       if (contextWindowEnabled) {
         const opts = windowOptions();
@@ -2093,83 +2131,84 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         }
       }
 
-      // Depth injection (author's note + depth-tagged lore) splices content
-      // at depth; reminders below append ephemerally to the trailing message.
-      if (depthInjectEnabled) {
-        const persona = getActivePersona();
-        const cfg = loadRoleplayConfig(cwd, envCharBudget);
-        const insertions = buildInsertions({
-          authorNote: persona?.authorNote ? substituteMacros(persona.authorNote, macroCtx()) : undefined,
-          authorNoteDepth: persona?.authorNoteDepth,
-          lore: buildDepthLore(concatRecentMessageText(messages, cfg.scanDepth)),
-        });
-        if (insertions.length > 0) {
-          // Opt-in `depthLoreInlineTail`: deliver everything resolving to
-          // depth 0 as ONE block spliced into the trailing user message
-          // (same seam as the reminders below) instead of N standalone
-          // user-role messages. Depth > 0 keeps the standalone path
-          // untouched. Default off => `standalone` is the whole list and the
-          // outgoing array is byte-identical to before the flag existed.
-          const plan =
-            cfg.depthLoreInlineTail && hasInjectableTail(messages as unknown as ReminderMessage[])
-              ? planDepthTailMerge(insertions)
-              : // Flag off, or the trailing message is not user/toolResult and
-                // so cannot take a spliced block: fall back to the standalone
-                // path so a depth-0 chunk is never silently dropped.
-                { insertions, tailBlock: null };
-          if (plan.insertions.length > 0) {
-            messages = applyInsertions(messages, plan.insertions, (text) => ({
-              role: 'user' as const,
-              content: text,
-              timestamp: Date.now(),
-            }));
-            changed = true;
-          }
-          if (plan.tailBlock) {
-            // Applied BEFORE the reminder specs below, which fixes the tail
-            // order as `roleplay-depth` < `roleplay-lore` <
-            // `roleplay-repetition` < `roleplay-event`; each spec strips its
-            // own id before appending, so re-running the whole transform is
-            // a fixpoint and the order is stable.
-            messages = applyContextReminder(messages as unknown as ReminderMessage[], {
-              id: DEPTH_TAIL_REMINDER_ID,
-              body: plan.tailBlock,
+      // Emit once for the initiating narrative input. The final coordinator
+      // replays its anchored snapshot on every later request, including tools.
+      if (roleplayRemindersPending) {
+        roleplayRemindersPending = false;
+        const tail = messages.at(-1);
+        if (tail?.role === 'user' || tail?.role === 'custom') {
+          const reminders: { id: string; body: string | null }[] = [];
+          if (depthInjectEnabled && pendingDepthScan !== null) {
+            const persona = getActivePersona();
+            const cfg = loadRoleplayConfig(cwd, envCharBudget);
+            const insertions = buildInsertions({
+              authorNote: persona?.authorNote ? substituteMacros(persona.authorNote, macroCtx()) : undefined,
+              authorNoteDepth: persona?.authorNoteDepth,
+              lore: buildDepthLore(pendingDepthScan),
             });
+            const plan = cfg.depthLoreInlineTail ? planDepthTailMerge(insertions) : { insertions, tailBlock: null };
+            // Keep relative depths until the coordinator binds the actual trigger
+            // and finishes window planning. Only the accepted request freezes anchors.
+            pi.events.emit('cache-reminders:insertions', plan.insertions);
+            if (plan.tailBlock) reminders.push({ id: 'roleplay-depth', body: plan.tailBlock });
+          }
+          if (lorebookEnabled) reminders.push({ id: 'roleplay-lore', body: pendingLore });
+          if (repetitionEnabled) reminders.push({ id: 'roleplay-repetition', body: buildRepetitionNudge(messages) });
+          if (eventsEnabled) reminders.push({ id: 'roleplay-event', body: pendingEventForRun });
+          let rm = messages as unknown as ReminderMessage[];
+          for (const spec of reminders) rm = applyContextReminder(rm, spec);
+          if (reminders.some((r) => r.body)) {
+            messages = rm;
             changed = true;
           }
-        }
-      }
-
-      // Ephemeral, cache-friendly reminders: the keyword-fired lore block, the
-      // repetition nudge and the queued scene event, each under a stable id so
-      // re-applying is a fixpoint and stale blocks are stripped when they no
-      // longer fire. `roleplay-lore` carries the timing-gated lore computed
-      // once this turn in `before_agent_start` (stashed in `pendingLore`); the
-      // context hook only reads that slot, so re-fires within a turn never
-      // re-advance the timing pass.
-      const reminders: { id: string; body: string | null }[] = [];
-      if (lorebookEnabled) reminders.push({ id: 'roleplay-lore', body: pendingLore });
-      if (repetitionEnabled)
-        reminders.push({
-          id: 'roleplay-repetition',
-          body: buildRepetitionNudge(messages),
-        });
-      if (eventsEnabled) {
-        reminders.push({ id: 'roleplay-event', body: pendingEvent ? formatEventDirector(pendingEvent) : null });
-        if (pendingEvent) eventConsumed = true;
-      }
-      if (reminders.length > 0) {
-        let rm = messages as unknown as ReminderMessage[];
-        for (const spec of reminders) rm = applyContextReminder(rm, spec);
-        if (reminders.some((r) => r.body)) {
-          messages = rm;
-          changed = true;
         }
       }
 
       return changed ? { messages: messages as unknown as typeof event.messages } : undefined;
     });
   }
+
+  // The safety floor must see historical and first-request snapshot bytes.
+  // Synchronous previews do not persist candidates or acknowledge events.
+  unsubscribePipeline.push(
+    pi.events.on(REMINDER_CAPABILITIES, (data) => {
+      const request = data as ReminderCapabilities;
+      const ctx = request.context as ExtensionContext;
+      if (contextWindowEnabled && activeCast() !== null && ctx.model?.contextWindow) request.limiterRequired = true;
+    }),
+    pi.events.on(REMINDER_LIMIT, (data) => {
+      if (!contextWindowEnabled || activeCast() === null) return;
+      const request = data as ReminderLimitRequest;
+      const ctx = request.context as ExtensionContext;
+      const windowTokens = ctx.model?.contextWindow;
+      if (typeof windowTokens !== 'number' || !Number.isFinite(windowTokens) || windowTokens <= 0) return;
+      const result = limitReminderContext({
+        messages: request.messages,
+        preview: request.preview,
+        origin: request.origin,
+        floorAnchor: projectedFloorAnchor,
+        windowTokens,
+        charsPerToken,
+      });
+      request.result = result;
+      if (result.fits) projectedFloorAnchor = result.floorAnchor;
+    }),
+    pi.events.on(REMINDER_PROJECTED, (data) => {
+      if (activeCast() === null) return;
+      const request = data as ReminderProjectedRequest;
+      lastSentEstChars = reminderRequestChars(request.messages);
+      if (lastWindowSnapshot) {
+        const sent = Math.round(lastSentEstChars / charsPerToken);
+        lastWindowSnapshot = {
+          ...lastWindowSnapshot,
+          messagesOut: request.messages.length,
+          estSentPromptTokens: sent,
+          estFullPromptTokens: Math.max(sent, lastWindowSnapshot.estFullPromptTokens),
+          estSavedTokens: Math.max(0, lastWindowSnapshot.estFullPromptTokens - sent),
+        };
+      }
+    }),
+  );
 
   // ── Compaction side-write (manual / overflow) ───────────────────────
   //
@@ -2228,6 +2267,23 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   }
 
   // ── Scene events (/roleplay event) ──────────────────────────────────
+
+  if (eventsEnabled) {
+    unsubscribeReminderSnapshots = pi.events.on('cache-reminders:captured', (data) => {
+      const snapshot = data as ReminderSnapshot | undefined;
+      if (
+        pendingEvent &&
+        snapshot &&
+        isCurrentEventCapture({
+          pendingGeneration: pendingEventGeneration,
+          frozenGeneration: pendingEventGenerationForRun,
+          frozenBody: pendingEventForRun,
+          specs: snapshot.specs,
+        })
+      )
+        eventConsumed = true;
+    });
+  }
   //
   // `/roleplay event [hint]` queues a one-shot complication, generated by
   // the `roleplay-event` agent (default; always when a hint is given) and
@@ -2335,11 +2391,24 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     } catch {
       // teardown must never throw
     }
+    try {
+      unsubscribeReminderSnapshots?.();
+    } catch {
+      // A separate bus teardown must still run if another resource failed.
+    }
+    unsubscribeReminderSnapshots = null;
+    for (const unsubscribe of unsubscribePipeline.splice(0)) unsubscribe();
     state = emptyState();
     castOverride = null;
     syncedCast = null;
     pendingEvent = null;
     eventConsumed = false;
+    pendingLore = null;
+    pendingDepthScan = null;
+    pendingEventForRun = null;
+    pendingEventGenerationForRun = null;
+    roleplayRemindersPending = false;
+    lastSceneBlock = null;
     excludeCache = null;
     loreEmptyCache = null;
     resetWindowState();
@@ -2963,6 +3032,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
           return;
         }
         pendingEvent = queued;
+        pendingEventGeneration += 1;
         eventConsumed = false;
         ctx.ui.notify(`Queued scene event for your next reply:\n${queued}`, 'info');
         return;
