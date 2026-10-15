@@ -5,6 +5,7 @@
  */
 
 import { describe, expect, test } from 'vitest';
+import { buildIdentityWrap, stashOriginalCommand } from '../../../../../lib/node/pi/sandbox/markers.ts';
 
 import {
   type AgentGateConfig,
@@ -31,6 +32,34 @@ const ev = (toolName: string, input: Record<string, unknown> = {}): AgentGateToo
 // ──────────────────────────────────────────────────────────────────────
 
 describe('decideAgentGate: bash', () => {
+  test('sandbox wrapping cannot hide a denied command', () => {
+    const event = ev('bash', { command: buildIdentityWrap('rm example') });
+    stashOriginalCommand(event.input, 'rm example');
+    expect(
+      decideAgentGate({
+        event,
+        config: baseConfig({ bashDeny: ['rm'] }),
+        cwd: '/repo',
+        resolveAbsolute,
+        enforceWriteRoots: false,
+      }),
+    ).toMatchObject({ block: true });
+  });
+
+  test('sandbox wrapping preserves the original command allowlist', () => {
+    const event = ev('bash', { command: buildIdentityWrap('rg pattern') });
+    stashOriginalCommand(event.input, 'rg pattern');
+    expect(
+      decideAgentGate({
+        event,
+        config: baseConfig({ bashAllow: ['rg'] }),
+        cwd: '/repo',
+        resolveAbsolute,
+        enforceWriteRoots: false,
+      }),
+    ).toBeUndefined();
+  });
+
   test('subagent / subagent_send always pass through', () => {
     const config = baseConfig({ bashDeny: ['*'] });
 

@@ -17,12 +17,27 @@ export class Semaphore {
   private readonly queue: (() => void)[] = [];
   constructor(private readonly limit: number) {}
 
-  async acquire(): Promise<void> {
+  async acquire(signal?: AbortSignal): Promise<void> {
+    signal?.throwIfAborted();
     if (this.active < this.limit) {
       this.active++;
       return;
     }
-    await new Promise<void>((resolve) => this.queue.push(resolve));
+    await new Promise<void>((resolve, reject) => {
+      let resume: () => void;
+      const cancel = (): void => {
+        const index = this.queue.indexOf(resume);
+        if (index >= 0) this.queue.splice(index, 1);
+        const reason: unknown = signal?.reason;
+        reject(reason instanceof Error ? reason : new DOMException('Aborted', 'AbortError'));
+      };
+      resume = (): void => {
+        signal?.removeEventListener('abort', cancel);
+        resolve();
+      };
+      this.queue.push(resume);
+      signal?.addEventListener('abort', cancel, { once: true });
+    });
     // Waiter inherits the slot released by the prior holder - no
     // additional `active++` needed because `release()` intentionally
     // skipped its `active--` when a waiter was present.

@@ -57,7 +57,7 @@
  *   /agents show <name>  print full frontmatter + body of agent <name>
  *   /agents running      list active background sub-agents + their snapshots
  *
- * Pure helpers live under `../../../lib/node/pi/subagent-*.ts` so they
+ * Pure helpers live under `../../../lib/node/pi/subagent/` so they
  * can be unit-tested under vitest without the pi runtime.
  */
 
@@ -134,12 +134,7 @@ import {
   loadAgents,
   makeNodeReadLayer,
 } from '../../../lib/node/pi/subagent/loader.ts';
-import {
-  classifyStopReason,
-  extractFinalAssistantText,
-  resolveFinalText,
-  type AgentMessageLike,
-} from '../../../lib/node/pi/subagent/result.ts';
+import { resolveFinalText } from '../../../lib/node/pi/subagent/result.ts';
 import {
   childSessionDir,
   subagentSessionRoot,
@@ -149,11 +144,13 @@ import {
 import { makeSweepFs } from '../../../lib/node/pi/subagent/sweep-fs.ts';
 import {
   createWorktree,
+  formatWorktreeRecovery,
   removeWorktree,
   sweepStaleWorktrees,
   type CreatedWorktree,
+  type WorktreeRemovalResult,
 } from '../../../lib/node/pi/subagent/worktree.ts';
-import { resolveChildModel } from '../../../lib/node/pi/subagent/spawn.ts';
+import { createChildRun, resolveChildModel } from '../../../lib/node/pi/subagent/spawn.ts';
 import { resolveMaxTurns } from '../../../lib/node/pi/subagent/budget.ts';
 import { type SubagentConfig, loadSubagentConfig } from '../../../lib/node/pi/subagent/config.ts';
 import { collectSubagentInjections } from '../../../lib/node/pi/subagent/extension-injection.ts';
@@ -223,6 +220,8 @@ export interface SubagentDetails {
   workspace?: {
     isolation: 'shared-cwd' | 'worktree';
     worktreePath?: string;
+    worktreePreserved?: boolean;
+    recoveryBranch?: string;
   };
   childSessionFile?: string;
   childSessionId?: string;
@@ -265,7 +264,6 @@ interface ChildAggregate {
   output: number;
   cost: number;
   contextTokens: number;
-  errorFromChild: string | undefined;
   /** Per-tool call counts populated from `tool_execution_start` events. */
   tools: ChildToolAggregate;
 }
@@ -279,7 +277,6 @@ function makeAggregate(): ChildAggregate {
     output: 0,
     cost: 0,
     contextTokens: 0,
-    errorFromChild: undefined,
     tools: makeChildToolAggregate(),
   };
 }
@@ -288,7 +285,13 @@ function makeAggregate(): ChildAggregate {
 // Error-result helpers used by the delegation path
 // ──────────────────────────────────────────────────────────────────────
 
-function toolErrorResult(args: { agent: AgentDef; task: string; durationMs: number; error: string }): {
+function toolErrorResult(args: {
+  agent: AgentDef;
+  task: string;
+  durationMs: number;
+  error: string;
+  stopReason?: 'error' | 'aborted';
+}): {
   content: string;
   details: SubagentDetails;
   isError: true;
@@ -303,7 +306,7 @@ function toolErrorResult(args: { agent: AgentDef; task: string; durationMs: numb
       tokens: { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 },
       cost: 0,
       durationMs: args.durationMs,
-      stopReason: 'error',
+      stopReason: args.stopReason ?? 'error',
       error: args.error,
     },
     isError: true,
@@ -317,9 +320,21 @@ function cleanupAndError(args: {
   error: string;
   worktree: CreatedWorktree | undefined;
   parentCwd: string;
+  stopReason?: 'error' | 'aborted';
 }): { content: string; details: SubagentDetails; isError: true } {
-  if (args.worktree) removeWorktree(args.parentCwd, args.worktree);
-  return toolErrorResult(args);
+  const cleanup = args.worktree ? removeWorktree(args.parentCwd, args.worktree) : undefined;
+  const result = toolErrorResult(args);
+  if (cleanup) {
+    result.details.workspace = {
+      isolation: 'worktree',
+      worktreePath: cleanup.path,
+      worktreePreserved: !cleanup.removed,
+      recoveryBranch: cleanup.branchPreserved ? cleanup.branch : undefined,
+    };
+    const recovery = formatWorktreeRecovery(cleanup);
+    if (recovery) result.content += `\n\n${recovery}`;
+  }
+  return result;
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -377,13 +392,16 @@ export default function subagentExtension(pi: ExtensionAPI): void {
   // session_start from `ctx.cwd` so a project-local
   // `<cwd>/.pi/subagent.json` applies. The per-dispatch `model` /
   // `maxTurns` reads use this object; the concurrency semaphore is
-  // captured once below (changing it mid-session needs /reload).
+  // rebuilt at session_start (changing it mid-session needs /reload).
   let subagentConfig: SubagentConfig = loadSubagentConfig(process.cwd());
 
-  // Process-wide concurrency semaphore. Limit is captured once at
-  // registration; changing concurrency (config file or
-  // `PI_SUBAGENT_CONCURRENCY`) mid-session requires /reload.
-  const semaphore = new Semaphore(subagentConfig.concurrency);
+  // Session-wide concurrency semaphore. Each dispatch retains its own
+  // semaphore reference so late completions cannot release a new session's
+  // capacity. Changing concurrency mid-session requires /reload.
+  let semaphore = new Semaphore(subagentConfig.concurrency);
+  let sessionController = new AbortController();
+  let sessionGeneration = 0;
+  const pendingSpawns = new Set<Promise<unknown>>();
 
   // Running-child registry for the statusline aggregate rendering. Each
   // child owns an entry here from acquire-time until its per-call linger
@@ -422,8 +440,11 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     running: boolean;
     /** True once the process-wide semaphore slot has been released. Idempotency guard. */
     semaphoreReleased: boolean;
-    /** Flipped by subagent_send({action:'abort'}) so the classifier picks `aborted`. */
-    externallyAborted: boolean;
+    /** Shared lifecycle cancellation, including explicit abort and shutdown. */
+    abort(): Promise<void>;
+    /** Prevent late completions from mutating a replacement session. */
+    generation: number;
+    releaseCapacity(): void;
   }
 
   const backgroundChildren = new Map<string, RunningChild>();
@@ -471,7 +492,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
   // and `finalizeChildRun` can call it without double-releasing.
   const releaseSlot = (entry: RunningChild): void => {
     if (!entry.semaphoreReleased) {
-      semaphore.release();
+      entry.releaseCapacity();
       entry.semaphoreReleased = true;
     }
   };
@@ -482,6 +503,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
   // the background IIFE and the synchronous await path.
   const finalizeChildRun = (entry: RunningChild, result: RunChildResult): void => {
     releaseSlot(entry);
+    if (entry.generation !== sessionGeneration) return;
     try {
       pi.appendEntry(SUBAGENT_CUSTOM_TYPE, result.details);
     } catch {
@@ -528,6 +550,8 @@ export default function subagentExtension(pi: ExtensionAPI): void {
   }
 
   pi.on('session_start', (_event, ctx) => {
+    sessionController = new AbortController();
+    sessionGeneration++;
     reload(ctx.cwd);
     // Publish the parent's interactive UI so a spawned subagent's
     // security gates (bash-permissions / filesystem) can route their
@@ -541,10 +565,10 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       setParentPromptUI(undefined);
     }
     // Re-resolve config from the real session cwd so a project-local
-    // <cwd>/.pi/subagent.json takes effect. `concurrency` is intentionally
-    // not re-applied to the already-constructed semaphore (needs /reload),
-    // matching the prior PI_SUBAGENT_CONCURRENCY behaviour.
+    // <cwd>/.pi/subagent.json takes effect. Reset capacity for the new
+    // session; old dispatches retain their previous semaphore.
     subagentConfig = loadSubagentConfig(ctx.cwd);
+    semaphore = new Semaphore(subagentConfig.concurrency);
     surfaceWarnings(ctx, loadResult.warnings);
     handleCounter.reset();
     backgroundChildren.clear();
@@ -566,31 +590,45 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     if (debug && removed > 0) ctx.ui.notify(`subagent: swept ${removed} stale session file(s)`, 'info');
   });
 
-  pi.on('session_shutdown', (_event, ctx) => {
+  pi.on('session_shutdown', async (_event, ctx) => {
+    sessionController.abort();
     // Drain running background children first. We fire `abort()` on
     // each and wait up to PI_SUBAGENT_BG_SHUTDOWN_MS total for their
     // drive() loops to settle - this gives them a chance to dispose
-    // cleanly + cleanup worktrees. If the deadline passes, we fall
-    // through and let GC handle the rest; disposal may be incomplete
-    // but shutdown must never hang.
+    // cleanly + cleanup owned worktrees. The deadline bounds the wait;
+    // remaining event runners are detached and late writes are guarded.
     const drainDeadlineMs = envPositiveInt('PI_SUBAGENT_BG_SHUTDOWN_MS', DEFAULT_BG_SHUTDOWN_MS);
-    const pending: Promise<unknown>[] = [];
+    const pending: Promise<unknown>[] = [...pendingSpawns];
     for (const entry of backgroundChildren.values()) {
       if (!entry.running) continue;
-      entry.externallyAborted = true;
-      try {
-        void entry.session.abort();
-      } catch {
-        // best-effort
-      }
+      void entry.abort().catch(() => undefined);
       pending.push(entry.completion);
     }
     if (pending.length > 0) {
-      void Promise.race([
-        Promise.allSettled(pending),
-        new Promise<void>((resolve) => setTimeout(resolve, drainDeadlineMs)),
-      ]);
+      let deadline: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          Promise.allSettled(pending),
+          new Promise<void>((resolve) => {
+            deadline = setTimeout(resolve, drainDeadlineMs);
+          }),
+        ]);
+      } finally {
+        clearTimeout(deadline);
+      }
     }
+    // Children that ignore cancellation must not retain a live event runner.
+    // Their eventual completion is generation-guarded below.
+    for (const entry of backgroundChildren.values()) {
+      if (!entry.running) continue;
+      try {
+        entry.session.dispose();
+      } catch {
+        // best-effort
+      }
+      releaseSlot(entry);
+    }
+    sessionGeneration++;
 
     // Happy-path sweep. Both sweeps are best-effort - shutdown must
     // not block or throw.
@@ -617,6 +655,13 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     backgroundChildren.clear();
     handleCounter.reset();
     getSessionActivityRings().clear();
+    if (ctx.hasUI) {
+      try {
+        ctx.ui.setStatus(STATUS_KEY, undefined);
+      } catch {
+        // The UI may already be detached.
+      }
+    }
   });
 
   // ────────────────────────────────────────────────────────────────────
@@ -714,16 +759,32 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     task: string;
     modelOverride: string | undefined;
     maxTurnsOverride: number | undefined;
+    returnFormat: 'text' | 'json' | undefined;
     ctx: ExtensionContext;
     parentSignal: AbortSignal | undefined;
-    /** When true, the caller owns the semaphore release - drive() skips it. */
-    background: boolean;
+    setupSignal: AbortSignal;
+    generation: number;
+    releaseCapacity: () => void;
     /** When true, fork the parent's conversation history into the child. */
     fork: boolean;
   }): Promise<SpawnResult> {
-    const { agent, task, modelOverride, maxTurnsOverride, ctx, parentSignal, background, fork } = args;
+    const {
+      agent,
+      task,
+      modelOverride,
+      maxTurnsOverride,
+      returnFormat,
+      ctx,
+      parentSignal,
+      setupSignal,
+      generation,
+      releaseCapacity,
+      fork,
+    } = args;
     const start = Date.now();
     const agg = makeAggregate();
+    setupSignal.throwIfAborted();
+    const parentCwd = ctx.cwd;
 
     // ── Model resolution ──────────────────────────────────────────────
     // Shared with the iteration-loop's critic spawn via
@@ -733,10 +794,9 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     // Per-call override wins, then the config layer
     // (project > user > PI_SUBAGENT_MODEL env), then inherit.
     //
-    // Fork mode pins the child to the PARENT model: the prompt-cache
-    // prefix only survives if model + system + tools match the parent
-    // byte-for-byte, so honouring an agent/override model here would
-    // defeat the point. We notify when that override is being ignored.
+    // Fork mode keeps the parent model and inherited conversation.
+    // Cache reuse additionally requires matching prompts and tools and is
+    // not guaranteed by inheriting history. Report ignored overrides.
     if (fork && (modelOverride || subagentConfig.model || agent.model !== 'inherit')) {
       ctx.ui.notify('subagent: fork mode uses the parent model; ignoring the configured model override', 'info');
     }
@@ -761,11 +821,11 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     const childModel = modelResolution.model;
 
     // ── Workspace (shared-cwd vs worktree) ────────────────────────────
-    let childCwd = ctx.cwd;
+    let childCwd = parentCwd;
     let worktree: CreatedWorktree | undefined;
     let workspaceIsolation: 'shared-cwd' | 'worktree' = 'shared-cwd';
     if (agent.isolation === 'worktree') {
-      const wt = createWorktree(ctx.cwd);
+      const wt = createWorktree(parentCwd);
       if ('error' in wt) {
         ctx.ui.notify(`subagent: worktree create failed, falling back to shared-cwd: ${wt.error}`, 'warning');
       } else {
@@ -783,7 +843,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     const noPersist = envTruthy(process.env.PI_SUBAGENT_NO_PERSIST);
     const sessionDir = childSessionDir({
       parentSessionDir: ctx.sessionManager.getSessionDir(),
-      parentCwd: ctx.cwd,
+      parentCwd,
       parentSessionId: ctx.sessionManager.getSessionId(),
     });
     // SessionManager.create will mkdir the sessionDir lazily on first write.
@@ -794,14 +854,8 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     // already guaranteed a persisted parent session file exists before
     // setting fork=true, so getSessionFile() is non-null here.
     const parentSessionFile = ctx.sessionManager.getSessionFile();
-    const childSessionManager =
-      fork && parentSessionFile
-        ? SessionManager.forkFrom(parentSessionFile, childCwd, sessionDir)
-        : noPersist
-          ? SessionManager.inMemory(childCwd)
-          : SessionManager.create(childCwd, sessionDir);
-
-    let child: AgentSession;
+    let childSessionManager: SessionManager;
+    let child: AgentSession | undefined;
     // Resolve the agent's writeRoots (frontmatter strings) into absolute
     // paths against the child cwd so the inline agent-gate factory has
     // a stable form to compare against.
@@ -840,12 +894,16 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       requestOptions: agent.requestOptions,
     });
     try {
+      childSessionManager =
+        fork && parentSessionFile
+          ? SessionManager.forkFrom(parentSessionFile, childCwd, sessionDir)
+          : noPersist
+            ? SessionManager.inMemory(childCwd)
+            : SessionManager.create(childCwd, sessionDir);
       const agentDir = getAgentDir();
-      // Fork mode keeps the child's system prompt byte-identical to the
-      // parent's so the prompt-cache prefix can be reused: the persona
-      // (appendSystemPrompt + body) is injected as the first USER message
-      // by buildForkPrompt instead of appended to the system prompt.
-      // Fresh mode keeps the existing behaviour.
+      // Fork mode injects the persona in the task message instead of
+      // rebuilding the inherited conversation. The child's default system
+      // prompt may differ from the parent's full extension stack.
       const appendParts: string[] = [];
       if (!fork) {
         if (agent.appendSystemPrompt) appendParts.push(agent.appendSystemPrompt);
@@ -860,18 +918,14 @@ export default function subagentExtension(pi: ExtensionAPI): void {
         noPromptTemplates: true,
         appendSystemPrompt: appendParts.length > 0 ? appendParts : undefined,
         extensionFactories: [
-          // Global subagent-injection registry first - parent-side
-          // security gates (bash-permissions, filesystem) register
-          // hook-only factories there so child bash / read / write
-          // calls go through the same gates as the parent. The
-          // per-agent gate runs LAST so its agent-specific
-          // bashAllow / bashDeny / writeRoots can override (last
-          // tool_call handler wins on the same event).
-          ...(collectSubagentInjections() as unknown as ExtensionFactory[]),
+          // Restrict before parent approval prompts or sandbox rewriting.
+          // All gates must allow a call; one gate cannot override a deny.
           agentGateFactory,
+          ...(collectSubagentInjections() as unknown as ExtensionFactory[]),
         ] satisfies ExtensionFactory[],
       });
       await resourceLoader.reload();
+      setupSignal.throwIfAborted();
       const created = await createAgentSession({
         cwd: childCwd,
         model: childModel,
@@ -879,7 +933,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
         // over the agent def's own thinkingLevel for this child.
         thinkingLevel: modelResolution.thinkingLevel ?? agent.thinkingLevel,
         // Fork mode leaves the tool allowlist unset so the child enables
-        // pi's default tool set, matching the parent's cached prefix.
+        // pi's default tool set, not arbitrary parent extension tools.
         // Fresh mode keeps the agent's curated allowlist. Either way the
         // recursive subagent tools are excluded so a child can never fan
         // out further (the runtime depth guard backs this up).
@@ -893,8 +947,25 @@ export default function subagentExtension(pi: ExtensionAPI): void {
         sessionManager: childSessionManager,
       });
       child = created.session;
+      setupSignal.throwIfAborted();
+      if (!fork) {
+        const available = new Set(child.getAllTools().map((tool) => tool.name));
+        const unavailable = agent.tools.filter((name) => !available.has(name));
+        if (unavailable.length > 0) {
+          throw new Error(
+            `agent "${agent.name}" requests unavailable child tools: ${unavailable.join(', ')}. ` +
+              'Children load built-in tools and explicit child factories, not parent extension tool handlers. ' +
+              'Remove these tools from the agent definition or provide a child-safe factory.',
+          );
+        }
+      }
     } catch (e) {
-      clearActiveAgent();
+      try {
+        child?.dispose();
+      } catch {
+        // Keep the setup error, but still clean the owned workspace.
+      }
+      if (generation === sessionGeneration) clearActiveAgent();
       return {
         kind: 'error',
         result: cleanupAndError({
@@ -903,7 +974,8 @@ export default function subagentExtension(pi: ExtensionAPI): void {
           durationMs: Date.now() - start,
           error: e instanceof Error ? e.message : String(e),
           worktree,
-          parentCwd: ctx.cwd,
+          parentCwd,
+          stopReason: setupSignal.aborted ? 'aborted' : 'error',
         }),
       };
     }
@@ -920,12 +992,6 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       // the global ceiling; absent = no cap.
       envCap: subagentConfig.maxTurns ?? Number.MAX_SAFE_INTEGER,
     });
-    let reachedMaxTurns = false;
-    // We trigger `child.abort()` ourselves on maxTurns, timeout, or parent
-    // signal - any of those counts as an "aborted" outcome even though
-    // `parentSignal.aborted` stays false for the first two.
-    let abortedByUs = false;
-
     const makeSnapshot = (
       state: SubagentRunSnapshot['state'],
       opts?: { durationMs?: number },
@@ -957,6 +1023,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     // `backgroundChildren`, so `subagent_send` never observes this
     // initial value. It exists only to satisfy the object-literal
     // type contract.
+    let run: ReturnType<typeof createChildRun>;
     const entry: RunningChild = {
       handle,
       agent,
@@ -971,10 +1038,13 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       outcome: undefined,
       running: true,
       semaphoreReleased: false,
-      externallyAborted: false,
+      abort: () => run.abort(),
+      generation,
+      releaseCapacity,
     };
 
     const pushStatus = (state: SubagentRunSnapshot['state'], opts?: { durationMs?: number }): void => {
+      if (generation !== sessionGeneration) return;
       const snap = makeSnapshot(state, opts);
       entry.snapshot = snap;
       runningChildren.set(childSessionId, snap);
@@ -1001,120 +1071,77 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     const activityState = makeActivityState();
     getSessionActivityRings().set(handle, activityRing);
 
-    const unsubscribe = child.subscribe((event: AgentSessionEvent) => {
-      if (debug) ctx.ui.notify(`subagent[${agent.name}]: ${event.type}`, 'info');
-
-      // Activity-tail rendering. Pure formatter; safe to call before
-      // / after the counter updates below. Routing through
-      // `activityPushModeFor` collapses streaming assistant deltas to a
-      // single cursor line in the ring rather than one row per token.
-      const activityEvent = event as unknown as ActivityEvent;
-      const line = formatActivityLine(activityEvent, activityState);
-      if (line) applyActivityLine(activityRing, line, activityPushModeFor(activityEvent));
-
-      if (event.type === 'tool_execution_start') {
-        recordToolCall(agg.tools, event.toolName ?? '');
-        pushStatus('running');
-      }
-      if (event.type === 'turn_end') {
-        agg.turns++;
-        if (agg.turns >= maxTurns) {
-          reachedMaxTurns = true;
-          abortedByUs = true;
-          void child.abort();
-        }
-        pushStatus('running');
-      } else if (event.type === 'message_end' && event.message.role === 'assistant') {
-        const usage = (
-          event.message as {
-            usage?: {
-              input?: number;
-              cacheRead?: number;
-              cacheWrite?: number;
-              output?: number;
-              totalTokens?: number;
-              cost?: { total?: number };
-            };
-          }
-        ).usage;
-        if (usage) {
-          agg.input += usage.input ?? 0;
-          agg.cacheRead += usage.cacheRead ?? 0;
-          agg.cacheWrite += usage.cacheWrite ?? 0;
-          agg.output += usage.output ?? 0;
-          agg.cost += usage.cost?.total ?? 0;
-          agg.contextTokens = usage.totalTokens ?? agg.contextTokens;
-        }
-        const err = (event.message as { errorMessage?: string }).errorMessage;
-        if (err) agg.errorFromChild = err;
-        pushStatus('running');
-      }
-    });
-
-    // ── Abort chain (parent signal + timeout) ─────────────────────────
     const timeoutMs = Math.min(agent.timeoutMs, envPositiveInt('PI_SUBAGENT_TIMEOUT_MS', Number.MAX_SAFE_INTEGER));
-    const timeoutHandle = setTimeout(() => {
-      abortedByUs = true;
-      void child.abort();
-    }, timeoutMs);
-    // Background children outlive the parent's tool-call turn by
-    // design, so wiring parentSignal to them would abort the child as
-    // soon as the spawning turn wraps up. Only synchronous calls chain
-    // the turn-scoped signal.
-    const listenToParent = !background;
-    const parentAbortHandler = (): void => {
-      abortedByUs = true;
-      void child.abort();
-    };
-    if (listenToParent) parentSignal?.addEventListener('abort', parentAbortHandler, { once: true });
+    run = createChildRun({
+      session: child,
+      maxTurns,
+      timeoutMs,
+      signal: parentSignal,
+      onEvent: ({ event: rawEvent, turn }) => {
+        const event = rawEvent as AgentSessionEvent;
+        agg.turns = turn;
+        if (generation !== sessionGeneration) return;
+        if (debug) ctx.ui.notify(`subagent[${agent.name}]: ${event.type}`, 'info');
+
+        // Activity-tail rendering. Pure formatter; safe to call before
+        // / after the counter updates below. Routing through
+        // `activityPushModeFor` collapses streaming assistant deltas to a
+        // single cursor line in the ring rather than one row per token.
+        const activityEvent = event as unknown as ActivityEvent;
+        const line = formatActivityLine(activityEvent, activityState);
+        if (line) applyActivityLine(activityRing, line, activityPushModeFor(activityEvent));
+
+        if (event.type === 'tool_execution_start') {
+          recordToolCall(agg.tools, event.toolName ?? '');
+          pushStatus('running');
+        }
+        if (event.type === 'turn_end') {
+          pushStatus('running');
+        } else if (event.type === 'message_end' && event.message.role === 'assistant') {
+          const usage = (
+            event.message as {
+              usage?: {
+                input?: number;
+                cacheRead?: number;
+                cacheWrite?: number;
+                output?: number;
+                totalTokens?: number;
+                cost?: { total?: number };
+              };
+            }
+          ).usage;
+          if (usage) {
+            agg.input += usage.input ?? 0;
+            agg.cacheRead += usage.cacheRead ?? 0;
+            agg.cacheWrite += usage.cacheWrite ?? 0;
+            agg.output += usage.output ?? 0;
+            agg.cost += usage.cost?.total ?? 0;
+            agg.contextTokens = usage.totalTokens ?? agg.contextTokens;
+          }
+          pushStatus('running');
+        }
+      },
+    });
 
     const childPrompt = fork ? buildForkPrompt({ agent, task }) : task;
     const drive = async (): Promise<RunChildResult> => {
-      let childError: Error | undefined;
+      let outcome: Awaited<ReturnType<typeof run.run>>;
+      let cleanup: WorktreeRemovalResult | undefined;
       try {
-        await child.prompt(childPrompt);
-      } catch (e) {
-        childError = e instanceof Error ? e : new Error(String(e));
+        outcome = await run.run(childPrompt);
       } finally {
-        clearTimeout(timeoutHandle);
-        if (listenToParent) parentSignal?.removeEventListener('abort', parentAbortHandler);
-        unsubscribe();
         unregisterChildPromptIdentity(childSessionId);
+        if (generation === sessionGeneration) clearActiveAgent();
+        if (worktree) cleanup = removeWorktree(parentCwd, worktree);
       }
-
-      // AbortError may arrive as a thrown DOMException, an Error whose
-      // `name` is `AbortError`, or no throw at all (pi may swallow it).
-      // `abortedByUs` covers timeout, maxTurns, parent-signal, and
-      // subagent_send({action:'abort'}) paths; `parentSignal.aborted`
-      // covers the rare case where the parent aborted between our
-      // listener firing and `removeEventListener` (sync path only).
-      const errorIsAbort =
-        childError !== undefined && (childError.name === 'AbortError' || /abort/i.test(childError.message ?? ''));
-      const aborted =
-        abortedByUs || entry.externallyAborted || (listenToParent && parentSignal?.aborted === true) || errorIsAbort;
-      const hasRealError = childError !== undefined && !errorIsAbort;
-      const stopReason = classifyStopReason({
-        reachedMaxTurns,
-        aborted: aborted && !reachedMaxTurns,
-        error: !reachedMaxTurns && !aborted && (hasRealError || agg.errorFromChild !== undefined),
-      });
-
-      // ── Extract final answer text + terminate child ─────────────────
-      const messages = child.state.messages as unknown as AgentMessageLike[];
+      const stopReason = outcome.stopReason;
       const finalText = resolveFinalText({
         stopReason,
-        finalText: extractFinalAssistantText(messages),
+        finalText: outcome.finalText,
         agent: agent.name,
         maxTurns,
-        errorFromChild: agg.errorFromChild,
-        childErrorMessage: childError?.message,
+        childErrorMessage: outcome.errorMessage,
       });
-
-      child.dispose();
-      clearActiveAgent();
-
-      // ── Cleanup the worktree (if any) ───────────────────────────────
-      if (worktree) removeWorktree(ctx.cwd, worktree);
 
       // ── Final status with duration atomically, then schedule linger clear ─
       const durationMs = Date.now() - start;
@@ -1132,26 +1159,29 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       // the cumulative cost of delegated work. We intentionally count
       // errored / aborted / max_turns runs too (with `failed: true`)
       // - tokens + cost were still spent and users want to see them.
-      getSessionSubagentAggregate().record({
-        turns: agg.turns,
-        input: agg.input,
-        cacheRead: agg.cacheRead,
-        cacheWrite: agg.cacheWrite,
-        output: agg.output,
-        cost: agg.cost,
-        durationMs,
-        failed: finalState !== 'completed',
-      });
+      if (generation === sessionGeneration)
+        getSessionSubagentAggregate().record({
+          turns: agg.turns,
+          input: agg.input,
+          cacheRead: agg.cacheRead,
+          cacheWrite: agg.cacheWrite,
+          output: agg.output,
+          cost: agg.cost,
+          durationMs,
+          failed: finalState !== 'completed',
+        });
       // After a linger so the user sees the final numbers, drop this
       // child from the aggregate. Each child owns its own timer so
       // concurrent children don't stomp each other.
       const linger = envPositiveInt('PI_SUBAGENT_STATUS_LINGER_MS', DEFAULT_STATUS_LINGER_MS);
-      const timer = setTimeout(() => {
-        lingerTimers.delete(timer);
-        runningChildren.delete(childSessionId);
-        updateStatus(ctx);
-      }, linger);
-      lingerTimers.add(timer);
+      if (generation === sessionGeneration) {
+        const timer = setTimeout(() => {
+          lingerTimers.delete(timer);
+          runningChildren.delete(childSessionId);
+          updateStatus(ctx);
+        }, linger);
+        lingerTimers.add(timer);
+      }
 
       const details: SubagentDetails = {
         agent: agent.name,
@@ -1168,11 +1198,16 @@ export default function subagentExtension(pi: ExtensionAPI): void {
         cost: agg.cost,
         durationMs,
         stopReason,
-        workspace: { isolation: workspaceIsolation, worktreePath: worktree?.path },
+        workspace: {
+          isolation: workspaceIsolation,
+          worktreePath: worktree?.path,
+          worktreePreserved: cleanup ? !cleanup.removed : undefined,
+          recoveryBranch: cleanup?.branchPreserved ? cleanup.branch : undefined,
+        },
         childSessionId,
         childSessionFile,
         handle,
-        error: stopReason === 'error' ? (agg.errorFromChild ?? childError?.message) : undefined,
+        error: outcome.errorMessage,
         maxTurns,
         byTool: snapshotByTool(agg.tools),
         contextTokens: agg.contextTokens > 0 ? agg.contextTokens : undefined,
@@ -1180,7 +1215,9 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       };
 
       const result: RunChildResult = {
-        content: finalText,
+        content: [finalText, cleanup && returnFormat !== 'json' ? formatWorktreeRecovery(cleanup) : undefined]
+          .filter(Boolean)
+          .join('\n\n'),
         details,
         isError: stopReason !== 'completed',
       };
@@ -1253,22 +1290,53 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       });
       if (forkDecision.reason) ctx.ui.notify(`subagent: ${forkDecision.reason}`, 'info');
 
-      await semaphore.acquire();
+      const generation = sessionGeneration;
+      const runSemaphore = semaphore;
+      const sessionSignal = sessionController.signal;
+      const setupSignal = signal ? AbortSignal.any([signal, sessionSignal]) : sessionSignal;
+      let acquired = false;
+      try {
+        await runSemaphore.acquire(setupSignal);
+        acquired = true;
+        setupSignal.throwIfAborted();
+      } catch {
+        if (acquired) runSemaphore.release();
+        const result = toolErrorResult({
+          agent,
+          task: params.task,
+          durationMs: 0,
+          error: 'aborted before child started',
+          stopReason: 'aborted',
+        });
+        return { content: [{ type: 'text', text: result.content }], details: result.details, isError: true };
+      }
 
       let spawn: SpawnResult;
       try {
-        spawn = await spawnChild({
+        const setup = spawnChild({
           agent,
           task: params.task,
           modelOverride: params.modelOverride,
           maxTurnsOverride: params.maxTurns,
+          returnFormat: params.returnFormat,
           ctx,
-          parentSignal: signal,
-          background,
+          // Background work detaches from the spawning turn, not from
+          // the parent session's shutdown signal. Setup is cancellable
+          // in either mode until the child has actually been launched.
+          parentSignal: background ? sessionSignal : setupSignal,
+          setupSignal,
+          generation,
+          releaseCapacity: () => runSemaphore.release(),
           fork: forkDecision.fork,
         });
+        pendingSpawns.add(setup);
+        try {
+          spawn = await setup;
+        } finally {
+          pendingSpawns.delete(setup);
+        }
       } catch (e) {
-        semaphore.release();
+        runSemaphore.release();
         const err = e instanceof Error ? e.message : String(e);
         return {
           content: [{ type: 'text', text: `subagent: spawn failed - ${err}` }],
@@ -1280,7 +1348,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
             tokens: { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 },
             cost: 0,
             durationMs: 0,
-            stopReason: 'error',
+            stopReason: setupSignal.aborted ? 'aborted' : 'error',
             error: err,
           } satisfies SubagentDetails,
           isError: true,
@@ -1288,7 +1356,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       }
 
       if (spawn.kind === 'error') {
-        semaphore.release();
+        runSemaphore.release();
         return {
           content: [{ type: 'text', text: spawn.result.content }],
           details: spawn.result.details,
@@ -1298,98 +1366,44 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 
       const { entry, drive } = spawn;
 
+      const spawnedDetails: SubagentDetails = {
+        ...entryToRunningDetails(entry),
+        stopReason: 'spawned',
+      };
+      // Both modes use the same completion, failure handling, slot release,
+      // and audit path. Background mode changes only who awaits it.
+      entry.completion = (async () => {
+        let result: RunChildResult;
+        try {
+          result = await drive();
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          result = {
+            content: `subagent ${agent.name}: drive failed - ${msg}`,
+            details: { ...entryToRunningDetails(entry), stopReason: 'error', error: msg },
+            isError: true,
+          };
+        }
+        entry.running = false;
+        entry.outcome = result;
+        finalizeChildRun(entry, result);
+        return result;
+      })();
+      // Wire completion before publishing the handle, so wait never sees
+      // the initial placeholder promise.
+      backgroundChildren.set(entry.handle, entry);
+      pruneBackground();
+
       if (background) {
-        // Background spawns return immediately with `stopReason: 'spawned'`
-        // so the parent renderResult picks the `⏳` glyph from
-        // `scorecardGlyph` rather than falling through to the error
-        // glyph (`✗`). The actual `drive()` outcome - with a real
-        // stopReason - lands on the entry once it settles.
-        const spawnedDetails: SubagentDetails = {
-          ...entryToRunningDetails(entry),
-          stopReason: 'spawned',
-        };
-        // Kick drive() off into the void. Semaphore release + audit
-        // entry happen inside the async IIFE once drive() settles.
-        // Completion promise is wired BEFORE the registry insert so
-        // `subagent_send({ action: "wait" })` can never observe the
-        // placeholder promise.
-        entry.completion = (async () => {
-          let result: RunChildResult;
-          try {
-            result = await drive();
-          } catch (e) {
-            const msg = e instanceof Error ? e.message : String(e);
-            const durationMs = Date.now() - entry.startedAt;
-            result = {
-              content: `subagent ${agent.name}: drive failed - ${msg}`,
-              details: {
-                agent: agent.name,
-                agentSource: agent.source,
-                task: params.task,
-                model: ctx.model?.id,
-                turns: entry.snapshot.turns,
-                tokens: {
-                  input: entry.snapshot.input,
-                  cacheRead: entry.snapshot.cacheRead,
-                  cacheWrite: 0,
-                  output: entry.snapshot.output,
-                },
-                cost: entry.snapshot.cost,
-                durationMs,
-                stopReason: 'error',
-                childSessionId: entry.childSessionId,
-                childSessionFile: entry.childSessionFile,
-                handle: entry.handle,
-                error: msg,
-              },
-              isError: true,
-            };
-            entry.running = false;
-            entry.outcome = result;
-          }
-          finalizeChildRun(entry, result);
-          return result;
-        })();
-
-        backgroundChildren.set(entry.handle, entry);
-        pruneBackground();
-
         return {
           content: [
-            {
-              type: 'text',
-              text: formatSpawnMessage({ handle: entry.handle, agent: agent.name, task: params.task }),
-            },
+            { type: 'text', text: formatSpawnMessage({ handle: entry.handle, agent: agent.name, task: params.task }) },
           ],
           details: spawnedDetails,
           isError: false,
         };
       }
-
-      // ── Synchronous path ────────────────────────────────────────────
-      // Register in background map too so `subagent_send` can still
-      // read finished runs (and so that /agents running shows
-      // currently-streaming sync calls). Completion promise is wired
-      // before the registry insert to match the background path.
-      entry.completion = drive();
-      backgroundChildren.set(entry.handle, entry);
-      let out: RunChildResult;
-      try {
-        out = await entry.completion;
-      } finally {
-        // Release even if drive() rejected; the audit append below only
-        // runs on success (finalizeChildRun's release is then a no-op).
-        releaseSlot(entry);
-      }
-
-      // Parent-side audit entry so /fork, /tree, and session-usage can
-      // see delegated runs without scanning message bodies. We do NOT
-      // also call pi.sendMessage() for the run: pi's convertToLlm
-      // serializes `custom` messages as synthetic `user` turns, which
-      // would double the prompt tokens the parent bills for the same
-      // content that's already in the tool_result.
-      finalizeChildRun(entry, out);
-
+      const out = await entry.completion;
       pruneBackground();
 
       // `returnFormat: 'json'` asks us to validate that the child
@@ -1567,17 +1581,18 @@ export default function subagentExtension(pi: ExtensionAPI): void {
             isError: false,
           };
         }
-        entry.externallyAborted = true;
+        void entry.abort().catch(() => undefined);
+        // Bound the entire wait, including an abort implementation that stalls.
+        let deadline: ReturnType<typeof setTimeout> | undefined;
         try {
-          await entry.session.abort();
-        } catch {
-          // abort is best-effort - drive() will observe the aborted flag.
-        }
-        // Wait briefly for drive to settle so we return a stable snapshot.
-        try {
-          await Promise.race([entry.completion, new Promise<void>((resolve) => setTimeout(resolve, 1500))]);
-        } catch {
-          // completion promises never reject in our shape, but be defensive.
+          await Promise.race([
+            entry.completion,
+            new Promise<void>((resolve) => {
+              deadline = setTimeout(resolve, 1500);
+            }),
+          ]);
+        } finally {
+          clearTimeout(deadline);
         }
         return {
           content: [
@@ -1597,14 +1612,21 @@ export default function subagentExtension(pi: ExtensionAPI): void {
         // in the background and the parent can re-attach with another
         // `wait` call. If neither signal nor completion fires the
         // promise never resolves, so race them.
-        const result = await Promise.race<{ kind: 'completed'; result: RunChildResult } | { kind: 'aborted' }>([
-          entry.completion.then((r) => ({ kind: 'completed', result: r })),
-          new Promise((resolve) => {
-            if (!signal) return;
-            if (signal.aborted) resolve({ kind: 'aborted' });
-            else signal.addEventListener('abort', () => resolve({ kind: 'aborted' }), { once: true });
-          }),
-        ]);
+        let onAbort: (() => void) | undefined;
+        let result: { kind: 'completed'; result: RunChildResult } | { kind: 'aborted' };
+        try {
+          result = await Promise.race<{ kind: 'completed'; result: RunChildResult } | { kind: 'aborted' }>([
+            entry.completion.then((r) => ({ kind: 'completed', result: r })),
+            new Promise((resolve) => {
+              if (!signal) return;
+              onAbort = () => resolve({ kind: 'aborted' });
+              if (signal.aborted) onAbort();
+              else signal.addEventListener('abort', onAbort, { once: true });
+            }),
+          ]);
+        } finally {
+          if (onAbort) signal?.removeEventListener('abort', onAbort);
+        }
         if (result.kind === 'aborted') {
           return {
             content: [

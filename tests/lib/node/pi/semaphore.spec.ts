@@ -6,6 +6,32 @@ import { expect, test } from 'vitest';
 
 import { Semaphore } from '../../../../lib/node/pi/semaphore.ts';
 
+test('Semaphore: a pre-aborted acquisition never consumes capacity', async () => {
+  const sem = new Semaphore(1);
+  await expect(sem.acquire(AbortSignal.abort())).rejects.toMatchObject({ name: 'AbortError' });
+  await sem.acquire();
+  sem.release();
+});
+
+test('Semaphore: cancelling a queued waiter preserves capacity and FIFO order', async () => {
+  const sem = new Semaphore(1);
+  await sem.acquire();
+  const controller = new AbortController();
+  const cancelled = sem.acquire(controller.signal);
+  let resumed = false;
+  const next = sem.acquire().then(() => {
+    resumed = true;
+    sem.release();
+  });
+  controller.abort();
+  await expect(cancelled).rejects.toMatchObject({ name: 'AbortError' });
+  expect(resumed).toBe(false);
+  sem.release();
+  await next;
+  await sem.acquire();
+  sem.release();
+});
+
 test('Semaphore: respects the concurrency limit', async () => {
   const sem = new Semaphore(2);
   const inFlight: number[] = [];

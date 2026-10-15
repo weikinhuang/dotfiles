@@ -15,7 +15,7 @@ the leg-work.
 
 ## What the tool does
 
-Registers one tool (`subagent`) with `executionMode: "parallel"` and one command (`/agents`).
+Registers `subagent` and `subagent_send` with `executionMode: "parallel"`, plus `/agents`.
 
 - **Single call, parallel fan-out.** The parent model invokes `subagent` once per delegation; to fan out, it calls the
   tool multiple times in one assistant turn. An in-process semaphore caps concurrency at
@@ -31,6 +31,22 @@ Registers one tool (`subagent`) with `executionMode: "parallel"` and one command
 - **Parent never sees intermediate tool output.** The child's own session file records every call; the parent's
   `tool_result` carries only the final answer text. A collapsible `subagent-run` message in the parent transcript
   renders the one-liner status with an expand-to-markdown view of the answer.
+
+## Execution lifecycle
+
+Foreground, background, and forked children share `createChildRun` in
+[`spawn.ts`](../../../lib/node/pi/subagent/spawn.ts), also used by `runOneShotAgent`. It owns model-step counting,
+timeouts, cancellation, result classification, event subscriptions, and disposal. Foreground/background differ in who
+awaits completion, not in lifecycle behavior.
+
+Queued calls and asynchronous setup honor cancellation before the first prompt. Background calls detach from their
+spawning turn after launch, but remain attached to parent-session shutdown. `subagent_send` supports status, steering,
+wait, and abort; cancelling a wait does not cancel the child. Shutdown awaits a bounded drain before clearing state;
+late completions cannot update a replacement session's status, audit entries, or totals.
+
+One model response plus its requested tools consumes one `maxTurns` step. Multiple tools in that response share the
+step; processing their results in another model response consumes another. A final answer on the last allowed step is
+successful completion. Pending continuation at the cap returns `max_turns`; no extra summary call is added.
 
 ## Agent definitions
 
@@ -48,12 +64,12 @@ Frontmatter schema:
 | -------------------- | -------------------------- | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `name`               | string (required)          | -                        | LLM-visible agent identifier. Must match `[a-z][a-z0-9-]*`.                                                                                                                                                                                                           |
 | `description`        | string (required)          | -                        | Explains WHEN to delegate. Surfaced to the parent LLM in the tool description.                                                                                                                                                                                        |
-| `tools`              | string[]                   | `[read, grep, find, ls]` | Allowlist of built-in + extension tool names. Unknown entries drop with a startup warning.                                                                                                                                                                            |
+| `tools`              | string[]                   | `[read, grep, find, ls]` | Child tool allowlist. Unknown names warn at load; known parent-only extension tools cause a dispatch error instead of being silently omitted.                                                                                                                         |
 | `model`              | `inherit` \| `provider/id` | `inherit`                | Which model answers. `inherit` reuses the parent's current model.                                                                                                                                                                                                     |
 | `thinkingLevel`      | `off…xhigh`                | inherit                  | Clamped to the chosen model's capabilities.                                                                                                                                                                                                                           |
-| `maxTurns`           | number                     | `20`                     | Hard cap on agent turns (enforced by counting `turn_end` + calling `child.abort()`).                                                                                                                                                                                  |
+| `maxTurns`           | number                     | `20`                     | Hard cap on model steps, including tool continuations. Natural completion on the last allowed step succeeds.                                                                                                                                                          |
 | `timeoutMs`          | number                     | `180000`                 | Wall-clock cap - aborts the child session.                                                                                                                                                                                                                            |
-| `isolation`          | `shared-cwd` \| `worktree` | `shared-cwd`             | `worktree` creates `.git/worktrees/pi-subagent-<uuid>/`; removed on completion or stale sweep.                                                                                                                                                                        |
+| `isolation`          | `shared-cwd` \| `worktree` | `shared-cwd`             | `worktree` creates an owned temporary linked checkout. Only clean owned checkouts are removed; child changes and commits remain recoverable.                                                                                                                          |
 | `context`            | `fresh` \| `inherit`       | `fresh`                  | `inherit` forks the parent's full conversation history into the child (see [Fork mode](#fork-mode)). `fresh` starts blank with only the persona + task.                                                                                                               |
 | `appendSystemPrompt` | string                     | -                        | Extra text appended to pi's default system prompt, before the Markdown body. Rare escape hatch.                                                                                                                                                                       |
 | `bashAllow`          | string[]                   | `[]`                     | Per-agent bash allowlist enforced inside the child session via the inline `agent-gate` extension factory. Same matcher semantics as persona's `bashAllow` (head-token exact / `prefix *` / `*`). Empty means "no opinion".                                            |
@@ -69,7 +85,8 @@ supports `extensionFactories` on `DefaultResourceLoader` even when `noExtensions
 subagent extension keeps the layered-on-disk extensions out of children while still gating per-agent.
 
 - The factory closes over the agent's resolved configuration at spawn time, so each child enforces its own rules
-  independently - parallel subagents do not share state.
+  independently - parallel subagents do not share state. Agent denials run before parent approval and sandbox hooks;
+  bash matching also recovers the original command if another hook already wrapped it. Parent gates remain binding.
 - `writeRoots` resolves at spawn time relative to the child cwd (homedir + `{projectSlug}` substitution mirrors the
   persona resolver). Non-empty `writeRoots` is a binding allowlist; empty `writeRoots` is treated as "no opinion".
 - The child runs with `hasUI: false`, so the gate never prompts - a `write` outside `writeRoots` is blocked with a
@@ -87,8 +104,9 @@ Default agents shipped with the dotfiles:
 - **`general-purpose`** - full default tool set (`bash, read, write, edit, grep, find, ls`), `maxTurns: 20`. Catch-all
   when the subtask needs both reads and edits.
 
-All three deliberately exclude `memory` from their tool lists - sub-agents should not be writing durable notes on behalf
-of the user at the parent scope. Opt in per-agent by adding `memory` to its `tools` list.
+All three deliberately exclude `memory`. Parent extension tool handlers are not automatically inherited: requesting
+`memory` or another parent-only tool fails with an actionable error unless a child-safe factory registers it. Merely
+adding its name to `tools` does not copy parent-session state into the child.
 
 ## Parent-UI approval bridge
 
@@ -137,9 +155,13 @@ Mirrors Claude Code's per-`Task` session files so the user can audit, resume, or
 session also records a `subagent-run` custom entry carrying stop reason, token counts, cost, and the child session file
 path - so `/fork` / `/tree` / `session-usage.ts` can reference it after the fact.
 
-On `session_start` (parent-crash recovery) AND `session_shutdown` (happy path) the extension sweeps stale
-`pi-subagent-*` worktrees and deletes child session files older than [`PI_SUBAGENT_RETAIN_DAYS`](#environment-variables)
-days (default 30).
+On startup and shutdown, worktree recovery requires ownership metadata proving a same-host owner process is dead. A
+branch-name prefix alone never authorizes removal. Live, unknown-owner, dirty, and uncertain checkouts are preserved;
+branches containing child commits are never force-deleted. Normal completion removes only the current owner's clean
+checkout. Preserved paths and recovery branches appear in `details.workspace` and text answers. With
+`returnFormat: "json"`, recovery notices are not appended to the JSON answer.
+
+Child session files older than [`PI_SUBAGENT_RETAIN_DAYS`](#environment-variables) days (default 30) are also swept.
 
 ## Statusline integration
 
@@ -201,16 +223,15 @@ The parent transcript still receives only the child's final answer.
 Use it when the task depends on context already in the conversation that would be tedious to restate (a long file the
 parent already read, a design discussed across several turns).
 
-Fork mode trades the agent definition's specialization for prompt-cache reuse. The Anthropic cache prefix only survives
-when model + system prompt + tools match the parent byte-for-byte, so a forked child:
+Fork mode trades the agent definition's curated model and tools for inherited conversation context. A forked child:
 
 - **runs on the parent model** - any `model` / `modelOverride` is ignored (with a notify);
 - **uses pi's default tool set**, not the agent's curated `tools` allowlist;
 - **injects the persona as the first user message** rather than appending it to the system prompt.
 
-The agent's `bashAllow` / `bashDeny` / `writeRoots` / `requestOptions` gates still apply - security enforcement is
-independent of cache reuse. Cache hits depend on Anthropic's runtime and its ephemeral cache window (≈5 min), so a fork
-long after the parent's last turn is still correct, just billed at full price.
+The agent's `bashAllow` / `bashDeny` / `writeRoots` / `requestOptions` gates still apply. Fresh and forked children use
+the same cancellation, budget, and disposal controller. Prompt-cache reuse is not guaranteed: child tools and
+system-prompt construction may differ from the parent's full extension stack, even with the same model.
 
 Recursive spawning is disabled: children run with `noExtensions: true` (the `subagent` / `subagent_send` tools are never
 registered in a child) and those tool names are additionally passed to `excludeTools`, so no sub-agent (forked or fresh)
@@ -246,8 +267,8 @@ per-call param > project config > user config > env knob > built-in default
 ## Worktree caveat
 
 `isolation: "worktree"` severs continuity with the parent's `memory` / `scratchpad` / `todo` state because
-`cwdSlug(worktreePath)` differs from `cwdSlug(parentCwd)`. That's deliberate - the worktree is a sandbox. If a sub-agent
-needs the parent's project-scoped memories, keep `isolation: "shared-cwd"`.
+`cwdSlug(worktreePath)` differs from `cwdSlug(parentCwd)`. A worktree is an isolated checkout, not an OS security
+boundary. If a child needs project-scoped state, keep `isolation: "shared-cwd"` and explicitly provide child-safe tools.
 
 ## Environment variables
 
@@ -276,14 +297,16 @@ needs the parent's project-scoped memories, keep `isolation: "shared-cwd"`.
   past this cap (default `32`). Parsed as a positive integer; non-positive or unparseable values fall back to the
   default.
 - `PI_SUBAGENT_BG_SHUTDOWN_MS=N` - wall-clock budget, ms, for the `session_shutdown` drain that aborts and disposes
-  running background children (default `2000`). Past the deadline, shutdown falls through and leaves remaining disposal
-  to GC so it never hangs. Parsed as a positive integer; non-positive or unparseable values fall back to the default.
+  running children and pending setup (default `2000`). After the deadline, remaining child event runners are disposed
+  best-effort and late completions are isolated from the next session. Parsed as a positive integer; non-positive or
+  unparseable values fall back to the default.
 
 ## Hot reload
 
-Edit [`extensions/subagent.ts`](./subagent.ts) or the helpers under [`lib/node/pi/subagent-*.ts`](../../../lib/node/pi)
-and run `/reload` inside an interactive pi session. New or edited `.md` files under any of the three agent directories
-are picked up on the next `/reload` (or when any `/agents` subcommand runs - the command rescans before listing).
+Edit [`extensions/subagent.ts`](./subagent.ts) or the helpers under
+[`lib/node/pi/subagent/`](../../../lib/node/pi/subagent) and run `/reload` inside an interactive pi session. New or
+edited `.md` files under any of the three agent directories are picked up on the next `/reload` (or when any `/agents`
+subcommand runs - the command rescans before listing).
 
 **Caveat:** the `subagent` tool's LLM-visible description (the list of available agents baked into the tool schema) is
 captured at `registerTool` time. `/reload` re-runs the extension factory and so refreshes it; a `.md` file dropped in

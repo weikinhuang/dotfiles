@@ -6,12 +6,13 @@
  * pure.
  */
 
-import { describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { type AgentDef } from '../../../../../lib/node/pi/subagent/loader.ts';
 import {
   adaptCreateAgentSession,
   agentWithResolvedThinking,
+  createChildRun,
   resolveChildModel,
   runOneShotAgent,
   type AgentSessionEventLike,
@@ -287,6 +288,364 @@ function mkDeps(session: AgentSessionLike): RunOneShotDeps<FakeModel, { id: 'ses
     getAgentDir: () => '/fake/agent/dir',
   };
 }
+
+/** A manually driven session, including events emitted outside prompt's stack. */
+function makeControlledSession(): {
+  session: AgentSessionLike;
+  subscribers: Set<(event: AgentSessionEventLike) => void>;
+  emit(this: void, event: AgentSessionEventLike): void;
+  finish(this: void): void;
+} {
+  const subscribers = new Set<(event: AgentSessionEventLike) => void>();
+  let finish = (): void => {
+    /* assigned synchronously by the promise constructor */
+  };
+  const pending = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  const session: AgentSessionLike = {
+    subscribe(handler) {
+      subscribers.add(handler);
+      return () => {
+        subscribers.delete(handler);
+      };
+    },
+    prompt: () => pending,
+    abort: () => {
+      finish();
+      return Promise.resolve();
+    },
+    dispose: () => undefined,
+    state: { messages: [] },
+  };
+  return {
+    session,
+    subscribers,
+    emit(event) {
+      for (const subscriber of subscribers) subscriber(event);
+    },
+    finish: () => finish(),
+  };
+}
+
+describe('createChildRun', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  test('a non-tool continuation cannot start another model step past the cap', async () => {
+    const { session, emit } = makeControlledSession();
+    const abort = vi.spyOn(session, 'abort');
+    const running = createChildRun({ session, maxTurns: 1, timeoutMs: 100 }).run('task');
+    await Promise.resolve();
+    emit({ type: 'turn_start' });
+    emit({ type: 'message_end', message: { role: 'assistant', content: [{ type: 'text' }] } });
+    emit({ type: 'turn_end' });
+    expect(abort).not.toHaveBeenCalled();
+    emit({ type: 'turn_start' });
+    expect(await running).toMatchObject({ turns: 1, stopReason: 'max_turns' });
+    expect(abort).toHaveBeenCalledOnce();
+  });
+
+  test('construction is inert and run starts exactly once', async () => {
+    const { session, finish, subscribers } = makeControlledSession();
+    const prompt = vi.spyOn(session, 'prompt');
+    const subscribe = vi.spyOn(session, 'subscribe');
+    const dispose = vi.spyOn(session, 'dispose');
+    const controller = new AbortController();
+    const addListener = vi.spyOn(controller.signal, 'addEventListener');
+    const removeListener = vi.spyOn(controller.signal, 'removeEventListener');
+    const child = createChildRun({ session, maxTurns: 2, timeoutMs: 100, signal: controller.signal });
+
+    expect(subscribe).not.toHaveBeenCalled();
+    expect(prompt).not.toHaveBeenCalled();
+    expect(addListener).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+    const running = child.run('first');
+    expect(child.run('ignored')).toBe(running);
+    await Promise.resolve();
+    expect(prompt).toHaveBeenCalledExactlyOnceWith('first');
+    expect(subscribers.size).toBe(1);
+    expect(vi.getTimerCount()).toBe(1);
+    finish();
+    const result = await running;
+
+    expect(result).toMatchObject({ turns: 0, stopReason: 'completed', finalText: '', session });
+    expect(result.messages).toBe(session.state.messages);
+    expect(child.run('also ignored')).toBe(running);
+    expect(dispose).toHaveBeenCalledOnce();
+    expect(subscribers.size).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(removeListener).toHaveBeenCalledWith('abort', addListener.mock.calls[0]?.[1]);
+  });
+
+  test('a pre-aborted signal never subscribes or prompts', async () => {
+    const { session } = makeControlledSession();
+    const prompt = vi.spyOn(session, 'prompt');
+    const subscribe = vi.spyOn(session, 'subscribe');
+    const abort = vi.spyOn(session, 'abort');
+    const dispose = vi.spyOn(session, 'dispose');
+    const controller = new AbortController();
+    controller.abort();
+    const child = createChildRun({ session, maxTurns: 2, timeoutMs: 100, signal: controller.signal });
+
+    const result = await child.run('never sent');
+    expect(result).toMatchObject({ turns: 0, stopReason: 'aborted', errorMessage: 'aborted' });
+    expect(prompt).not.toHaveBeenCalled();
+    expect(subscribe).not.toHaveBeenCalled();
+    expect(abort).toHaveBeenCalledOnce();
+    expect(dispose).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  test('abort before run is immediately sticky, repeated once, and handles rejected abort and dispose', async () => {
+    const { session } = makeControlledSession();
+    const prompt = vi.spyOn(session, 'prompt');
+    const abort = vi.spyOn(session, 'abort').mockRejectedValue(new Error('abort failed'));
+    const dispose = vi.spyOn(session, 'dispose').mockRejectedValue(new Error('dispose failed'));
+    const child = createChildRun({ session, maxTurns: 2, timeoutMs: 100 });
+
+    const aborting = child.abort();
+    expect(abort).toHaveBeenCalledOnce();
+    const running = child.run('never sent');
+    await expect(child.abort()).resolves.toBeUndefined();
+    await expect(aborting).resolves.toBeUndefined();
+    expect((await running).stopReason).toBe('aborted');
+    await child.abort();
+    expect(prompt).not.toHaveBeenCalled();
+    expect(abort).toHaveBeenCalledOnce();
+    expect(dispose).toHaveBeenCalledOnce();
+  });
+
+  test('synchronous abort and disposal throws are best-effort', async () => {
+    const { session } = makeControlledSession();
+    const abort = vi.spyOn(session, 'abort').mockImplementation(() => {
+      throw new Error('abort failed');
+    });
+    vi.spyOn(session, 'dispose').mockImplementation(() => {
+      throw new Error('dispose failed');
+    });
+    const child = createChildRun({ session, maxTurns: 1, timeoutMs: 100 });
+    await child.abort();
+    await expect(child.run('never sent')).resolves.toMatchObject({ stopReason: 'aborted' });
+    expect(abort).toHaveBeenCalledOnce();
+  });
+
+  test('parent, callback, and registry abort handles share one abort attempt', async () => {
+    const { session, emit, subscribers } = makeControlledSession();
+    const abort = vi.spyOn(session, 'abort');
+    const controller = new AbortController();
+    const child = createChildRun({
+      session,
+      maxTurns: 2,
+      timeoutMs: 100,
+      signal: controller.signal,
+      onEvent: (event) => {
+        event.abort();
+        event.abort();
+      },
+    });
+    const running = child.run('task');
+    await Promise.resolve();
+    emit({ type: 'turn_end' });
+    controller.abort();
+    await child.abort();
+    expect((await running).stopReason).toBe('aborted');
+    expect(abort).toHaveBeenCalledOnce();
+    expect(subscribers.size).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  test('rejected abort during a run is handled without changing cancellation', async () => {
+    const { session, finish } = makeControlledSession();
+    const abort = vi.spyOn(session, 'abort').mockRejectedValue(new Error('abort failed'));
+    const child = createChildRun({ session, maxTurns: 1, timeoutMs: 100 });
+    const running = child.run('task');
+    await Promise.resolve();
+    await child.abort();
+    finish();
+    expect((await running).stopReason).toBe('aborted');
+    expect(abort).toHaveBeenCalledOnce();
+  });
+
+  test('callback errors from asynchronous events classify as errors and clean up', async () => {
+    const { session, emit, subscribers } = makeControlledSession();
+    const abort = vi.spyOn(session, 'abort');
+    const dispose = vi.spyOn(session, 'dispose');
+    const controller = new AbortController();
+    const removeListener = vi.spyOn(controller.signal, 'removeEventListener');
+    const child = createChildRun({
+      session,
+      maxTurns: 1,
+      timeoutMs: 100,
+      signal: controller.signal,
+      onEvent: () => {
+        throw new Error('callback exploded');
+      },
+    });
+    const running = child.run('task');
+    await Promise.resolve();
+    expect(() => emit({ type: 'turn_end' })).not.toThrow();
+    expect(await running).toMatchObject({ stopReason: 'error', errorMessage: 'callback exploded', turns: 1 });
+    expect(abort).toHaveBeenCalledOnce();
+    expect(dispose).toHaveBeenCalledOnce();
+    expect(removeListener).toHaveBeenCalledOnce();
+    expect(subscribers.size).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  test('timeout is distinguishable from cancellation and cleans all resources', async () => {
+    const { session, subscribers } = makeControlledSession();
+    const abort = vi.spyOn(session, 'abort');
+    const controller = new AbortController();
+    const removeListener = vi.spyOn(controller.signal, 'removeEventListener');
+    const running = createChildRun({ session, maxTurns: 2, timeoutMs: 50, signal: controller.signal }).run('task');
+    await vi.advanceTimersByTimeAsync(50);
+    expect(await running).toMatchObject({ stopReason: 'aborted', errorMessage: 'timed out after 50ms' });
+    controller.abort();
+    await vi.advanceTimersByTimeAsync(100);
+    expect(abort).toHaveBeenCalledOnce();
+    expect(removeListener).toHaveBeenCalledOnce();
+    expect(subscribers.size).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  test('keepSession skips disposal but not listener, timer, or subscription cleanup', async () => {
+    const { session, finish, subscribers } = makeControlledSession();
+    const abort = vi.spyOn(session, 'abort');
+    const dispose = vi.spyOn(session, 'dispose');
+    const controller = new AbortController();
+    const child = createChildRun({
+      session,
+      maxTurns: 2,
+      timeoutMs: 100,
+      signal: controller.signal,
+      keepSession: true,
+    });
+    const running = child.run('task');
+    await Promise.resolve();
+    finish();
+    await running;
+    controller.abort();
+    await child.abort();
+    expect(dispose).not.toHaveBeenCalled();
+    expect(abort).not.toHaveBeenCalled();
+    expect(subscribers.size).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  test('subscription failures still remove the signal listener and dispose', async () => {
+    const { session } = makeControlledSession();
+    vi.spyOn(session, 'subscribe').mockImplementation(() => {
+      throw new Error('subscribe failed');
+    });
+    const prompt = vi.spyOn(session, 'prompt');
+    const dispose = vi.spyOn(session, 'dispose');
+    const controller = new AbortController();
+    const removeListener = vi.spyOn(controller.signal, 'removeEventListener');
+    const result = await createChildRun({ session, maxTurns: 2, timeoutMs: 100, signal: controller.signal }).run(
+      'task',
+    );
+    expect(result).toMatchObject({ stopReason: 'error', errorMessage: 'subscribe failed' });
+    expect(prompt).not.toHaveBeenCalled();
+    expect(dispose).toHaveBeenCalledOnce();
+    expect(removeListener).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  test.each(['turn_end', 'message_end'] as const)('%s tool-call continuation hits the turn budget', async (source) => {
+    const { session, emit } = makeControlledSession();
+    const abort = vi.spyOn(session, 'abort');
+    const seenTurns: number[] = [];
+    const abortCounts: number[] = [];
+    const running = createChildRun({
+      session,
+      maxTurns: 2,
+      timeoutMs: 100,
+      onEvent: ({ event, turn }) => {
+        if (event.type === 'turn_end') seenTurns.push(turn);
+      },
+    }).run('task');
+    await Promise.resolve();
+    for (let i = 0; i < 2; i++) {
+      emit({ type: 'turn_start' });
+      emit({ type: source, message: { role: 'assistant', content: [{ type: 'toolCall' }] } });
+      if (source === 'message_end') emit({ type: 'turn_end' });
+      abortCounts.push(abort.mock.calls.length);
+    }
+    expect(abortCounts).toEqual([0, 1]);
+    expect(await running).toMatchObject({ turns: 2, stopReason: 'max_turns', errorMessage: 'hit max turns (2)' });
+    expect(seenTurns).toEqual([1, 2]);
+    expect(abort).toHaveBeenCalledOnce();
+  });
+
+  test.each([1, 2])('natural final answer on budget turn %i completes', async (maxTurns) => {
+    const events: AgentSessionEventLike[] = [];
+    if (maxTurns === 2) {
+      events.push({ type: 'turn_start' });
+      events.push({ type: 'turn_end', message: { role: 'assistant', content: [{ type: 'toolCall' }] } });
+    }
+    events.push({ type: 'turn_start' });
+    events.push({ type: 'turn_end', message: { role: 'assistant', content: [{ type: 'text' }] } });
+    const session = makeFakeSession({ events, finalText: 'done' });
+    const abort = vi.spyOn(session, 'abort');
+    const result = await createChildRun({ session, maxTurns, timeoutMs: 100 }).run('task');
+    expect(result).toMatchObject({ turns: maxTurns, stopReason: 'completed', finalText: 'done' });
+    expect(abort).not.toHaveBeenCalled();
+  });
+
+  test('turn_end message takes precedence over same-turn message_end tracking', async () => {
+    const session = makeFakeSession({
+      events: [
+        { type: 'turn_start' },
+        { type: 'message_end', message: { role: 'assistant', content: [{ type: 'toolCall' }] } },
+        { type: 'turn_end', message: { content: [{ type: 'text' }] } },
+      ],
+      finalText: 'done',
+    });
+    expect((await createChildRun({ session, maxTurns: 1, timeoutMs: 100 }).run('task')).stopReason).toBe('completed');
+  });
+
+  test('a followup turn resets tool continuation from the preceding turn', async () => {
+    const session = makeFakeSession({
+      events: [
+        { type: 'turn_start' },
+        { type: 'message_end', message: { role: 'assistant', content: [{ type: 'toolCall' }] } },
+        { type: 'turn_end' },
+        { type: 'turn_start' },
+        { type: 'message_end', message: { role: 'toolResult' } },
+        { type: 'turn_end' },
+      ],
+      finalText: 'done',
+    });
+    expect(await createChildRun({ session, maxTurns: 2, timeoutMs: 100 }).run('task')).toMatchObject({
+      turns: 2,
+      stopReason: 'completed',
+    });
+  });
+
+  test.each(['message_end', 'turn_end'])(
+    'errors on %s cannot become completed at the budget boundary',
+    async (source) => {
+      const session = makeFakeSession({
+        events: [
+          { type: source, message: { role: 'assistant', errorMessage: 'provider failed', content: [] } },
+          ...(source === 'message_end' ? [{ type: 'turn_end' }] : []),
+        ],
+        finalText: '',
+      });
+      expect(await createChildRun({ session, maxTurns: 1, timeoutMs: 100 }).run('task')).toMatchObject({
+        turns: 1,
+        stopReason: 'error',
+        errorMessage: 'provider failed',
+      });
+    },
+  );
+});
 
 describe('runOneShotAgent', () => {
   test('adaptCreateAgentSession centralizes concrete registry and loader casts', async () => {

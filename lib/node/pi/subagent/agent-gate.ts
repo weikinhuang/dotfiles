@@ -35,6 +35,7 @@
 import { evaluateBashPolicy } from '../persona/bash-policy.ts';
 import { isInsideWriteRoots } from '../persona/write-roots.ts';
 import { applyRequestOptions, type RequestOptionsConfig } from '../request-options.ts';
+import { readOriginalStash } from '../sandbox/markers.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Loose runtime shapes - pi's actual types are pulled in by the caller.
@@ -133,7 +134,7 @@ export function decideAgentGate(opts: DecideAgentGateOptions): AgentGateToolCall
   if (event.toolName === 'subagent' || event.toolName === 'subagent_send') return undefined;
 
   if (event.toolName === 'bash') {
-    const rawCommand: unknown = event.input?.command ?? '';
+    const rawCommand: unknown = readOriginalStash(event.input) ?? event.input?.command ?? '';
     const command = typeof rawCommand === 'string' ? rawCommand : '';
     if (!command.trim()) return undefined;
     if (config.bashAllow.length === 0 && config.bashDeny.length === 0) return undefined;

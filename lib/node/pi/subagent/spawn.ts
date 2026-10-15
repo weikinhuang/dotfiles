@@ -7,17 +7,16 @@
  * path - model resolution, timeout + abort wiring, turn-count enforcement,
  * stop-reason classification, and final-text extraction.
  *
- * Two exports:
+ * Shared entry points:
  *   - `resolveChildModel(...)` - pure model resolution for a child agent,
  *     given (optional) spec override + agent default + parent inherit.
  *     Used by both the full subagent spawn (worktree / background /
  *     audit mirror) and the critic one-shot.
  *   - `runOneShotAgent(...)` - single-prompt spawn: create the session,
- *     subscribe, drive `child.prompt(task)`, enforce timeout + maxTurns
- *     + parent signal, return classification. Callers that need richer
- *     orchestration (worktrees, snapshots, multi-prompt children) stay
- *     with the full extension-local path; this helper targets the
- *     "spawn → one answer → read → done" shape.
+ *     then delegate to `createChildRun(...)`.
+ *   - `createChildRun(...)` - provider-free single-prompt lifecycle for an
+ *     existing session: subscription, timeout, abort, turn budget, result
+ *     classification, and best-effort disposal.
  *
  * This module intentionally has no dependency on
  * `@earendil-works/pi-coding-agent` - the real `createAgentSession`,
@@ -157,7 +156,7 @@ export interface AgentSessionLike {
   subscribe(handler: (event: AgentSessionEventLike) => void): () => void;
   prompt(task: string): Promise<void>;
   abort(): Promise<void>;
-  dispose(): void;
+  dispose(): void | Promise<void>;
   readonly state: { messages: unknown };
 }
 
@@ -334,6 +333,181 @@ export interface RunOneShotAgentResult {
   session: AgentSessionLike;
 }
 
+export interface CreateChildRunOptions {
+  session: AgentSessionLike;
+  maxTurns: number;
+  timeoutMs: number;
+  signal?: AbortSignal;
+  onEvent?: (event: OneShotAgentEvent) => void;
+  keepSession?: boolean;
+}
+
+export interface ChildRun {
+  /** Starts once; subsequent calls return the same result promise. */
+  run(task: string): Promise<RunOneShotAgentResult>;
+  /** Cancels immediately and safely awaits the child's single abort attempt. */
+  abort(): Promise<void>;
+}
+
+/**
+ * Own the lifecycle of one prompt on an existing child, without starting
+ * subscriptions, timers, or prompts until run(). An early abort is sticky:
+ * even if the child's abort rejects, run() will never prompt that session.
+ */
+export function createChildRun({
+  session: child,
+  maxTurns,
+  timeoutMs,
+  signal,
+  onEvent,
+  keepSession = false,
+}: CreateChildRunOptions): ChildRun {
+  let result: Promise<RunOneShotAgentResult> | undefined;
+  let cancelled = false;
+  let finished = false;
+  let abortPromise: Promise<void> | undefined;
+  let abortedByUs = false;
+  let timedOut = false;
+  let reachedMaxTurns = false;
+  let turns = 0;
+  let lastTurnWantsMore = false;
+  let errFromChild: string | undefined;
+  let callbackError: Error | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const cancelChild = (): Promise<void> => {
+    cancelled = true;
+    clearTimeout(timer);
+    if (abortPromise) return abortPromise;
+    // Install the guard before invoking child.abort(), which may emit events
+    // synchronously. Neither a synchronous throw nor a rejected promise leaks.
+    abortPromise = Promise.resolve();
+    try {
+      abortPromise = Promise.resolve(child.abort()).catch(() => undefined);
+    } catch {
+      /* best-effort */
+    }
+    return abortPromise;
+  };
+  const abort = (): Promise<void> => {
+    if (finished) return abortPromise ?? Promise.resolve();
+    abortedByUs = true;
+    return cancelChild();
+  };
+  const onParentAbort = (): void => {
+    void abort();
+  };
+
+  const drive = async (task: string): Promise<RunOneShotAgentResult> => {
+    let unsubscribe: (() => void) | undefined;
+    let thrownError: Error | undefined;
+    try {
+      try {
+        // Register before checking so an abort during setup cannot be missed.
+        signal?.addEventListener('abort', onParentAbort, { once: true });
+        if (signal?.aborted) void abort();
+        if (!cancelled) {
+          unsubscribe = child.subscribe((event) => {
+            if (event.type === 'turn_start') {
+              lastTurnWantsMore = false;
+              // Steering or an explicit loop continuation can request another
+              // step without a tool call. Enforce the same cap before it starts.
+              if (turns >= maxTurns) {
+                reachedMaxTurns = true;
+                void abort();
+              }
+            }
+            const message = event.message;
+            if (
+              message &&
+              (event.type === 'turn_end' || (event.type === 'message_end' && message.role === 'assistant'))
+            ) {
+              if (message.errorMessage) errFromChild = message.errorMessage;
+              lastTurnWantsMore =
+                typeof message.content === 'object' &&
+                message.content?.some((part) => part?.type === 'toolCall') === true;
+            }
+            if (event.type === 'turn_end') {
+              turns++;
+              // A final answer on turn N is completed, not a budget failure.
+              if (turns >= maxTurns && lastTurnWantsMore) {
+                reachedMaxTurns = true;
+                void abort();
+              }
+            }
+            if (!callbackError) {
+              try {
+                onEvent?.({ event, turn: turns, abort: onParentAbort });
+              } catch (e) {
+                callbackError = e instanceof Error ? e : new Error(String(e));
+                // Callback failures are errors, not user cancellations. Catch
+                // here because events may be emitted outside prompt's stack.
+                void cancelChild();
+              }
+            }
+          });
+          // subscribe() may synchronously emit an event that cancels the run.
+          if (!cancelled) {
+            timer = setTimeout(() => {
+              timedOut = true;
+              void abort();
+            }, timeoutMs);
+            await child.prompt(task);
+          }
+        }
+      } catch (e) {
+        thrownError = e instanceof Error ? e : new Error(String(e));
+      }
+
+      const errorIsAbort =
+        thrownError !== undefined && (thrownError.name === 'AbortError' || /abort/i.test(thrownError.message));
+      const messages = child.state.messages as AgentMessageLike[];
+      const finalText = extractFinalAssistantText(messages);
+      const aborted = abortedByUs || errorIsAbort || signal?.aborted === true;
+      const hadError = (thrownError !== undefined && !errorIsAbort) || errFromChild !== undefined;
+      const stopReason: OneShotStopReason = callbackError
+        ? 'error'
+        : classifyStopReason({ reachedMaxTurns, aborted, error: hadError });
+
+      let errorMessage: string | undefined;
+      if (stopReason === 'max_turns') {
+        errorMessage = `hit max turns (${maxTurns})`;
+      } else if (stopReason === 'aborted') {
+        errorMessage = timedOut ? `timed out after ${timeoutMs}ms` : 'aborted';
+      } else if (stopReason === 'error') {
+        errorMessage = callbackError?.message ?? (thrownError && !errorIsAbort ? thrownError.message : errFromChild);
+      }
+      return { finalText, turns, stopReason, errorMessage, messages, session: child };
+    } finally {
+      finished = true;
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onParentAbort);
+      try {
+        unsubscribe?.();
+      } catch {
+        /* best-effort; disposal must still run */
+      }
+      if (!keepSession) {
+        try {
+          await child.dispose();
+        } catch {
+          /* best-effort, including asynchronous disposal failures */
+        }
+      }
+    }
+  };
+
+  return {
+    run(task) {
+      // Defer drive to make the once-only guard visible even to synchronous
+      // events emitted by subscribe() or prompt().
+      result ??= Promise.resolve().then(() => drive(task));
+      return result;
+    },
+    abort,
+  };
+}
+
 /**
  * Spawn `agent` with `task`, drive exactly one prompt, return
  * classification + final text.
@@ -398,103 +572,12 @@ export async function runOneShotAgent<M, S>(options: RunOneShotAgentOptions<M, S
     resourceLoader,
     sessionManager,
   });
-  const child = created.session;
-
-  let turns = 0;
-  let reachedMaxTurns = false;
-  let abortedByUs = false;
-  let timedOut = false;
-  let errFromChild: string | undefined;
-  // Whether the current assistant turn ended wanting to continue (it
-  // emitted a tool call, so pi will run another turn). Lets us tell a
-  // *natural completion that lands on the maxTurns-th turn* (no pending
-  // tool call -> the agent is done) apart from a *runaway cut off at the
-  // cap* (pending tool call -> we truncated real work). Defaults to
-  // false and is reset at each `turn_start`, so a stale value from a
-  // prior turn can never mis-flag a cap-hit as max_turns; we only trip
-  // the cap when THIS turn actually signalled a pending tool call.
-  let lastTurnWantsMore = false;
-
-  const doAbort = (): void => {
-    abortedByUs = true;
-    void child.abort();
-  };
-
-  const unsubscribe = child.subscribe((event: AgentSessionEventLike) => {
-    if (event.type === 'turn_start') {
-      lastTurnWantsMore = false;
-    } else if (event.type === 'message_end' && event.message?.role === 'assistant') {
-      const err = event.message.errorMessage;
-      if (err) errFromChild = err;
-      const content = event.message.content;
-      if (typeof content === 'object' && content !== null && content.length > 0) {
-        lastTurnWantsMore = content.some((part) => part?.type === 'toolCall');
-      }
-    } else if (event.type === 'turn_end') {
-      turns++;
-      // Only treat hitting the cap as max_turns when the agent actually
-      // wanted another turn. A subagent whose final answer lands exactly
-      // on the maxTurns-th turn (e.g. image-captioner: turn 1 reads, turn
-      // 2 captions) has completed - flagging it max_turns would throw away
-      // a perfectly good finalText.
-      if (turns >= maxTurns && lastTurnWantsMore) {
-        reachedMaxTurns = true;
-        doAbort();
-      }
-    }
-    onEvent?.({ event, turn: turns, abort: doAbort });
-  });
-
-  const timer = setTimeout(() => {
-    timedOut = true;
-    doAbort();
-  }, timeoutMs);
-  const onParentAbort = (): void => doAbort();
-  signal?.addEventListener('abort', onParentAbort, { once: true });
-
-  let thrownError: Error | undefined;
-  try {
-    await child.prompt(task);
-  } catch (e) {
-    thrownError = e instanceof Error ? e : new Error(String(e));
-  } finally {
-    clearTimeout(timer);
-    signal?.removeEventListener('abort', onParentAbort);
-    unsubscribe();
-  }
-
-  const errorIsAbort =
-    thrownError !== undefined && (thrownError.name === 'AbortError' || /abort/i.test(thrownError.message ?? ''));
-  const messages = child.state.messages as AgentMessageLike[];
-  const finalText = extractFinalAssistantText(messages);
-
-  // Share the one stop-reason precedence (max_turns > aborted > error >
-  // completed) with `result.ts::classifyStopReason` instead of inlining a
-  // second copy. A thrown abort / a fired parent signal / our own abort
-  // all count as "aborted"; a non-abort throw or a child-reported
-  // errorMessage counts as "error".
-  const aborted = abortedByUs || errorIsAbort || signal?.aborted === true;
-  const hadError = (thrownError !== undefined && !errorIsAbort) || errFromChild !== undefined;
-  const stopReason: OneShotStopReason = classifyStopReason({ reachedMaxTurns, aborted, error: hadError });
-
-  let errorMessage: string | undefined;
-  if (stopReason === 'max_turns') {
-    errorMessage = `hit max turns (${maxTurns})`;
-  } else if (stopReason === 'aborted') {
-    // Distinguish the wall-clock timeout from a user / parent abort so
-    // the tool result explains WHY the child stopped.
-    errorMessage = timedOut ? `timed out after ${timeoutMs}ms` : 'aborted';
-  } else if (stopReason === 'error') {
-    errorMessage = thrownError && !errorIsAbort ? thrownError.message : errFromChild;
-  }
-
-  if (!keepSession) {
-    try {
-      child.dispose();
-    } catch {
-      /* best-effort */
-    }
-  }
-
-  return { finalText, turns, stopReason, errorMessage, messages, session: child };
+  return createChildRun({
+    session: created.session,
+    maxTurns,
+    timeoutMs,
+    signal,
+    onEvent,
+    keepSession,
+  }).run(task);
 }
