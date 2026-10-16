@@ -944,6 +944,34 @@ through `SelectCLIPDevice` / `SelectVAEDevice` (device `gpu:1`). It needs a mult
 installed (the `Select*Device` nodes, category `advanced/multigpu`) plus a second CUDA device; the selectors offer
 `default` / `cpu` / `gpu:0` / `gpu:1`. On a single-GPU host, use the plain `krea2` workflow instead.
 
+### Example: MOSS-Image (long-prompt text rendering)
+
+[`moss-image-sft.api.json`](../comfyui/moss-image-sft.api.json) (workflow `moss-image`) runs OpenMOSS's
+[MOSS-Image](https://github.com/OpenMOSS/MOSS-Image), a 5B DiT with a Qwen3.5-9B text encoder and the FLUX.2 VAE that is
+strong at in-image text, layout, and long prompts. All four MOSS graphs keep the diffusion model on `gpu:0` and route
+the text encoder and VAE through `SelectCLIPDevice` / `SelectVAEDevice` to `gpu:1`, apply `ModelSamplingSD3` shift 5 and
+`SkipLayerGuidanceDiTSimple` (uncond skip, single layer 22), and sample at CFG 3 with the `sgm_uniform` scheduler:
+
+| Workflow               | Graph                                                                               | Checkpoint | Sampler / steps      |
+| ---------------------- | ----------------------------------------------------------------------------------- | ---------- | -------------------- |
+| `moss-image`           | [`moss-image-sft.api.json`](../comfyui/moss-image-sft.api.json)                     | SFT        | `res_multistep` / 30 |
+| `moss-image-fast`      | [`moss-image-sft-fast.api.json`](../comfyui/moss-image-sft-fast.api.json)           | SFT        | `res_multistep` / 20 |
+| `moss-image-reference` | [`moss-image-sft-reference.api.json`](../comfyui/moss-image-sft-reference.api.json) | SFT        | `euler` / 50         |
+| `moss-image-base`      | [`moss-image-base.api.json`](../comfyui/moss-image-base.api.json)                   | Base       | `res_multistep` / 30 |
+
+`moss-image-reference` is the official OpenMOSS recipe; the tuned `res_multistep` 30-step default matched its detail in
+about 60% of the time on two 16 GB RTX 2000 Ada cards (~86 s vs ~145 s at 1024x1024), and 20 steps (~57 s) kept text and
+composition with slightly softer texture. Requires the Comfy-Org repack files
+`moss_image_{sft,base}_int8_convrot_attn.safetensors`, `qwen3.5_9b_int8_convrot.safetensors`, and
+`flux2-vae.safetensors`, plus the OpenMOSS `moss-image` custom node (`MOSSImageUNETLoader` / `MOSSImageCLIPLoader`).
+ComfyUI has no native MOSS-Image support yet, and the upstream node needs a compat patch to load the Comfy-Org fused-QKV
+repack under dynamic VRAM; swap the two loaders for native ones when support lands.
+
+The input map exposes `prompt`, `negative`, `seed`, `steps`, `cfg`, `width`, `height`, and `batch`. The example config
+turns `enhance` on with [`moss-image-enhance.md`](../comfyui/moss-image-enhance.md) as `guidanceFile`, and the
+[`moss-image-prompting`](../skills/moss-image-prompting/SKILL.md) skill carries the full ruleset (quoted text with real
+line breaks, JSON layout prompts, short tag negative).
+
 ### Generation defaults
 
 `width`, `height`, `steps`, `cfg`, `denoise`, `count`, and `negative` can only be baked per-workflow inside the graph

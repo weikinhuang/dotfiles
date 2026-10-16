@@ -182,6 +182,78 @@
         "batch": { "node": "6", "key": "batch_size" }
       }
     },
+    "moss-image": {
+      "file": "~/.dotfiles/config/pi/comfyui/moss-image-sft.api.json",
+      "description": "MOSS-Image SFT (OpenMOSS 5B DiT, Qwen3.5-9B) dual GPU - strong in-image text, layout, long prompts; tuned res_multistep 30 steps. Needs the moss-image custom node.",
+      "tags": ["photoreal", "illustration", "text", "layout", "moss-image", "multi-gpu"],
+      "promptProtocol": "Detailed English prose (long prompts welcome, up to 4K tokens): subject > setting > composition > colors > lighting > medium. Quote exact in-image text with real line breaks. Short tag negative, e.g. worst quality, bad anatomy, watermark, jpeg artifact. Read the moss-image-prompting skill for the full ruleset.",
+      "enhance": true,
+      "guidanceFile": "~/.dotfiles/config/pi/comfyui/moss-image-enhance.md",
+      "inputs": {
+        "prompt": { "node": "6", "key": "text" },
+        "negative": { "node": "7", "key": "text" },
+        "seed": { "node": "12", "key": "seed" },
+        "steps": { "node": "12", "key": "steps" },
+        "cfg": { "node": "12", "key": "cfg" },
+        "width": { "node": "9", "key": "width" },
+        "height": { "node": "9", "key": "height" },
+        "batch": { "node": "9", "key": "batch_size" }
+      }
+    },
+    "moss-image-fast": {
+      "file": "~/.dotfiles/config/pi/comfyui/moss-image-sft-fast.api.json",
+      "description": "MOSS-Image SFT fast profile (res_multistep 20 steps, ~1/3 faster) - same text and composition, slightly softer fine texture. Needs the moss-image custom node.",
+      "tags": ["photoreal", "illustration", "text", "layout", "moss-image", "multi-gpu", "fast"],
+      "promptProtocol": "Detailed English prose (long prompts welcome, up to 4K tokens): subject > setting > composition > colors > lighting > medium. Quote exact in-image text with real line breaks. Short tag negative, e.g. worst quality, bad anatomy, watermark, jpeg artifact. Read the moss-image-prompting skill for the full ruleset.",
+      "enhance": true,
+      "guidanceFile": "~/.dotfiles/config/pi/comfyui/moss-image-enhance.md",
+      "inputs": {
+        "prompt": { "node": "6", "key": "text" },
+        "negative": { "node": "7", "key": "text" },
+        "seed": { "node": "12", "key": "seed" },
+        "steps": { "node": "12", "key": "steps" },
+        "cfg": { "node": "12", "key": "cfg" },
+        "width": { "node": "9", "key": "width" },
+        "height": { "node": "9", "key": "height" },
+        "batch": { "node": "9", "key": "batch_size" }
+      }
+    },
+    "moss-image-reference": {
+      "file": "~/.dotfiles/config/pi/comfyui/moss-image-sft-reference.api.json",
+      "description": "MOSS-Image SFT with the official OpenMOSS recipe (euler 50 steps, ~1.7x slower than moss-image) for reference comparisons. Needs the moss-image custom node.",
+      "tags": ["photoreal", "illustration", "text", "layout", "moss-image", "multi-gpu", "reference"],
+      "promptProtocol": "Detailed English prose (long prompts welcome, up to 4K tokens): subject > setting > composition > colors > lighting > medium. Quote exact in-image text with real line breaks. Short tag negative, e.g. worst quality, bad anatomy, watermark, jpeg artifact. Read the moss-image-prompting skill for the full ruleset.",
+      "enhance": true,
+      "guidanceFile": "~/.dotfiles/config/pi/comfyui/moss-image-enhance.md",
+      "inputs": {
+        "prompt": { "node": "6", "key": "text" },
+        "negative": { "node": "7", "key": "text" },
+        "seed": { "node": "12", "key": "seed" },
+        "steps": { "node": "12", "key": "steps" },
+        "cfg": { "node": "12", "key": "cfg" },
+        "width": { "node": "9", "key": "width" },
+        "height": { "node": "9", "key": "height" },
+        "batch": { "node": "9", "key": "batch_size" }
+      }
+    },
+    "moss-image-base": {
+      "file": "~/.dotfiles/config/pi/comfyui/moss-image-base.api.json",
+      "description": "MOSS-Image Base (pre-SFT) checkpoint, res_multistep 30 steps - flatter, less composed than SFT; mainly for LoRA work or raw variety. Needs the moss-image custom node.",
+      "tags": ["photoreal", "illustration", "text", "moss-image", "multi-gpu", "base"],
+      "promptProtocol": "Detailed English prose (long prompts welcome, up to 4K tokens): subject > setting > composition > colors > lighting > medium. Quote exact in-image text with real line breaks. Short tag negative, e.g. worst quality, bad anatomy, watermark, jpeg artifact. Read the moss-image-prompting skill for the full ruleset.",
+      "enhance": true,
+      "guidanceFile": "~/.dotfiles/config/pi/comfyui/moss-image-enhance.md",
+      "inputs": {
+        "prompt": { "node": "6", "key": "text" },
+        "negative": { "node": "7", "key": "text" },
+        "seed": { "node": "12", "key": "seed" },
+        "steps": { "node": "12", "key": "steps" },
+        "cfg": { "node": "12", "key": "cfg" },
+        "width": { "node": "9", "key": "width" },
+        "height": { "node": "9", "key": "height" },
+        "batch": { "node": "9", "key": "batch_size" }
+      }
+    },
     "qwen-image-edit": {
       "file": "~/.dotfiles/config/pi/comfyui/qwen-image-edit.api.json",
       "inputs": {

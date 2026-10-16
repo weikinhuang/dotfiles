@@ -57,6 +57,19 @@ const FLUX2_EDIT_INPUTS: Record<string, InputMapping> = {
   batch: { node: '9', key: 'batch_size' },
 };
 
+// MOSS-Image graphs share one layout: prompt/negative CLIPTextEncode 6/7,
+// KSampler 12, EmptyFlux2LatentImage 9 (mirrors comfyui-example.json).
+const MOSS_IMAGE_INPUTS: Record<string, InputMapping> = {
+  prompt: { node: '6', key: 'text' },
+  negative: { node: '7', key: 'text' },
+  seed: { node: '12', key: 'seed' },
+  steps: { node: '12', key: 'steps' },
+  cfg: { node: '12', key: 'cfg' },
+  width: { node: '9', key: 'width' },
+  height: { node: '9', key: 'height' },
+  batch: { node: '9', key: 'batch_size' },
+};
+
 const SHIPPED: Record<string, ShippedMap> = {
   'txt2img.api.json': { inputs: SHIPPED_WORKFLOW_INPUTS },
   'krea2-turbo.api.json': {
@@ -77,6 +90,10 @@ const SHIPPED: Record<string, ShippedMap> = {
       batch: { node: '6', key: 'batch_size' },
     },
   },
+  'moss-image-sft.api.json': { inputs: MOSS_IMAGE_INPUTS },
+  'moss-image-sft-fast.api.json': { inputs: MOSS_IMAGE_INPUTS },
+  'moss-image-sft-reference.api.json': { inputs: MOSS_IMAGE_INPUTS },
+  'moss-image-base.api.json': { inputs: MOSS_IMAGE_INPUTS },
   'img2img.api.json': {
     inputs: {
       prompt: { node: '6', key: 'text' },
