@@ -948,20 +948,24 @@ installed (the `Select*Device` nodes, category `advanced/multigpu`) plus a secon
 
 [`moss-image-sft.api.json`](../comfyui/moss-image-sft.api.json) (workflow `moss-image`) runs OpenMOSS's
 [MOSS-Image](https://github.com/OpenMOSS/MOSS-Image), a 5B DiT with a Qwen3.5-9B text encoder and the FLUX.2 VAE that is
-strong at in-image text, layout, and long prompts. All four MOSS graphs keep the diffusion model on `gpu:0` and route
-the text encoder and VAE through `SelectCLIPDevice` / `SelectVAEDevice` to `gpu:1`, apply `ModelSamplingSD3` shift 5 and
+strong at in-image text, layout, and long prompts. All six MOSS graphs keep the diffusion model on `gpu:0` and route the
+text encoder and VAE through `SelectCLIPDevice` / `SelectVAEDevice` to `gpu:1`, apply `ModelSamplingSD3` shift 5 and
 `SkipLayerGuidanceDiTSimple` (uncond skip, single layer 22), and sample at CFG 3 with the `sgm_uniform` scheduler:
 
-| Workflow               | Graph                                                                               | Checkpoint | Sampler / steps      |
-| ---------------------- | ----------------------------------------------------------------------------------- | ---------- | -------------------- |
-| `moss-image`           | [`moss-image-sft.api.json`](../comfyui/moss-image-sft.api.json)                     | SFT        | `res_multistep` / 30 |
-| `moss-image-fast`      | [`moss-image-sft-fast.api.json`](../comfyui/moss-image-sft-fast.api.json)           | SFT        | `res_multistep` / 20 |
-| `moss-image-reference` | [`moss-image-sft-reference.api.json`](../comfyui/moss-image-sft-reference.api.json) | SFT        | `euler` / 50         |
-| `moss-image-base`      | [`moss-image-base.api.json`](../comfyui/moss-image-base.api.json)                   | Base       | `res_multistep` / 30 |
+| Workflow                    | Graph                                                                                 | Checkpoint | Sampler / steps      |
+| --------------------------- | ------------------------------------------------------------------------------------- | ---------- | -------------------- |
+| `moss-image`                | [`moss-image-sft.api.json`](../comfyui/moss-image-sft.api.json)                       | SFT        | `res_multistep` / 30 |
+| `moss-image-fast`           | [`moss-image-sft-fast.api.json`](../comfyui/moss-image-sft-fast.api.json)             | SFT        | `res_multistep` / 20 |
+| `moss-image-reference`      | [`moss-image-sft-reference.api.json`](../comfyui/moss-image-sft-reference.api.json)   | SFT        | `euler` / 50         |
+| `moss-image-base`           | [`moss-image-base.api.json`](../comfyui/moss-image-base.api.json)                     | Base       | `res_multistep` / 30 |
+| `moss-image-base-fast`      | [`moss-image-base-fast.api.json`](../comfyui/moss-image-base-fast.api.json)           | Base       | `res_multistep` / 20 |
+| `moss-image-base-reference` | [`moss-image-base-reference.api.json`](../comfyui/moss-image-base-reference.api.json) | Base       | `euler` / 50         |
 
-`moss-image-reference` is the official OpenMOSS recipe; the tuned `res_multistep` 30-step default matched its detail in
-about 60% of the time on two 16 GB RTX 2000 Ada cards (~86 s vs ~145 s at 1024x1024), and 20 steps (~57 s) kept text and
-composition with slightly softer texture. Requires the Comfy-Org repack files
+SFT is the default checkpoint; the `moss-image-base*` workflows run the Base checkpoint, which on short character and
+cosplay prompts kept more natural photographic skin and truer art styles where SFT drifted toward airbrushed faces and
+invented costume text. The `*-reference` graphs carry the official OpenMOSS recipe; the tuned `res_multistep` 30-step
+default matched its detail in about 60% of the time on two 16 GB RTX 2000 Ada cards (~86-90 s vs ~145 s at 1024x1024),
+and 20 steps kept text and composition with slightly softer texture. Requires the Comfy-Org repack files
 `moss_image_{sft,base}_int8_convrot_attn.safetensors`, `qwen3.5_9b_int8_convrot.safetensors`, and
 `flux2-vae.safetensors`, plus the OpenMOSS `moss-image` custom node (`MOSSImageUNETLoader` / `MOSSImageCLIPLoader`).
 ComfyUI has no native MOSS-Image support yet, and the upstream node needs a compat patch to load the Comfy-Org fused-QKV

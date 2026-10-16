@@ -94,6 +94,8 @@ const SHIPPED: Record<string, ShippedMap> = {
   'moss-image-sft-fast.api.json': { inputs: MOSS_IMAGE_INPUTS },
   'moss-image-sft-reference.api.json': { inputs: MOSS_IMAGE_INPUTS },
   'moss-image-base.api.json': { inputs: MOSS_IMAGE_INPUTS },
+  'moss-image-base-fast.api.json': { inputs: MOSS_IMAGE_INPUTS },
+  'moss-image-base-reference.api.json': { inputs: MOSS_IMAGE_INPUTS },
   'img2img.api.json': {
     inputs: {
       prompt: { node: '6', key: 'text' },
