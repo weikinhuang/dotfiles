@@ -329,6 +329,42 @@
         "max": 16
       }
     },
+    "minimax-h3-fl2va-t2i": {
+      "file": "~/.dotfiles/config/pi/comfyui/minimax-h3-fl2va-t2i.api.json",
+      "description": "MiniMax H3 FL2VA text-to-image, dual GPU, and H3 SageAttention; one still image, CFG fixed at 1",
+      "tags": ["image", "minimax-h3", "multi-gpu", "sage"],
+      "promptProtocol": "Natural language describing one still image: subject, setting, composition, lighting, and style. No negative prompt.",
+      "inputs": {
+        "prompt": { "node": "7", "key": "text" },
+        "seed": { "node": "10", "key": "noise_seed" },
+        "steps": { "node": "12", "key": "steps" },
+        "width": { "node": "8", "key": "width" },
+        "height": { "node": "8", "key": "height" }
+      },
+      "outputType": "image"
+    },
+    "minimax-h3-ref2va-edit": {
+      "file": "~/.dotfiles/config/pi/comfyui/minimax-h3-ref2va-edit.api.json",
+      "description": "MiniMax H3 Ref2VA single-image editing with 1-9 references, dual GPU, and H3 SageAttention; CFG fixed at 1",
+      "tags": ["image", "edit", "reference", "minimax-h3", "multi-gpu", "sage"],
+      "promptProtocol": "Natural language edit instructions. Address references as <Picture 1> through <Picture 9>; describe what to change and preserve. No negative prompt.",
+      "inputs": {
+        "prompt": { "node": "7", "key": "prompt" },
+        "seed": { "node": "10", "key": "noise_seed" },
+        "steps": { "node": "12", "key": "steps" },
+        "width": { "node": "17", "key": "value" },
+        "height": { "node": "18", "key": "value" },
+        "refImageSize": { "node": "7", "key": "ref_image_size" }
+      },
+      "images": {
+        "mode": "autogrow",
+        "loader": { "node": "16", "key": "image", "output": 0 },
+        "target": { "node": "7", "keyPrefix": "ref_images.ref_image_", "indexBase": 0 },
+        "min": 1,
+        "max": 9
+      },
+      "outputType": "image"
+    },
     "minimax-h3-ref2va-spectrum": {
       "file": "~/.dotfiles/config/pi/comfyui/minimax-h3-ref2va-spectrum.api.json",
       "description": "MiniMax H3 Ref2VA video with native audio, dual-GPU placement, SageAttention, and Spectrum",

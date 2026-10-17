@@ -387,9 +387,9 @@ Config layers lowest to highest: the shipped `txt2img` example, then `~/.pi/agen
 The extension **auto-disables** when neither user nor project `comfyui.json` contributes a `workflows` entry and
 `PI_COMFYUI_URL` is unset. The shipped [`txt2img.api.json`](../comfyui/txt2img.api.json) remains example scaffolding (it
 expects a `v1-5-pruned-emaonly.safetensors` checkpoint most servers will not have). An environment-only setup uses the
-shipped [`qwen-image-edit-2.1.api.json`](../comfyui/qwen-image-edit-2.1.api.json) as its sole workflow and default. For
-a config-file setup, add at least one workflow to opt in; see [`../comfyui-example.json`](../comfyui-example.json) for a
-starting point.
+shipped [`qwen-image-edit-2.1.api.json`](../comfyui/qwen-image-edit-2.1.api.json) as its default, plus the H3 still and
+video workflows below. For a config-file setup, add at least one workflow to opt in; see
+[`../comfyui-example.json`](../comfyui-example.json) for a starting point.
 
 | Key                         | Default                  | Meaning                                                                                                                                          |
 | --------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -797,7 +797,7 @@ against the cwd regardless of which config layer declared the workflow, so a pro
 point at a graph checked into the project with `"file": "./comfyui/my.api.json"`.
 
 With `PI_COMFYUI_URL` and no configured workflows, the extension exposes the shipped Qwen Image 2.1 workflow as the
-default plus the MiniMax H3 Ref2VA video workflow below.
+default plus MiniMax H3 FL2VA text-to-image, Ref2VA image edit, and Ref2VA video workflows below.
 
 The shipped default [`../comfyui/txt2img.api.json`](../comfyui/txt2img.api.json) is the classic SD1.5 graph; it expects
 a `v1-5-pruned-emaonly.safetensors` checkpoint to be installed on the server. Repoint `defaultWorkflow` / `workflows` at
@@ -831,6 +831,22 @@ references are one-based (`<Picture 1>`, `<Video 1>`, and `<Audio 1>`) even thou
 zero-based. `duration` is converted to the nearest supported 24 fps `5 + 17n` frame count, while `refImageSize` accepts
 `match` or `max`. The graph saves the complete MP4 plus a first-frame PNG preview; only that PNG is eligible for an
 inline model image block.
+
+[`minimax-h3-fl2va-t2i.api.json`](../comfyui/minimax-h3-fl2va-t2i.api.json) and
+[`minimax-h3-ref2va-edit.api.json`](../comfyui/minimax-h3-ref2va-edit.api.json) provide native H3 **single-image**
+generation and reference-guided editing. Both preserve the tested dual-GPU layout (diffusion on GPU 0, CLIP and the FP16
+video VAE on GPU 1), H3 SageAttention patch, and one-image
+`EmptyLatentImage -> SamplerCustomAdvanced -> VAEDecode -> SaveImage` path. Defaults are 768x768, 20 `res_multistep`
+steps, and CFG 1 through `BasicGuider`, with `simple` scheduling for FL2VA and `beta` for Ref2VA. ComfyUI 0.40.0 or
+newer is required for corrected still decoding.
+
+Use `workflow: "minimax-h3-fl2va-t2i"` with a natural-language still-image prompt. For editing, use
+`workflow: "minimax-h3-ref2va-edit"`, supply 1-9 `inputImages`, and address them as `<Picture 1>` through `<Picture 9>`
+in the edit instruction. It accepts `refImageSize: "match" | "max"`; shared `PrimitiveInt` nodes keep injected
+width/height synchronized between reference conditioning and the sampled image latent. The native reference node's
+mandatory `length: 5` applies only to its **disconnected** latent output: it is not sampled into a video. Neither still
+workflow exposes CFG, negative prompts, duration, or batching. Ref2VA is reference-guided regeneration, not mask-based
+pixel-preserving inpainting. The existing Spectrum video workflow is unchanged.
 
 Two **FLUX.2 [klein] 9B** graphs round out the set, both loading GGUF weights via `UnetLoaderGGUF` and the Qwen3-8B text
 encoder via `CLIPLoaderGGUF` (`type: flux2`) alongside the `flux2-vae`.

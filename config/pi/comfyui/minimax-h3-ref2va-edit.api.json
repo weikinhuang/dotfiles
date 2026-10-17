@@ -1,0 +1,96 @@
+{
+  "1": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "minimax_h3_ref2va_pruned_int8_convrot.safetensors",
+      "weight_dtype": "default"
+    }
+  },
+  "2": {
+    "class_type": "MiniMaxH3MemoryEfficientSageAttentionPatch",
+    "inputs": { "model": ["1", 0] }
+  },
+  "3": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+      "type": "minimax",
+      "device": "default"
+    }
+  },
+  "4": {
+    "class_type": "SelectCLIPDevice",
+    "inputs": { "clip": ["3", 0], "device": "gpu:1" }
+  },
+  "5": {
+    "class_type": "VAELoader",
+    "inputs": { "vae_name": "minimax_h3_video_vae_fp16.safetensors" }
+  },
+  "6": {
+    "class_type": "SelectVAEDevice",
+    "inputs": { "vae": ["5", 0], "device": "gpu:1" }
+  },
+  "7": {
+    "class_type": "MiniMaxH3ReferenceToVideo",
+    "inputs": {
+      "clip": ["4", 0],
+      "vae": ["6", 0],
+      "prompt": "Edit <Picture 1>. Change only the teapot's glossy red ceramic glaze to deep cobalt blue, including its body, spout, handle and lid. Preserve the exact teapot shape, camera angle, framing, pale oak table, green plant on the right, cream wall, lighting and shadows. A realistic single still photograph. No text or watermark.",
+      "width": ["17", 0],
+      "height": ["18", 0],
+      "length": 5,
+      "ref_image_size": "match",
+      "ref_images.ref_image_0": ["16", 0]
+    }
+  },
+  "8": {
+    "class_type": "EmptyLatentImage",
+    "inputs": { "width": ["17", 0], "height": ["18", 0], "batch_size": 1 }
+  },
+  "9": {
+    "class_type": "BasicGuider",
+    "inputs": { "model": ["2", 0], "conditioning": ["7", 0] }
+  },
+  "10": {
+    "class_type": "RandomNoise",
+    "inputs": { "noise_seed": 20261017 }
+  },
+  "11": {
+    "class_type": "KSamplerSelect",
+    "inputs": { "sampler_name": "res_multistep" }
+  },
+  "12": {
+    "class_type": "BasicScheduler",
+    "inputs": { "model": ["2", 0], "scheduler": "beta", "steps": 20, "denoise": 1.0 }
+  },
+  "13": {
+    "class_type": "SamplerCustomAdvanced",
+    "inputs": {
+      "noise": ["10", 0],
+      "guider": ["9", 0],
+      "sampler": ["11", 0],
+      "sigmas": ["12", 0],
+      "latent_image": ["8", 0]
+    }
+  },
+  "14": {
+    "class_type": "VAEDecode",
+    "inputs": { "samples": ["13", 0], "vae": ["6", 0] }
+  },
+  "15": {
+    "class_type": "SaveImage",
+    "inputs": { "images": ["14", 0], "filename_prefix": "h3-still/minimax-h3-ref2va-edit" }
+  },
+  "16": {
+    "class_type": "LoadImage",
+    "inputs": { "image": "h3-still-fl2va-reference.png" }
+  },
+  "17": {
+    "class_type": "PrimitiveInt",
+    "inputs": { "value": 768 }
+  },
+  "18": {
+    "class_type": "PrimitiveInt",
+    "inputs": { "value": 768 }
+  }
+}

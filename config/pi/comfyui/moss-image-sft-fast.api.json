@@ -1,0 +1,86 @@
+{
+  // MOSS-Image SFT (OpenMOSS 5B DiT + Qwen3.5-9B + FLUX.2 VAE), dual GPU.
+  // Fast profile: res_multistep / sgm_uniform, 20 steps (~57 s); fine texture slightly softer.
+  // Needs the OpenMOSS `moss-image` custom node with the res-nyc1 compat patch
+  // (fused-QKV Comfy-Org repack, dynamic VRAM, int8 attention) until ComfyUI
+  // ships native MOSS-Image support. Weights: huggingface.co/Comfy-Org/MOSS-Image.
+  "1": {
+    "class_type": "MOSSImageUNETLoader",
+    "_meta": { "title": "Load MOSS-Image SFT DiT INT8 (GPU 0)" },
+    "inputs": { "unet_name": "moss_image_sft_int8_convrot_attn.safetensors", "weight_dtype": "default" }
+  },
+  "2": {
+    "class_type": "MOSSImageCLIPLoader",
+    "_meta": { "title": "Load Qwen3.5-9B Text Encoder INT8" },
+    "inputs": { "clip_name": "qwen3.5_9b_int8_convrot.safetensors", "device": "default" }
+  },
+  "3": {
+    "class_type": "VAELoader",
+    "_meta": { "title": "Load FLUX.2 VAE" },
+    "inputs": { "vae_name": "flux2-vae.safetensors" }
+  },
+  "4": {
+    "class_type": "SelectCLIPDevice",
+    "_meta": { "title": "Text encoder -> GPU 1" },
+    "inputs": { "clip": ["2", 0], "device": "gpu:1" }
+  },
+  "5": {
+    "class_type": "SelectVAEDevice",
+    "_meta": { "title": "VAE -> GPU 1" },
+    "inputs": { "vae": ["3", 0], "device": "gpu:1" }
+  },
+  "6": {
+    "class_type": "CLIPTextEncode",
+    "_meta": { "title": "Positive Prompt" },
+    "inputs": {
+      "text": "A wide view of a refrigerator beside a kitchen counter with a fruit bowl. A small sticky note on the refrigerator door is handwritten in English: \"Remember to buy milk and eggs!\"",
+      "clip": ["4", 0]
+    }
+  },
+  "7": {
+    "class_type": "CLIPTextEncode",
+    "_meta": { "title": "Negative Prompt" },
+    "inputs": { "text": "", "clip": ["4", 0] }
+  },
+  "9": {
+    "class_type": "EmptyFlux2LatentImage",
+    "_meta": { "title": "Empty FLUX.2 Latent" },
+    "inputs": { "width": 1024, "height": 1024, "batch_size": 1 }
+  },
+  "10": {
+    "class_type": "ModelSamplingSD3",
+    "_meta": { "title": "Flow Shift 5" },
+    "inputs": { "shift": 5, "model": ["1", 0] }
+  },
+  "11": {
+    "class_type": "SkipLayerGuidanceDiTSimple",
+    "_meta": { "title": "Uncond Layer Skip 22" },
+    "inputs": { "double_layers": "", "single_layers": "22", "start_percent": 0, "end_percent": 1, "model": ["10", 0] }
+  },
+  "12": {
+    "class_type": "KSampler",
+    "_meta": { "title": "KSampler (res_multistep 20 steps, GPU 0)" },
+    "inputs": {
+      "seed": 0,
+      "steps": 20,
+      "cfg": 3,
+      "sampler_name": "res_multistep",
+      "scheduler": "sgm_uniform",
+      "denoise": 1,
+      "model": ["11", 0],
+      "positive": ["6", 0],
+      "negative": ["7", 0],
+      "latent_image": ["9", 0]
+    }
+  },
+  "13": {
+    "class_type": "VAEDecode",
+    "_meta": { "title": "VAE Decode (GPU 1)" },
+    "inputs": { "samples": ["12", 0], "vae": ["5", 0] }
+  },
+  "14": {
+    "class_type": "SaveImage",
+    "_meta": { "title": "Save Image" },
+    "inputs": { "filename_prefix": "MOSS-Image-SFT-Fast", "images": ["13", 0] }
+  }
+}

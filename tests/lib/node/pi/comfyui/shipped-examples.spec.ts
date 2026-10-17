@@ -10,14 +10,16 @@
  */
 
 import { fileURLToPath } from 'node:url';
+import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 
 import { describe, expect, test } from 'vitest';
 
-import { SHIPPED_WORKFLOW_INPUTS } from '../../../../../lib/node/pi/comfyui/config.ts';
+import { coerceConfigLayer, SHIPPED_WORKFLOW_INPUTS } from '../../../../../lib/node/pi/comfyui/config.ts';
 import type { AutogrowImageSlots, AutogrowMediaSlots, InputMapping } from '../../../../../lib/node/pi/comfyui/types.ts';
 import {
+  injectAutogrowImageList,
   injectInputs,
   isAutogrowImageSlots,
   loadWorkflowGraph,
@@ -131,6 +133,32 @@ const SHIPPED: Record<string, ShippedMap> = {
       target: { node: '8', keyPrefix: 'images.image_' },
       min: 0,
       max: 16,
+    },
+  },
+  'minimax-h3-fl2va-t2i.api.json': {
+    inputs: {
+      prompt: { node: '7', key: 'text' },
+      seed: { node: '10', key: 'noise_seed' },
+      steps: { node: '12', key: 'steps' },
+      width: { node: '8', key: 'width' },
+      height: { node: '8', key: 'height' },
+    },
+  },
+  'minimax-h3-ref2va-edit.api.json': {
+    inputs: {
+      prompt: { node: '7', key: 'prompt' },
+      seed: { node: '10', key: 'noise_seed' },
+      steps: { node: '12', key: 'steps' },
+      width: { node: '17', key: 'value' },
+      height: { node: '18', key: 'value' },
+      refImageSize: { node: '7', key: 'ref_image_size' },
+    },
+    images: {
+      mode: 'autogrow',
+      loader: { node: '16', key: 'image', output: 0 },
+      target: { node: '7', keyPrefix: 'ref_images.ref_image_', indexBase: 0 },
+      min: 1,
+      max: 9,
     },
   },
   'minimax-h3-ref2va-spectrum.api.json': {
@@ -267,5 +295,94 @@ describe('shipped comfyui example graphs', () => {
     expect(custom.errors).toEqual([]);
     expect(custom.workflow['12'].inputs).toMatchObject({ width: 1280, height: 768 });
     expect(custom.workflow['13'].inputs?.switch).toBe(true);
+  });
+
+  test.each(['minimax-h3-fl2va-t2i', 'minimax-h3-ref2va-edit'])(
+    '%s is registered as a still workflow with matching maps and dual-GPU placement',
+    (name) => {
+      const file = `${name}.api.json`;
+      const example = coerceConfigLayer(
+        JSON.parse(readFileSync(join(repoRoot, 'config/pi/comfyui-example.json'), 'utf8')),
+      );
+      const registered = example.workflows?.[name];
+      expect(registered?.inputs).toEqual(SHIPPED[file].inputs);
+      expect(registered?.images).toEqual(SHIPPED[file].images);
+      expect(registered?.outputType).toBe('image');
+      for (const unsupported of ['cfg', 'negative', 'duration', 'batch']) {
+        expect(registered?.inputs).not.toHaveProperty(unsupported);
+      }
+      const { graph, error } = loadWorkflowGraph(join(comfyuiDir, file), repoRoot, homedir());
+      expect(error).toBeUndefined();
+      if (graph === undefined) throw new Error('graph should be defined');
+      expect(graph['4'].inputs?.device).toBe('gpu:1');
+      expect(graph['6'].inputs?.device).toBe('gpu:1');
+      expect(graph['8'].class_type).toBe('EmptyLatentImage');
+      expect(graph['8'].inputs?.batch_size).toBe(1);
+      expect(graph['13'].inputs?.latent_image).toEqual(['8', 0]);
+      expect(graph['15'].class_type).toBe('SaveImage');
+      expect(
+        Object.values(graph).some((node) =>
+          ['SaveVideo', 'CreateVideo', 'VAEDecodeAudio'].includes(node.class_type ?? ''),
+        ),
+      ).toBe(false);
+    },
+  );
+
+  test('H3 still edit keeps injected dimensions synchronized and the video latent disconnected', () => {
+    const file = 'minimax-h3-ref2va-edit.api.json';
+    const { graph } = loadWorkflowGraph(join(comfyuiDir, file), repoRoot, homedir());
+    if (graph === undefined) throw new Error('graph should be defined');
+    const custom = injectInputs(graph, SHIPPED[file].inputs, {
+      prompt: 'Edit <Picture 1> using the style of <Picture 2>.',
+      width: 1280,
+      height: 768,
+      seed: 42,
+      steps: 12,
+      refImageSize: 'max',
+    });
+    expect(custom.errors).toEqual([]);
+    expect(custom.workflow['17'].inputs?.value).toBe(1280);
+    expect(custom.workflow['18'].inputs?.value).toBe(768);
+    expect(custom.workflow['7'].inputs?.width).toEqual(custom.workflow['8'].inputs?.width);
+    expect(custom.workflow['7'].inputs?.height).toEqual(custom.workflow['8'].inputs?.height);
+    expect(custom.workflow['7'].inputs?.ref_image_size).toBe('max');
+    expect(custom.workflow['7'].inputs?.length).toBe(5);
+    expect(custom.workflow['10'].inputs?.noise_seed).toBe(42);
+    expect(custom.workflow['12'].inputs?.steps).toBe(12);
+    expect(Object.values(custom.workflow).flatMap((node) => Object.values(node.inputs ?? {}))).not.toContainEqual([
+      '7',
+      1,
+    ]);
+  });
+
+  test('H3 still edit requires 1-9 references and rewrites zero-based autogrow links', () => {
+    const file = 'minimax-h3-ref2va-edit.api.json';
+    const { graph } = loadWorkflowGraph(join(comfyuiDir, file), repoRoot, homedir());
+    const slots = SHIPPED[file].images;
+    if (graph === undefined || !isAutogrowImageSlots(slots))
+      throw new Error('graph and autogrow slots should be defined');
+    expect(injectAutogrowImageList(graph, slots, []).errors).toEqual(['requires at least 1 reference image(s)']);
+    expect(injectAutogrowImageList(graph, slots, ['target.png']).errors).toEqual([]);
+    const two = injectAutogrowImageList(graph, slots, ['target.png', 'style.png']);
+    expect(two.errors).toEqual([]);
+    expect(two.workflow['16'].inputs?.image).toBe('target.png');
+    expect(two.workflow['7'].inputs?.['ref_images.ref_image_0']).toEqual(['16', 0]);
+    const second = two.workflow['7'].inputs?.['ref_images.ref_image_1'] as [string, number];
+    expect(second[1]).toBe(0);
+    expect(two.workflow[second[0]].inputs?.image).toBe('style.png');
+    expect(
+      injectAutogrowImageList(
+        graph,
+        slots,
+        Array.from({ length: 9 }, (_, i) => `ref${i}.png`),
+      ).errors,
+    ).toEqual([]);
+    expect(
+      injectAutogrowImageList(
+        graph,
+        slots,
+        Array.from({ length: 10 }, (_, i) => `ref${i}.png`),
+      ).errors,
+    ).toEqual(['accepts at most 9 reference image(s)']);
   });
 });

@@ -1,0 +1,78 @@
+{
+  "1": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "minimax_h3_fl2va_pruned_int8_convrot.safetensors",
+      "weight_dtype": "default"
+    }
+  },
+  "2": {
+    "class_type": "MiniMaxH3MemoryEfficientSageAttentionPatch",
+    "inputs": { "model": ["1", 0] }
+  },
+  "3": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+      "type": "minimax",
+      "device": "default"
+    }
+  },
+  "4": {
+    "class_type": "SelectCLIPDevice",
+    "inputs": { "clip": ["3", 0], "device": "gpu:1" }
+  },
+  "5": {
+    "class_type": "VAELoader",
+    "inputs": { "vae_name": "minimax_h3_video_vae_fp16.safetensors" }
+  },
+  "6": {
+    "class_type": "SelectVAEDevice",
+    "inputs": { "vae": ["5", 0], "device": "gpu:1" }
+  },
+  "7": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": ["4", 0],
+      "text": "A realistic product photograph of a glossy red ceramic teapot with a round body, curved spout, loop handle and matching red lid, centered on a pale oak table. A small green potted plant stands on the right. Plain warm cream plaster wall, soft window light from the left, natural shadows, eye-level camera, sharp detail. Single still photograph, no people, no writing, no watermark."
+    }
+  },
+  "8": {
+    "class_type": "EmptyLatentImage",
+    "inputs": { "width": 768, "height": 768, "batch_size": 1 }
+  },
+  "9": {
+    "class_type": "BasicGuider",
+    "inputs": { "model": ["2", 0], "conditioning": ["7", 0] }
+  },
+  "10": {
+    "class_type": "RandomNoise",
+    "inputs": { "noise_seed": 20261017 }
+  },
+  "11": {
+    "class_type": "KSamplerSelect",
+    "inputs": { "sampler_name": "res_multistep" }
+  },
+  "12": {
+    "class_type": "BasicScheduler",
+    "inputs": { "model": ["2", 0], "scheduler": "simple", "steps": 20, "denoise": 1.0 }
+  },
+  "13": {
+    "class_type": "SamplerCustomAdvanced",
+    "inputs": {
+      "noise": ["10", 0],
+      "guider": ["9", 0],
+      "sampler": ["11", 0],
+      "sigmas": ["12", 0],
+      "latent_image": ["8", 0]
+    }
+  },
+  "14": {
+    "class_type": "VAEDecode",
+    "inputs": { "samples": ["13", 0], "vae": ["6", 0] }
+  },
+  "15": {
+    "class_type": "SaveImage",
+    "inputs": { "images": ["14", 0], "filename_prefix": "h3-still/minimax-h3-fl2va-t2i" }
+  }
+}

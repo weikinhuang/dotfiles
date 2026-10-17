@@ -90,6 +90,8 @@ const extDir = dirname(fileURLToPath(import.meta.url));
 
 const QWEN_IMAGE_EDIT_21 = 'qwen-image-edit-2.1';
 const MINIMAX_H3_REF2VA = 'minimax-h3-ref2va-spectrum';
+const MINIMAX_H3_FL2VA_T2I = 'minimax-h3-fl2va-t2i';
+const MINIMAX_H3_REF2VA_EDIT = 'minimax-h3-ref2va-edit';
 
 // Only on-disk paths are shell-specific; input maps and metadata otherwise
 // follow the same declarative WorkflowConfig shape as user workflows.
@@ -181,6 +183,41 @@ function shippedMiniMaxH3Ref2vaWorkflow(): WorkflowConfig {
   };
 }
 
+function shippedMiniMaxH3StillWorkflow(edit: boolean): WorkflowConfig {
+  return {
+    file: join(extDir, '..', 'comfyui', `${edit ? MINIMAX_H3_REF2VA_EDIT : MINIMAX_H3_FL2VA_T2I}.api.json`),
+    description: edit
+      ? 'MiniMax H3 Ref2VA single-image editing with 1-9 references, dual GPU, and H3 SageAttention; CFG fixed at 1'
+      : 'MiniMax H3 FL2VA text-to-image, dual GPU, and H3 SageAttention; one still image, CFG fixed at 1',
+    tags: edit
+      ? ['image', 'edit', 'reference', 'minimax-h3', 'multi-gpu', 'sage']
+      : ['image', 'minimax-h3', 'multi-gpu', 'sage'],
+    promptProtocol: edit
+      ? 'Natural language edit instructions. Address references as <Picture 1> through <Picture 9>; describe what to change and preserve. No negative prompt.'
+      : 'Natural language describing one still image: subject, setting, composition, lighting, and style. No negative prompt.',
+    inputs: {
+      prompt: { node: '7', key: edit ? 'prompt' : 'text' },
+      seed: { node: '10', key: 'noise_seed' },
+      steps: { node: '12', key: 'steps' },
+      width: { node: edit ? '17' : '8', key: edit ? 'value' : 'width' },
+      height: { node: edit ? '18' : '8', key: edit ? 'value' : 'height' },
+      ...(edit ? { refImageSize: { node: '7', key: 'ref_image_size' } } : {}),
+    },
+    ...(edit
+      ? {
+          images: {
+            mode: 'autogrow' as const,
+            loader: { node: '16', key: 'image', output: 0 },
+            target: { node: '7', keyPrefix: 'ref_images.ref_image_', indexBase: 0 },
+            min: 1,
+            max: 9,
+          },
+        }
+      : {}),
+    outputType: 'image',
+  };
+}
+
 function envConfigured(): boolean {
   return (process.env.PI_COMFYUI_URL?.trim().length ?? 0) > 0;
 }
@@ -194,6 +231,8 @@ function loadConfig(cwd: string): ComfyuiConfig {
     workflows: {
       [QWEN_IMAGE_EDIT_21]: shippedQwenImageEdit21Workflow(),
       [MINIMAX_H3_REF2VA]: shippedMiniMaxH3Ref2vaWorkflow(),
+      [MINIMAX_H3_FL2VA_T2I]: shippedMiniMaxH3StillWorkflow(false),
+      [MINIMAX_H3_REF2VA_EDIT]: shippedMiniMaxH3StillWorkflow(true),
     },
   };
 }
