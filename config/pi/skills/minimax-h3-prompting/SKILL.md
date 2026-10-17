@@ -31,7 +31,8 @@ Three rules matter most:
 
 **Safe default when unsure:** pick the workflow by job (still, edit, video), copy the matching
 [template](#fill-in-templates) below, fill the brackets, and pass only `prompt`, `workflow`, the media inputs, and size
-/ duration. Leave `steps` and `seed` alone.
+/ duration. Leave `steps` and `seed` alone. Then call the `generate_image` tool yourself: when the user asked for media,
+printing the call as JSON for them does not render anything.
 
 ## The `generate_image` call
 
@@ -44,7 +45,7 @@ Three rules matter most:
 | `inputVideos`      | Video workflow only, 0-3 clips of 2-15 s; each clip's soundtrack is paired automatically.                     |
 | `inputAudios`      | Video workflow only, 0-3 standalone clips of 2-15 s. Max 12 media files in total.                             |
 | `duration`         | Video only, seconds, snapped _up_ to the 24 fps `17k+5` grid: `0.9` -> 22 frames, `1` -> 39, `5` -> 124.      |
-| `background`       | Leave off. Stills and short smoke videos return in 1-2 minutes; polling a background job only adds turns.     |
+| `background`       | Off for stills and <=1 s clips. `true` for longer videos: foreground calls abort after 180 s (`timeoutMs`).   |
 | `refImageSize`     | `match` (default, fast) or `max` (2048 px refs, stronger identity, several times slower).                     |
 | `seed`             | Omit for a fresh result; reuse a seed to A/B a prompt change.                                                 |
 | `steps`            | Leave at the baked 20. Raise to ~25 only when a reference drifts or fine detail swims; never pass `negative`. |
@@ -57,9 +58,12 @@ Three rules matter most:
 | `minimax-h3-ref2va-edit`     | Ref2VA     | 1 still image      | Edit a picture, or put a referenced character / object into a new scene.           |
 | `minimax-h3-ref2va-spectrum` | Ref2VA     | MP4 + stereo + PNG | Video with native audio, from text alone or from image / video / audio references. |
 
-Stills take about 35-40 s at 768x768. Video cost scales with frames x pixels: smoke-test at `512x512` and
-`duration: 0.9` before a real 4-15 s render (the model's trained range). Ref2VA is reference-guided regeneration, not
-mask inpainting: unmentioned details can drift, so list what to preserve.
+Stills take about 35-40 s at 768x768. Video cost scales with frames x pixels plus reference tokens: a 3-4.5 s clip at
+608x352 renders in about 2 minutes on an idle server, close to the 180 s foreground cap, and any queued job ahead of it
+pushes it over. Smoke-test at `512x512` and `duration: 0.9` before a real 4-15 s render (the model's trained range).
+Submit anything longer with `background: true`, then `image_jobs` `collect`; do not retry a timed-out video in the
+foreground, since each attempt is cancelled at the same cap. Ref2VA is reference-guided regeneration, not mask
+inpainting: unmentioned details can drift, so list what to preserve.
 
 ## Base dialect (FL2VA: T2VA / I2VA / FL2VA / L2VA)
 
@@ -159,7 +163,18 @@ The man (S1) says in an off-screen voiceover: <d>[English] I still remember that
 ```
 
 With a voice reference, bind it in `subject_definitions`
-(`<Audio 1> is the voice-timbre reference for <Subject 1> (S1).`) and write `<Subject 1> (S1) says ...` in the shot.
+(`<Audio 1> is the voice-timbre reference for <Subject 1> (S1).`), mark it `<Audio 1>: reference - ...` in
+`retention_analysis`, and write `<Subject 1> (S1) says ...` in the shot. The workflow needs at least one image or video
+alongside any audio. Measured behaviour (pitch and waveform checks on 3 s clips):
+
+- **New words carry the timbre.** A woman's voice clip moved another woman's pitch from 180 Hz to 254 Hz (clip: 242 Hz)
+  without copying the waveform.
+- **The reference's own words copy the clip.** Asking for the same sentence the clip already says reproduced the clip
+  almost sample for sample (correlation 0.98), even when marked `reference`. That is the way to reuse a line; mark it
+  `fully_copy` or `partially_copy`.
+- **An implausible voice is ignored.** The same young woman's clip on an elderly bearded man left him with a male voice.
+  Pick references that fit the on-screen speaker.
+
 Keep lines short enough to fit the duration.
 
 **On-screen text.** Put visible text in double quotes, verbatim and in its original language, and say where it is:
@@ -214,7 +229,7 @@ Character in a new scene (`minimax-h3-ref2va-edit`, `inputImages: [character]`):
 
 ```text
 subject_definitions:
-<Subject 1> is the [person] in <Picture 1>, with [face, hair, clothing].
+<Subject 1> is the [person] in <Picture 1>, with [features read off the image: hair, beard, glasses, each garment and colour].
 
 summary:
 [reference generation] A new still image shows <Subject 1> [new action] in [new setting].
@@ -253,8 +268,30 @@ overall_soundscape: [ambience and action sounds]
 non_diegetic_music: [instruments, tempo, dynamics, or N/A]
 ```
 
-Text-only video (`minimax-h3-ref2va-spectrum`, no inputs): use the Ref2VA layout with `[reference generation]` and no
-labels, or the three base fields with the style and composition at the start of `[Shot 1]`.
+Text-only video (`minimax-h3-ref2va-spectrum`, no inputs, `background: true` past ~1 s). Validated at 4.4 s: the cut
+landed exactly on its timestamp. With no references, write `N/A` in the two reference sections and put speaker IDs only
+in `detailed_description`:
+
+```text
+subject_definitions:
+N/A
+
+summary:
+[reference generation] [One sentence: who, where, what happens across the shots.]
+
+retention_analysis:
+N/A
+
+detailed_description:
+The target video is in a [style] style with [lighting / palette].
+[Shot 1] A [shot size] frames [character with age, hair, clothing] in [setting]. The camera [move]. [Action]. The
+[character] with a [pitch, timbre, pace] voice (S1) says: <d>[Language] [exact line]</d>
+[Shot 2] At 00:0[S].[mmm], the camera cuts to [new framing] as [action].
+
+overall_soundscape: [ambience and action sounds]
+
+non_diegetic_music: [instruments, tempo, dynamics, or N/A]
+```
 
 ## Anti-patterns
 

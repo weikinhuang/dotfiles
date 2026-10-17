@@ -131,7 +131,7 @@ function shippedMiniMaxH3Ref2vaWorkflow(): WorkflowConfig {
     description: 'MiniMax H3 Ref2VA video with native audio, dual-GPU placement, SageAttention, and Spectrum',
     tags: ['video', 'audio', 'reference', 'minimax-h3', 'sage', 'spectrum'],
     promptProtocol:
-      'Natural language. Address references as <Picture 1> through <Picture 9>, <Video 1> through <Video 3>, and <Audio 1> through <Audio 3>.',
+      "English, H3 Ref2VA sections in order: subject_definitions, summary ([task type] ...), retention_analysis, detailed_description ([Shot 1] ...; later shots 'At MM:SS.mmm, the camera cuts to'), overall_soundscape, non_diegetic_music (or N/A). <Picture 1-9>, <Video 1-3>, <Audio 1-3> follow input order. Dialogue: '(S1) says: <d>[English] exact words</d>'. Quote on-screen text. No negative prompt; describe wanted states.",
     inputs: {
       prompt: { node: '14', key: 'prompt' },
       seed: { node: '15', key: 'noise_seed' },
@@ -193,8 +193,8 @@ function shippedMiniMaxH3StillWorkflow(edit: boolean): WorkflowConfig {
       ? ['image', 'edit', 'reference', 'minimax-h3', 'multi-gpu', 'sage']
       : ['image', 'minimax-h3', 'multi-gpu', 'sage'],
     promptProtocol: edit
-      ? 'Natural language edit instructions. Address references as <Picture 1> through <Picture 9>; describe what to change and preserve. No negative prompt.'
-      : 'Natural language describing one still image: subject, setting, composition, lighting, and style. No negative prompt.',
+      ? "Local edit: 'Edit <Picture 1>. Change only <target> to <new state>. Preserve <list>.' Subject in a new scene: H3 sections subject_definitions, summary ([reference generation] ...), retention_analysis, detailed_description, overall_soundscape, non_diegetic_music. <Picture N> follows inputImages order. No negative prompt; describe wanted states, not 'no X'."
+      : "English prose for one still moment: style first (Live-action, cinematic / 2D-animated / watercolor), then subject, setting, composition, lighting. Quote visible text. No negative prompt: never write 'no X'; describe the wanted state (plain unpainted board, bare wall).",
     inputs: {
       prompt: { node: '7', key: edit ? 'prompt' : 'text' },
       seed: { node: '10', key: 'noise_seed' },
