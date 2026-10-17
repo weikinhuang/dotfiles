@@ -14,9 +14,9 @@ The following skills carry `disable-model-invocation: true`, so they are kept ou
 to save tokens. They stay loadable on demand via `/skill:<name>`; the model no longer auto-discovers them, so invoke
 them explicitly when needed:
 
-- The seven image-model prompting skills (`anima-prompting`, `chenkin-noob-xl-prompting`, `flux2-klein-prompting`,
-  `illustrious-prompting`, `krea2-prompting`, `moss-image-prompting`, `noobai-vpred-prompting`) - invoke the matching
-  one (e.g. `/skill:anima-prompting`) when prompting an image workflow.
+- The eight media-model prompting skills (`anima-prompting`, `chenkin-noob-xl-prompting`, `flux2-klein-prompting`,
+  `illustrious-prompting`, `krea2-prompting`, `minimax-h3-prompting`, `moss-image-prompting`, `noobai-vpred-prompting`)
+  - invoke the matching one (e.g. `/skill:anima-prompting`) when prompting an image or video workflow.
 - `hooks-author` - invoke (`/skill:hooks-author`) when wiring a pi user hook.
 - `feature-eval-author` - invoke (`/skill:feature-eval-author`) when building a behavioral eval of a pi extension
   against the self-hosted small model.
@@ -42,6 +42,7 @@ them explicitly when needed:
 | [`skills/illustrious-prompting/SKILL.md`](./skills/illustrious-prompting/SKILL.md)           | [`comfyui`](./extensions/comfyui.md)                                                                                                   | HOW to write Illustrious-XL positive/negative prompts (Danbooru + natural language; no Pony score tags, no `@artist`).              |
 | [`skills/iterate-until-verified/SKILL.md`](./skills/iterate-until-verified/SKILL.md)         | [`iteration-loop`](./extensions/iteration-loop.ts)                                                                                     | Declare a `check` for artifact-producing tasks; edit → run → verdict until passed or budget spent.                                  |
 | [`skills/krea2-prompting/SKILL.md`](./skills/krea2-prompting/SKILL.md)                       | [`comfyui`](./extensions/comfyui.md)                                                                                                   | HOW to write Krea 2 Turbo prompts (aesthetic-first natural language, no booru tags, no negative, baked 8-step recipe).              |
+| [`skills/minimax-h3-prompting/SKILL.md`](./skills/minimax-h3-prompting/SKILL.md)             | [`comfyui`](./extensions/comfyui.md)                                                                                                   | HOW to write MiniMax H3 prompts (FL2VA stills, Ref2VA edits + video with audio, `<Picture N>` labels, `<d>` dialogue, no negative). |
 | [`skills/moss-image-prompting/SKILL.md`](./skills/moss-image-prompting/SKILL.md)             | [`comfyui`](./extensions/comfyui.md)                                                                                                   | HOW to write MOSS-Image prompts (SFT default + Base variants, long English prose, exact quoted text, JSON layouts).                 |
 | [`skills/memory-first/SKILL.md`](./skills/memory-first/SKILL.md)                             | [`memory`](./extensions/memory.md)                                                                                                     | WHEN to persist durable notes via `memory` - and, critically, what NOT to save.                                                     |
 | [`skills/noobai-vpred-prompting/SKILL.md`](./skills/noobai-vpred-prompting/SKILL.md)         | [`comfyui`](./extensions/comfyui.md)                                                                                                   | HOW to write NoobAI-XL v-pred prompts (`artist:name` syntax, anti-furry negatives, CFG 4-5 + Euler + zsnr constraints).             |

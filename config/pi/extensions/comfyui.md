@@ -846,7 +846,9 @@ in the edit instruction. It accepts `refImageSize: "match" | "max"`; shared `Pri
 width/height synchronized between reference conditioning and the sampled image latent. The native reference node's
 mandatory `length: 5` applies only to its **disconnected** latent output: it is not sampled into a video. Neither still
 workflow exposes CFG, negative prompts, duration, or batching. Ref2VA is reference-guided regeneration, not mask-based
-pixel-preserving inpainting. The existing Spectrum video workflow is unchanged.
+pixel-preserving inpainting. The existing Spectrum video workflow is unchanged. The
+[`minimax-h3-prompting`](../skills/minimax-h3-prompting/SKILL.md) skill carries the prompt dialects for all three H3
+workflows (official field layout, `<Picture N>` labels, `<d>` dialogue, positive-only exclusions).
 
 Two **FLUX.2 [klein] 9B** graphs round out the set, both loading GGUF weights via `UnetLoaderGGUF` and the Qwen3-8B text
 encoder via `CLIPLoaderGGUF` (`type: flux2`) alongside the `flux2-vae`.
