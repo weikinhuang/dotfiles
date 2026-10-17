@@ -6,6 +6,7 @@
     "flux2-t2i-fast",
     "flux2-edit-fast",
     "moss-image-fast",
+    "anima",
     "minimax-h3-fl2va-t2i",
     "minimax-h3-ref2va-edit",
     "minimax-h3-ref2va-spectrum"
@@ -796,7 +797,7 @@
     },
     "anima": {
       "file": "anima.api.json",
-      "description": "Anima 2B anime / illustration text-to-image with an upscale pass. Needs the ConcatStringSingle string node.",
+      "description": "Anima 2B anime / illustration text-to-image with an upscale pass.",
       "tags": ["anime", "illustration"],
       "promptProtocol": "Anima (anime/illustration): lead with score/quality tags (e.g. score_9, masterpiece), use an @artist prefix for style; Gelbooru & Danbooru tags or natural language both work. Read the anima-prompting skill for the full ruleset.",
       "inputs": {

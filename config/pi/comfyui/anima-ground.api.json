@@ -141,9 +141,10 @@
   "64": {
     "inputs": {
       "string_a": "",
-      "string_b": ["65", 0]
+      "string_b": ["65", 0],
+      "delimiter": ""
     },
-    "class_type": "ConcatStringSingle",
+    "class_type": "StringConcatenate",
     "_meta": {
       "title": "Fixed Artist Prefix (edit string_a to change artist)"
     }

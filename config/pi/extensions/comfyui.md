@@ -401,8 +401,9 @@ directory, not the cwd. A spec keeps every entry's maps identical to
 
 The manifest's `defaultSet` is the curated environment-only set, one entry per model family that renders on the
 reference dual-GPU server: `qwen-image-edit-2.1` (the default), `krea2-2gpu`, `flux2-t2i-fast`, `flux2-edit-fast`,
-`moss-image-fast`, and the three MiniMax H3 workflows. The `anima` family is opt-in because it needs extra custom nodes
-(`ConcatStringSingle`, SAM3 / Florence-2 / Ultralytics for the companions).
+`moss-image-fast`, `anima`, and the three MiniMax H3 workflows. The other anima variants and the anima companions
+(`anima-inpaint`, `anima-detailer`, `anima-ground`, `anima-ground-sam3`) are opt-in; the companions need the Impact Pack
+(Ultralytics), Florence-2, and SAM3 custom nodes.
 
 Pick a different selection with `builtinWorkflows` in a config layer or `PI_COMFYUI_WORKFLOWS`: a comma-separated string
 or an array of workflow names plus the group tokens `default`, `all`, and `none`, for example
