@@ -407,6 +407,14 @@ export interface ComfyuiConfig {
    * like a workflow `file`. Absent -> nothing injected. Optional.
    */
   usageGuidanceEnhancedFile?: string;
+  /**
+   * Shipped built-in workflows to expose, by name or group (`default`,
+   * `all`, `none`). Entries resolve from
+   * `config/pi/comfyui/builtin-workflows.json` and layer below the user and
+   * project `workflows`. Absent -> the `default` group when no config file
+   * declares workflows, otherwise none. Optional.
+   */
+  builtinWorkflows?: string[];
   /** Named workflows keyed by the name the model passes to the tool. */
   workflows: Record<string, WorkflowConfig>;
 }

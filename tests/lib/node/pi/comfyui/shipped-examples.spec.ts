@@ -10,13 +10,17 @@
  */
 
 import { fileURLToPath } from 'node:url';
-import { readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 
 import { describe, expect, test } from 'vitest';
 
-import { coerceConfigLayer, SHIPPED_WORKFLOW_INPUTS } from '../../../../../lib/node/pi/comfyui/config.ts';
+import {
+  coerceConfigLayer,
+  loadBuiltinManifest,
+  SHIPPED_WORKFLOW_INPUTS,
+} from '../../../../../lib/node/pi/comfyui/config.ts';
 import type { AutogrowImageSlots, AutogrowMediaSlots, InputMapping } from '../../../../../lib/node/pi/comfyui/types.ts';
 import {
   injectAutogrowImageList,
@@ -385,4 +389,50 @@ describe('shipped comfyui example graphs', () => {
       ).errors,
     ).toEqual(['accepts at most 9 reference image(s)']);
   });
+});
+
+describe('shipped built-in workflow manifest', () => {
+  const manifest = loadBuiltinManifest(join(comfyuiDir, 'builtin-workflows.json'));
+  const example = coerceConfigLayer(JSON.parse(readFileSync(join(repoRoot, 'config/pi/comfyui-example.json'), 'utf8')));
+  // The SD1.5 graphs stay config-file examples; everything else ships as a built-in.
+  const exampleOnly = new Set(['txt2img.api.json', 'img2img.api.json']);
+
+  test('covers every shipped graph except the SD1.5 examples', () => {
+    const graphs = readdirSync(comfyuiDir)
+      .filter((f) => f.endsWith('.api.json') && !exampleOnly.has(f))
+      .sort();
+    const files = Object.values(manifest.workflows)
+      .map((wf) => basename(wf.file))
+      .sort();
+    expect([...new Set(files)]).toEqual(graphs);
+  });
+
+  test('the default set and default workflow name manifest entries', () => {
+    expect(manifest.defaultSet.length).toBeGreaterThan(0);
+    expect(manifest.defaultSet.filter((name) => !(name in manifest.workflows))).toEqual([]);
+    expect(manifest.defaultSet).toContain(manifest.defaultWorkflow);
+  });
+
+  for (const [name, wf] of Object.entries(manifest.workflows)) {
+    test(`${name} resolves its graph, describes itself, and matches comfyui-example.json`, () => {
+      expect(wf.description).toBeTruthy();
+      expect(wf.promptProtocol).toBeTruthy();
+      expect(wf.guidanceFile === undefined || existsSync(wf.guidanceFile)).toBe(true);
+      const companions = Object.values(wf.refineWith ?? {});
+      expect(companions.filter((target) => !(target in manifest.workflows))).toEqual([]);
+
+      const { graph, error } = loadWorkflowGraph(wf.file, repoRoot, homedir());
+      expect(error).toBeUndefined();
+      if (graph === undefined) throw new Error('graph should be defined');
+      expect(validateMapping(graph, wf.inputs)).toEqual([]);
+
+      const registered = example.workflows?.[name];
+      expect(basename(registered?.file ?? '')).toBe(basename(wf.file));
+      expect(wf.inputs).toEqual(registered?.inputs);
+      expect(wf.images).toEqual(registered?.images);
+      expect(wf.videos).toEqual(registered?.videos);
+      expect(wf.audios).toEqual(registered?.audios);
+      expect(wf.outputType).toEqual(registered?.outputType);
+    });
+  }
 });

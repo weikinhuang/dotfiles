@@ -1,0 +1,1104 @@
+{
+  "defaultWorkflow": "qwen-image-edit-2.1",
+  "defaultSet": [
+    "qwen-image-edit-2.1",
+    "krea2-2gpu",
+    "flux2-t2i-fast",
+    "flux2-edit-fast",
+    "moss-image-fast",
+    "minimax-h3-fl2va-t2i",
+    "minimax-h3-ref2va-edit",
+    "minimax-h3-ref2va-spectrum"
+  ],
+  "workflows": {
+    "qwen-image-edit-2.1": {
+      "file": "qwen-image-edit-2.1.api.json",
+      "description": "Qwen Image 2.1 unified text-to-image and instruction editing with 0-16 references",
+      "tags": ["photoreal", "illustration", "text", "edit", "multi-reference"],
+      "promptProtocol": "Natural language. With references, call them <image1> through <image16>; <image1> is the edit target and later images are supporting references.",
+      "inputs": {
+        "prompt": {
+          "node": "8",
+          "key": "prompt"
+        },
+        "negative": {
+          "node": "8",
+          "key": "negative_prompt"
+        },
+        "seed": {
+          "node": "9",
+          "key": "seed"
+        },
+        "steps": {
+          "node": "9",
+          "key": "steps"
+        },
+        "cfg": {
+          "node": "9",
+          "key": "cfg"
+        },
+        "width": {
+          "node": "12",
+          "key": "width",
+          "alsoSet": [
+            {
+              "node": "13",
+              "key": "switch",
+              "value": true
+            }
+          ]
+        },
+        "height": {
+          "node": "12",
+          "key": "height",
+          "alsoSet": [
+            {
+              "node": "13",
+              "key": "switch",
+              "value": true
+            }
+          ]
+        }
+      },
+      "images": {
+        "mode": "autogrow",
+        "loader": {
+          "node": "7",
+          "key": "image",
+          "output": 0
+        },
+        "target": {
+          "node": "8",
+          "keyPrefix": "images.image_"
+        },
+        "min": 0,
+        "max": 16
+      }
+    },
+    "krea2-2gpu": {
+      "file": "krea2-turbo-2gpu.api.json",
+      "description": "Krea 2 Turbo fast photoreal text-to-image split across 2 GPUs (diffusion on gpu:0, text encoder + VAE on gpu:1)",
+      "tags": ["photoreal", "krea2", "turbo", "multi-gpu"],
+      "promptProtocol": "Natural language, one flowing paragraph: subject > setting > composition > lighting > mood > medium > camera/texture. No negative prompt. Read the krea2-prompting skill for the full ruleset.",
+      "guidanceFile": "krea2-enhance.md",
+      "inputs": {
+        "prompt": {
+          "node": "4",
+          "key": "text"
+        },
+        "seed": {
+          "node": "7",
+          "key": "seed"
+        },
+        "width": {
+          "node": "6",
+          "key": "width"
+        },
+        "height": {
+          "node": "6",
+          "key": "height"
+        },
+        "batch": {
+          "node": "6",
+          "key": "batch_size"
+        }
+      }
+    },
+    "flux2-t2i-fast": {
+      "file": "flux2-t2i-fast.api.json",
+      "description": "FLUX.2 [klein] 9B distilled text-to-image, 4 steps at CFG 1",
+      "tags": ["photoreal", "illustration", "flux2", "fast"],
+      "promptProtocol": "Descriptive natural-language prose, not booru tags: subject, setting, lighting, style. Negative has no effect at CFG 1. Read the flux2-klein-prompting skill for the full ruleset.",
+      "inputs": {
+        "prompt": {
+          "node": "4",
+          "key": "text"
+        },
+        "negative": {
+          "node": "5",
+          "key": "text"
+        },
+        "seed": {
+          "node": "12",
+          "key": "noise_seed"
+        },
+        "steps": {
+          "node": "8",
+          "key": "steps"
+        },
+        "cfg": {
+          "node": "10",
+          "key": "cfg"
+        },
+        "width": {
+          "node": "6",
+          "key": "value"
+        },
+        "height": {
+          "node": "7",
+          "key": "value"
+        },
+        "batch": {
+          "node": "9",
+          "key": "batch_size"
+        }
+      }
+    },
+    "flux2-edit-fast": {
+      "file": "flux2-edit-fast.api.json",
+      "description": "FLUX.2 [klein] 9B distilled instruction edit of one image, 4 steps at CFG 1; output follows the input size",
+      "tags": ["edit", "flux2", "fast"],
+      "promptProtocol": "Natural-language edit instruction: state the change and what to keep. Negative has no effect at CFG 1. Read the flux2-klein-prompting skill for the full ruleset.",
+      "inputs": {
+        "prompt": {
+          "node": "4",
+          "key": "text"
+        },
+        "negative": {
+          "node": "5",
+          "key": "text"
+        },
+        "seed": {
+          "node": "12",
+          "key": "noise_seed"
+        },
+        "steps": {
+          "node": "8",
+          "key": "steps"
+        },
+        "cfg": {
+          "node": "10",
+          "key": "cfg"
+        },
+        "batch": {
+          "node": "9",
+          "key": "batch_size"
+        }
+      },
+      "images": [
+        {
+          "node": "20",
+          "key": "image"
+        }
+      ]
+    },
+    "moss-image-fast": {
+      "file": "moss-image-sft-fast.api.json",
+      "description": "MOSS-Image SFT fast profile (res_multistep 20 steps), dual GPU - strong in-image text, layout, and long prompts. Needs the moss-image custom node.",
+      "tags": ["photoreal", "illustration", "text", "layout", "moss-image", "multi-gpu", "fast"],
+      "promptProtocol": "Detailed English prose (long prompts welcome, up to 4K tokens): subject > setting > composition > colors > lighting > medium. Quote exact in-image text with real line breaks. Short tag negative, e.g. worst quality, bad anatomy, watermark, jpeg artifact. Read the moss-image-prompting skill for the full ruleset.",
+      "guidanceFile": "moss-image-enhance.md",
+      "inputs": {
+        "prompt": {
+          "node": "6",
+          "key": "text"
+        },
+        "negative": {
+          "node": "7",
+          "key": "text"
+        },
+        "seed": {
+          "node": "12",
+          "key": "seed"
+        },
+        "steps": {
+          "node": "12",
+          "key": "steps"
+        },
+        "cfg": {
+          "node": "12",
+          "key": "cfg"
+        },
+        "width": {
+          "node": "9",
+          "key": "width"
+        },
+        "height": {
+          "node": "9",
+          "key": "height"
+        },
+        "batch": {
+          "node": "9",
+          "key": "batch_size"
+        }
+      }
+    },
+    "minimax-h3-fl2va-t2i": {
+      "file": "minimax-h3-fl2va-t2i.api.json",
+      "description": "MiniMax H3 FL2VA text-to-image, dual GPU, and H3 SageAttention; one still image, CFG fixed at 1",
+      "tags": ["image", "minimax-h3", "multi-gpu", "sage"],
+      "promptProtocol": "English prose for one still moment: style first (Live-action, cinematic / 2D-animated / watercolor), then subject, setting, composition, lighting. Quote visible text. No negative prompt: never write 'no X'; describe the wanted state (plain unpainted board, bare wall).",
+      "inputs": {
+        "prompt": {
+          "node": "7",
+          "key": "text"
+        },
+        "seed": {
+          "node": "10",
+          "key": "noise_seed"
+        },
+        "steps": {
+          "node": "12",
+          "key": "steps"
+        },
+        "width": {
+          "node": "8",
+          "key": "width"
+        },
+        "height": {
+          "node": "8",
+          "key": "height"
+        }
+      },
+      "outputType": "image"
+    },
+    "minimax-h3-ref2va-edit": {
+      "file": "minimax-h3-ref2va-edit.api.json",
+      "description": "MiniMax H3 Ref2VA single-image editing with 1-9 references, dual GPU, and H3 SageAttention; CFG fixed at 1",
+      "tags": ["image", "edit", "reference", "minimax-h3", "multi-gpu", "sage"],
+      "promptProtocol": "Local edit: 'Edit <Picture 1>. Change only <target> to <new state>. Preserve <list>.' Subject in a new scene: H3 sections subject_definitions, summary ([reference generation] ...), retention_analysis, detailed_description, overall_soundscape, non_diegetic_music. <Picture N> follows inputImages order. No negative prompt; describe wanted states, not 'no X'.",
+      "inputs": {
+        "prompt": {
+          "node": "7",
+          "key": "prompt"
+        },
+        "seed": {
+          "node": "10",
+          "key": "noise_seed"
+        },
+        "steps": {
+          "node": "12",
+          "key": "steps"
+        },
+        "width": {
+          "node": "17",
+          "key": "value"
+        },
+        "height": {
+          "node": "18",
+          "key": "value"
+        },
+        "refImageSize": {
+          "node": "7",
+          "key": "ref_image_size"
+        }
+      },
+      "images": {
+        "mode": "autogrow",
+        "loader": {
+          "node": "16",
+          "key": "image",
+          "output": 0
+        },
+        "target": {
+          "node": "7",
+          "keyPrefix": "ref_images.ref_image_",
+          "indexBase": 0
+        },
+        "min": 1,
+        "max": 9
+      },
+      "outputType": "image"
+    },
+    "minimax-h3-ref2va-spectrum": {
+      "file": "minimax-h3-ref2va-spectrum.api.json",
+      "description": "MiniMax H3 Ref2VA video with native audio, dual-GPU placement, SageAttention, and Spectrum",
+      "tags": ["video", "audio", "reference", "minimax-h3", "sage", "spectrum"],
+      "promptProtocol": "English, H3 Ref2VA sections in order: subject_definitions, summary ([task type] ...), retention_analysis, detailed_description ([Shot 1] ...; later shots 'At MM:SS.mmm, the camera cuts to'), overall_soundscape, non_diegetic_music (or N/A). <Picture 1-9>, <Video 1-3>, <Audio 1-3> follow input order. Dialogue: '(S1) says: <d>[English] exact words</d>'. Quote on-screen text. No negative prompt; describe wanted states.",
+      "inputs": {
+        "prompt": {
+          "node": "14",
+          "key": "prompt"
+        },
+        "seed": {
+          "node": "15",
+          "key": "noise_seed"
+        },
+        "steps": {
+          "node": "17",
+          "key": "steps"
+        },
+        "width": {
+          "node": "14",
+          "key": "width"
+        },
+        "height": {
+          "node": "14",
+          "key": "height"
+        },
+        "duration": {
+          "node": "14",
+          "key": "length",
+          "transform": "secondsToFrames24H3"
+        },
+        "refImageSize": {
+          "node": "14",
+          "key": "ref_image_size"
+        }
+      },
+      "images": {
+        "mode": "autogrow",
+        "loader": {
+          "node": "10",
+          "key": "image",
+          "output": 0
+        },
+        "target": {
+          "node": "14",
+          "keyPrefix": "ref_images.ref_image_",
+          "indexBase": 0
+        },
+        "min": 0,
+        "max": 9
+      },
+      "videos": {
+        "mode": "autogrow",
+        "templates": ["11", "12"],
+        "loader": {
+          "node": "11",
+          "key": "file"
+        },
+        "outputs": [
+          {
+            "source": {
+              "node": "12",
+              "output": 0
+            },
+            "target": {
+              "node": "14",
+              "keyPrefix": "ref_videos.ref_video_",
+              "indexBase": 0
+            }
+          },
+          {
+            "source": {
+              "node": "12",
+              "output": 1
+            },
+            "target": {
+              "node": "14",
+              "keyPrefix": "ref_video_audios.ref_video_audio_",
+              "indexBase": 0
+            }
+          }
+        ],
+        "min": 0,
+        "max": 3
+      },
+      "audios": {
+        "mode": "autogrow",
+        "templates": ["13"],
+        "loader": {
+          "node": "13",
+          "key": "audio"
+        },
+        "outputs": [
+          {
+            "source": {
+              "node": "13",
+              "output": 0
+            },
+            "target": {
+              "node": "14",
+              "keyPrefix": "ref_audios.ref_audio_",
+              "indexBase": 0
+            }
+          }
+        ],
+        "min": 0,
+        "max": 3
+      },
+      "referenceConstraints": {
+        "maxTotal": 12,
+        "audioRequiresVisual": true
+      },
+      "outputType": "video"
+    },
+    "qwen-image-edit": {
+      "file": "qwen-image-edit.api.json",
+      "description": "Qwen-Image-Edit 2511 (GGUF + 4-step Lightning LoRA) single-image instruction edit; superseded by qwen-image-edit-2.1",
+      "tags": ["edit"],
+      "promptProtocol": "Natural-language edit instruction describing only the change to make to the input image.",
+      "inputs": {
+        "prompt": {
+          "node": "6",
+          "key": "prompt"
+        },
+        "seed": {
+          "node": "3",
+          "key": "seed"
+        },
+        "steps": {
+          "node": "3",
+          "key": "steps"
+        }
+      },
+      "images": [
+        {
+          "node": "41",
+          "key": "image"
+        }
+      ]
+    },
+    "krea2": {
+      "file": "krea2-turbo.api.json",
+      "description": "Krea 2 Turbo fast photoreal text-to-image on a single GPU",
+      "tags": ["photoreal", "krea2", "turbo"],
+      "promptProtocol": "Natural language, one flowing paragraph: subject > setting > composition > lighting > mood > medium > camera/texture. No negative prompt. Read the krea2-prompting skill for the full ruleset.",
+      "guidanceFile": "krea2-enhance.md",
+      "inputs": {
+        "prompt": {
+          "node": "4",
+          "key": "text"
+        },
+        "seed": {
+          "node": "7",
+          "key": "seed"
+        },
+        "width": {
+          "node": "6",
+          "key": "width"
+        },
+        "height": {
+          "node": "6",
+          "key": "height"
+        },
+        "batch": {
+          "node": "6",
+          "key": "batch_size"
+        }
+      }
+    },
+    "flux2-t2i": {
+      "file": "flux2-t2i.api.json",
+      "description": "FLUX.2 [klein] 9B base text-to-image, ~20 steps at CFG ~5 with negative-prompt control",
+      "tags": ["photoreal", "illustration", "flux2"],
+      "promptProtocol": "Descriptive natural-language prose, not booru tags: subject, setting, lighting, style. Read the flux2-klein-prompting skill for the full ruleset.",
+      "inputs": {
+        "prompt": {
+          "node": "4",
+          "key": "text"
+        },
+        "negative": {
+          "node": "5",
+          "key": "text"
+        },
+        "seed": {
+          "node": "12",
+          "key": "noise_seed"
+        },
+        "steps": {
+          "node": "8",
+          "key": "steps"
+        },
+        "cfg": {
+          "node": "10",
+          "key": "cfg"
+        },
+        "width": {
+          "node": "6",
+          "key": "value"
+        },
+        "height": {
+          "node": "7",
+          "key": "value"
+        },
+        "batch": {
+          "node": "9",
+          "key": "batch_size"
+        }
+      }
+    },
+    "flux2-edit": {
+      "file": "flux2-edit.api.json",
+      "description": "FLUX.2 [klein] 9B base instruction edit of one image, ~20 steps at CFG ~5 with negative-prompt control",
+      "tags": ["edit", "flux2"],
+      "promptProtocol": "Natural-language edit instruction: state the change and what to keep. Read the flux2-klein-prompting skill for the full ruleset.",
+      "inputs": {
+        "prompt": {
+          "node": "4",
+          "key": "text"
+        },
+        "negative": {
+          "node": "5",
+          "key": "text"
+        },
+        "seed": {
+          "node": "12",
+          "key": "noise_seed"
+        },
+        "steps": {
+          "node": "8",
+          "key": "steps"
+        },
+        "cfg": {
+          "node": "10",
+          "key": "cfg"
+        },
+        "batch": {
+          "node": "9",
+          "key": "batch_size"
+        }
+      },
+      "images": [
+        {
+          "node": "20",
+          "key": "image"
+        }
+      ]
+    },
+    "flux2-edit-multi": {
+      "file": "flux2-edit-multi.api.json",
+      "description": "FLUX.2 [klein] 9B base edit combining two ordered reference images; output follows the first",
+      "tags": ["edit", "flux2", "multi-reference"],
+      "promptProtocol": "Natural-language edit instruction naming what to take from the first and second image. Read the flux2-klein-prompting skill for the full ruleset.",
+      "inputs": {
+        "prompt": {
+          "node": "4",
+          "key": "text"
+        },
+        "negative": {
+          "node": "5",
+          "key": "text"
+        },
+        "seed": {
+          "node": "12",
+          "key": "noise_seed"
+        },
+        "steps": {
+          "node": "8",
+          "key": "steps"
+        },
+        "cfg": {
+          "node": "10",
+          "key": "cfg"
+        },
+        "batch": {
+          "node": "9",
+          "key": "batch_size"
+        }
+      },
+      "images": [
+        {
+          "node": "20",
+          "key": "image"
+        },
+        {
+          "node": "30",
+          "key": "image"
+        }
+      ]
+    },
+    "moss-image": {
+      "file": "moss-image-sft.api.json",
+      "description": "MOSS-Image SFT (OpenMOSS 5B DiT, Qwen3.5-9B) dual GPU, the default MOSS checkpoint - polished, strong in-image text, layout, long prompts; tuned res_multistep 30 steps. For more natural photographic skin or truer art styles use moss-image-base. Needs the moss-image custom node.",
+      "tags": ["photoreal", "illustration", "text", "layout", "moss-image", "multi-gpu"],
+      "promptProtocol": "Detailed English prose (long prompts welcome, up to 4K tokens): subject > setting > composition > colors > lighting > medium. Quote exact in-image text with real line breaks. Short tag negative, e.g. worst quality, bad anatomy, watermark, jpeg artifact. Read the moss-image-prompting skill for the full ruleset.",
+      "guidanceFile": "moss-image-enhance.md",
+      "inputs": {
+        "prompt": {
+          "node": "6",
+          "key": "text"
+        },
+        "negative": {
+          "node": "7",
+          "key": "text"
+        },
+        "seed": {
+          "node": "12",
+          "key": "seed"
+        },
+        "steps": {
+          "node": "12",
+          "key": "steps"
+        },
+        "cfg": {
+          "node": "12",
+          "key": "cfg"
+        },
+        "width": {
+          "node": "9",
+          "key": "width"
+        },
+        "height": {
+          "node": "9",
+          "key": "height"
+        },
+        "batch": {
+          "node": "9",
+          "key": "batch_size"
+        }
+      }
+    },
+    "moss-image-reference": {
+      "file": "moss-image-sft-reference.api.json",
+      "description": "MOSS-Image SFT with the official OpenMOSS recipe (euler 50 steps, ~1.7x slower than moss-image) for reference comparisons. Needs the moss-image custom node.",
+      "tags": ["photoreal", "illustration", "text", "layout", "moss-image", "multi-gpu", "reference"],
+      "promptProtocol": "Detailed English prose (long prompts welcome, up to 4K tokens): subject > setting > composition > colors > lighting > medium. Quote exact in-image text with real line breaks. Short tag negative, e.g. worst quality, bad anatomy, watermark, jpeg artifact. Read the moss-image-prompting skill for the full ruleset.",
+      "guidanceFile": "moss-image-enhance.md",
+      "inputs": {
+        "prompt": {
+          "node": "6",
+          "key": "text"
+        },
+        "negative": {
+          "node": "7",
+          "key": "text"
+        },
+        "seed": {
+          "node": "12",
+          "key": "seed"
+        },
+        "steps": {
+          "node": "12",
+          "key": "steps"
+        },
+        "cfg": {
+          "node": "12",
+          "key": "cfg"
+        },
+        "width": {
+          "node": "9",
+          "key": "width"
+        },
+        "height": {
+          "node": "9",
+          "key": "height"
+        },
+        "batch": {
+          "node": "9",
+          "key": "batch_size"
+        }
+      }
+    },
+    "moss-image-base": {
+      "file": "moss-image-base.api.json",
+      "description": "MOSS-Image Base checkpoint, res_multistep 30 steps - less polished than SFT but more natural photographic skin and truer art styles, with fewer invented details; good for cosplay / photoreal people. Needs the moss-image custom node.",
+      "tags": ["photoreal", "illustration", "text", "layout", "moss-image", "multi-gpu", "base"],
+      "promptProtocol": "Detailed English prose (long prompts welcome, up to 4K tokens): subject > setting > composition > colors > lighting > medium. Quote exact in-image text with real line breaks. Short tag negative, e.g. worst quality, bad anatomy, watermark, jpeg artifact. Read the moss-image-prompting skill for the full ruleset.",
+      "guidanceFile": "moss-image-enhance.md",
+      "inputs": {
+        "prompt": {
+          "node": "6",
+          "key": "text"
+        },
+        "negative": {
+          "node": "7",
+          "key": "text"
+        },
+        "seed": {
+          "node": "12",
+          "key": "seed"
+        },
+        "steps": {
+          "node": "12",
+          "key": "steps"
+        },
+        "cfg": {
+          "node": "12",
+          "key": "cfg"
+        },
+        "width": {
+          "node": "9",
+          "key": "width"
+        },
+        "height": {
+          "node": "9",
+          "key": "height"
+        },
+        "batch": {
+          "node": "9",
+          "key": "batch_size"
+        }
+      }
+    },
+    "moss-image-base-fast": {
+      "file": "moss-image-base-fast.api.json",
+      "description": "MOSS-Image Base fast profile (res_multistep 20 steps). More natural, less stylized look than SFT. Needs the moss-image custom node.",
+      "tags": ["photoreal", "illustration", "text", "layout", "moss-image", "multi-gpu", "base", "fast"],
+      "promptProtocol": "Detailed English prose (long prompts welcome, up to 4K tokens): subject > setting > composition > colors > lighting > medium. Quote exact in-image text with real line breaks. Short tag negative, e.g. worst quality, bad anatomy, watermark, jpeg artifact. Read the moss-image-prompting skill for the full ruleset.",
+      "guidanceFile": "moss-image-enhance.md",
+      "inputs": {
+        "prompt": {
+          "node": "6",
+          "key": "text"
+        },
+        "negative": {
+          "node": "7",
+          "key": "text"
+        },
+        "seed": {
+          "node": "12",
+          "key": "seed"
+        },
+        "steps": {
+          "node": "12",
+          "key": "steps"
+        },
+        "cfg": {
+          "node": "12",
+          "key": "cfg"
+        },
+        "width": {
+          "node": "9",
+          "key": "width"
+        },
+        "height": {
+          "node": "9",
+          "key": "height"
+        },
+        "batch": {
+          "node": "9",
+          "key": "batch_size"
+        }
+      }
+    },
+    "moss-image-base-reference": {
+      "file": "moss-image-base-reference.api.json",
+      "description": "MOSS-Image Base with the official OpenMOSS recipe (euler 50 steps) for reference comparisons. Needs the moss-image custom node.",
+      "tags": ["photoreal", "illustration", "text", "layout", "moss-image", "multi-gpu", "base", "reference"],
+      "promptProtocol": "Detailed English prose (long prompts welcome, up to 4K tokens): subject > setting > composition > colors > lighting > medium. Quote exact in-image text with real line breaks. Short tag negative, e.g. worst quality, bad anatomy, watermark, jpeg artifact. Read the moss-image-prompting skill for the full ruleset.",
+      "guidanceFile": "moss-image-enhance.md",
+      "inputs": {
+        "prompt": {
+          "node": "6",
+          "key": "text"
+        },
+        "negative": {
+          "node": "7",
+          "key": "text"
+        },
+        "seed": {
+          "node": "12",
+          "key": "seed"
+        },
+        "steps": {
+          "node": "12",
+          "key": "steps"
+        },
+        "cfg": {
+          "node": "12",
+          "key": "cfg"
+        },
+        "width": {
+          "node": "9",
+          "key": "width"
+        },
+        "height": {
+          "node": "9",
+          "key": "height"
+        },
+        "batch": {
+          "node": "9",
+          "key": "batch_size"
+        }
+      }
+    },
+    "anima": {
+      "file": "anima.api.json",
+      "description": "Anima 2B anime / illustration text-to-image with an upscale pass. Needs the ConcatStringSingle string node.",
+      "tags": ["anime", "illustration"],
+      "promptProtocol": "Anima (anime/illustration): lead with score/quality tags (e.g. score_9, masterpiece), use an @artist prefix for style; Gelbooru & Danbooru tags or natural language both work. Read the anima-prompting skill for the full ruleset.",
+      "inputs": {
+        "prompt": {
+          "node": "65",
+          "key": "string"
+        },
+        "negative": {
+          "node": "12",
+          "key": "text"
+        },
+        "seed": {
+          "node": "19",
+          "key": "seed"
+        },
+        "steps": {
+          "node": "19",
+          "key": "steps"
+        },
+        "cfg": {
+          "node": "19",
+          "key": "cfg"
+        },
+        "denoise": {
+          "node": "19",
+          "key": "denoise"
+        },
+        "width": {
+          "node": "28",
+          "key": "width"
+        },
+        "height": {
+          "node": "28",
+          "key": "height"
+        },
+        "batch": {
+          "node": "28",
+          "key": "batch_size"
+        }
+      },
+      "refineWith": {
+        "inpaint": "anima-inpaint",
+        "detailer": "anima-detailer",
+        "ground": "anima-ground-sam3"
+      }
+    },
+    "anima-hires125": {
+      "file": "anima-hires125.api.json",
+      "description": "Anima anime / illustration text-to-image with a 1.25x hires pass",
+      "tags": ["anime", "illustration"],
+      "promptProtocol": "Anima (anime/illustration): lead with score/quality tags (e.g. score_9, masterpiece), use an @artist prefix for style; Gelbooru & Danbooru tags or natural language both work. Read the anima-prompting skill for the full ruleset.",
+      "inputs": {
+        "prompt": {
+          "node": "65",
+          "key": "string"
+        },
+        "negative": {
+          "node": "12",
+          "key": "text"
+        },
+        "seed": {
+          "node": "19",
+          "key": "seed"
+        },
+        "steps": {
+          "node": "19",
+          "key": "steps"
+        },
+        "cfg": {
+          "node": "19",
+          "key": "cfg"
+        },
+        "denoise": {
+          "node": "19",
+          "key": "denoise"
+        },
+        "width": {
+          "node": "28",
+          "key": "width"
+        },
+        "height": {
+          "node": "28",
+          "key": "height"
+        },
+        "batch": {
+          "node": "28",
+          "key": "batch_size"
+        }
+      }
+    },
+    "anima-noupscale": {
+      "file": "anima-noupscale.api.json",
+      "description": "Anima anime / illustration text-to-image at base resolution, no upscale pass",
+      "tags": ["anime", "illustration", "fast"],
+      "promptProtocol": "Anima (anime/illustration): lead with score/quality tags (e.g. score_9, masterpiece), use an @artist prefix for style; Gelbooru & Danbooru tags or natural language both work. Read the anima-prompting skill for the full ruleset.",
+      "inputs": {
+        "prompt": {
+          "node": "65",
+          "key": "string"
+        },
+        "negative": {
+          "node": "12",
+          "key": "text"
+        },
+        "seed": {
+          "node": "19",
+          "key": "seed"
+        },
+        "steps": {
+          "node": "19",
+          "key": "steps"
+        },
+        "cfg": {
+          "node": "19",
+          "key": "cfg"
+        },
+        "denoise": {
+          "node": "19",
+          "key": "denoise"
+        },
+        "width": {
+          "node": "28",
+          "key": "width"
+        },
+        "height": {
+          "node": "28",
+          "key": "height"
+        },
+        "batch": {
+          "node": "28",
+          "key": "batch_size"
+        }
+      }
+    },
+    "anima-inpaint": {
+      "file": "anima-inpaint.api.json",
+      "description": "anima inpaint companion (same Cosmos Predict2 checkpoint, masked region)",
+      "tags": ["anime", "inpaint"],
+      "promptProtocol": "Gelbooru & Danbooru tags, comma-separated",
+      "inputs": {
+        "prompt": {
+          "node": "65",
+          "key": "string"
+        },
+        "negative": {
+          "node": "12",
+          "key": "text"
+        },
+        "seed": {
+          "node": "20",
+          "key": "seed"
+        },
+        "steps": {
+          "node": "20",
+          "key": "steps"
+        },
+        "cfg": {
+          "node": "20",
+          "key": "cfg"
+        },
+        "denoise": {
+          "node": "20",
+          "key": "denoise"
+        }
+      },
+      "images": {
+        "init": {
+          "node": "16",
+          "key": "image"
+        },
+        "mask": {
+          "node": "17",
+          "key": "image",
+          "kind": "mask"
+        }
+      }
+    },
+    "anima-detailer": {
+      "file": "anima-detailer.api.json",
+      "description": "anima detailer companion (Ultralytics detector + FaceDetailer hi-res region re-render)",
+      "tags": ["anime", "detailer"],
+      "promptProtocol": "Gelbooru & Danbooru tags, comma-separated",
+      "inputs": {
+        "prompt": {
+          "node": "65",
+          "key": "string"
+        },
+        "negative": {
+          "node": "12",
+          "key": "text"
+        },
+        "seed": {
+          "node": "32",
+          "key": "seed"
+        },
+        "steps": {
+          "node": "32",
+          "key": "steps"
+        },
+        "cfg": {
+          "node": "32",
+          "key": "cfg"
+        },
+        "denoise": {
+          "node": "32",
+          "key": "denoise"
+        },
+        "detect": {
+          "node": "30",
+          "key": "model_name"
+        }
+      },
+      "images": {
+        "init": {
+          "node": "16",
+          "key": "image"
+        }
+      }
+    },
+    "anima-ground": {
+      "file": "anima-ground.api.json",
+      "description": "anima ground companion (Florence-2 phrase->mask localizer + masked inpaint)",
+      "tags": ["anime", "ground"],
+      "promptProtocol": "Gelbooru & Danbooru tags, comma-separated",
+      "inputs": {
+        "prompt": {
+          "node": "65",
+          "key": "string"
+        },
+        "negative": {
+          "node": "12",
+          "key": "text"
+        },
+        "seed": {
+          "node": "20",
+          "key": "seed"
+        },
+        "steps": {
+          "node": "20",
+          "key": "steps"
+        },
+        "cfg": {
+          "node": "20",
+          "key": "cfg"
+        },
+        "denoise": {
+          "node": "20",
+          "key": "denoise"
+        },
+        "target": {
+          "node": "41",
+          "key": "text_input"
+        }
+      },
+      "images": {
+        "init": {
+          "node": "16",
+          "key": "image"
+        }
+      }
+    },
+    "anima-ground-sam3": {
+      "file": "anima-ground-sam3.api.json",
+      "description": "anima ground companion (SAM 3.1 text-concept->mask localizer + masked inpaint)",
+      "tags": ["anime", "ground"],
+      "promptProtocol": "Gelbooru & Danbooru tags, comma-separated",
+      "inputs": {
+        "prompt": {
+          "node": "65",
+          "key": "string"
+        },
+        "negative": {
+          "node": "12",
+          "key": "text"
+        },
+        "seed": {
+          "node": "20",
+          "key": "seed"
+        },
+        "steps": {
+          "node": "20",
+          "key": "steps"
+        },
+        "cfg": {
+          "node": "20",
+          "key": "cfg"
+        },
+        "denoise": {
+          "node": "20",
+          "key": "denoise"
+        },
+        "target": {
+          "node": "42",
+          "key": "text"
+        }
+      },
+      "images": {
+        "init": {
+          "node": "16",
+          "key": "image"
+        }
+      }
+    }
+  }
+}

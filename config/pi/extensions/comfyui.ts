@@ -53,8 +53,8 @@ import { describeWorkflows, workflowCapabilities } from '../../../lib/node/pi/co
 import { extractModelCatalog, formatModelCatalog } from '../../../lib/node/pi/comfyui/models.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 import {
+  comfyuiEnabled,
   loadComfyuiConfig,
-  loadUserWorkflowNames,
   resolveAuthHeaders,
   resolveBaseUrl,
   SHIPPED_WORKFLOW_INPUTS,
@@ -88,153 +88,17 @@ import type { LooseMessage } from '../../../lib/node/pi/context-edit/target.ts';
 
 const extDir = dirname(fileURLToPath(import.meta.url));
 
-const QWEN_IMAGE_EDIT_21 = 'qwen-image-edit-2.1';
-const MINIMAX_H3_REF2VA = 'minimax-h3-ref2va-spectrum';
-const MINIMAX_H3_FL2VA_T2I = 'minimax-h3-fl2va-t2i';
-const MINIMAX_H3_REF2VA_EDIT = 'minimax-h3-ref2va-edit';
+const BUILTIN_MANIFEST = join(extDir, '..', 'comfyui', 'builtin-workflows.json');
 
-// Only on-disk paths are shell-specific; input maps and metadata otherwise
-// follow the same declarative WorkflowConfig shape as user workflows.
+// The classic SD1.5 example stays the lowest config-file layer; the curated
+// built-ins come from the shipped manifest, which uses the same declarative
+// WorkflowConfig shape as user workflows.
 function shippedWorkflow(): WorkflowConfig {
   return { file: join(extDir, '..', 'comfyui', 'txt2img.api.json'), inputs: SHIPPED_WORKFLOW_INPUTS };
 }
 
-function shippedQwenImageEdit21Workflow(): WorkflowConfig {
-  return {
-    file: join(extDir, '..', 'comfyui', 'qwen-image-edit-2.1.api.json'),
-    description: 'Qwen Image 2.1 unified text-to-image and instruction editing with 0-16 references',
-    tags: ['photoreal', 'illustration', 'text', 'edit', 'multi-reference'],
-    promptProtocol:
-      'Natural language. With references, call them <image1> through <image16>; <image1> is the edit target and later images are supporting references.',
-    inputs: {
-      prompt: { node: '8', key: 'prompt' },
-      negative: { node: '8', key: 'negative_prompt' },
-      seed: { node: '9', key: 'seed' },
-      steps: { node: '9', key: 'steps' },
-      cfg: { node: '9', key: 'cfg' },
-      width: { node: '12', key: 'width', alsoSet: [{ node: '13', key: 'switch', value: true }] },
-      height: { node: '12', key: 'height', alsoSet: [{ node: '13', key: 'switch', value: true }] },
-    },
-    images: {
-      mode: 'autogrow',
-      loader: { node: '7', key: 'image', output: 0 },
-      target: { node: '8', keyPrefix: 'images.image_' },
-      min: 0,
-      max: 16,
-    },
-  };
-}
-
-function shippedMiniMaxH3Ref2vaWorkflow(): WorkflowConfig {
-  return {
-    file: join(extDir, '..', 'comfyui', 'minimax-h3-ref2va-spectrum.api.json'),
-    description: 'MiniMax H3 Ref2VA video with native audio, dual-GPU placement, SageAttention, and Spectrum',
-    tags: ['video', 'audio', 'reference', 'minimax-h3', 'sage', 'spectrum'],
-    promptProtocol:
-      "English, H3 Ref2VA sections in order: subject_definitions, summary ([task type] ...), retention_analysis, detailed_description ([Shot 1] ...; later shots 'At MM:SS.mmm, the camera cuts to'), overall_soundscape, non_diegetic_music (or N/A). <Picture 1-9>, <Video 1-3>, <Audio 1-3> follow input order. Dialogue: '(S1) says: <d>[English] exact words</d>'. Quote on-screen text. No negative prompt; describe wanted states.",
-    inputs: {
-      prompt: { node: '14', key: 'prompt' },
-      seed: { node: '15', key: 'noise_seed' },
-      steps: { node: '17', key: 'steps' },
-      width: { node: '14', key: 'width' },
-      height: { node: '14', key: 'height' },
-      duration: { node: '14', key: 'length', transform: 'secondsToFrames24H3' },
-      refImageSize: { node: '14', key: 'ref_image_size' },
-    },
-    images: {
-      mode: 'autogrow',
-      loader: { node: '10', key: 'image', output: 0 },
-      target: { node: '14', keyPrefix: 'ref_images.ref_image_', indexBase: 0 },
-      min: 0,
-      max: 9,
-    },
-    videos: {
-      mode: 'autogrow',
-      templates: ['11', '12'],
-      loader: { node: '11', key: 'file' },
-      outputs: [
-        {
-          source: { node: '12', output: 0 },
-          target: { node: '14', keyPrefix: 'ref_videos.ref_video_', indexBase: 0 },
-        },
-        {
-          source: { node: '12', output: 1 },
-          target: { node: '14', keyPrefix: 'ref_video_audios.ref_video_audio_', indexBase: 0 },
-        },
-      ],
-      min: 0,
-      max: 3,
-    },
-    audios: {
-      mode: 'autogrow',
-      templates: ['13'],
-      loader: { node: '13', key: 'audio' },
-      outputs: [
-        {
-          source: { node: '13', output: 0 },
-          target: { node: '14', keyPrefix: 'ref_audios.ref_audio_', indexBase: 0 },
-        },
-      ],
-      min: 0,
-      max: 3,
-    },
-    referenceConstraints: { maxTotal: 12, audioRequiresVisual: true },
-    outputType: 'video',
-  };
-}
-
-function shippedMiniMaxH3StillWorkflow(edit: boolean): WorkflowConfig {
-  return {
-    file: join(extDir, '..', 'comfyui', `${edit ? MINIMAX_H3_REF2VA_EDIT : MINIMAX_H3_FL2VA_T2I}.api.json`),
-    description: edit
-      ? 'MiniMax H3 Ref2VA single-image editing with 1-9 references, dual GPU, and H3 SageAttention; CFG fixed at 1'
-      : 'MiniMax H3 FL2VA text-to-image, dual GPU, and H3 SageAttention; one still image, CFG fixed at 1',
-    tags: edit
-      ? ['image', 'edit', 'reference', 'minimax-h3', 'multi-gpu', 'sage']
-      : ['image', 'minimax-h3', 'multi-gpu', 'sage'],
-    promptProtocol: edit
-      ? "Local edit: 'Edit <Picture 1>. Change only <target> to <new state>. Preserve <list>.' Subject in a new scene: H3 sections subject_definitions, summary ([reference generation] ...), retention_analysis, detailed_description, overall_soundscape, non_diegetic_music. <Picture N> follows inputImages order. No negative prompt; describe wanted states, not 'no X'."
-      : "English prose for one still moment: style first (Live-action, cinematic / 2D-animated / watercolor), then subject, setting, composition, lighting. Quote visible text. No negative prompt: never write 'no X'; describe the wanted state (plain unpainted board, bare wall).",
-    inputs: {
-      prompt: { node: '7', key: edit ? 'prompt' : 'text' },
-      seed: { node: '10', key: 'noise_seed' },
-      steps: { node: '12', key: 'steps' },
-      width: { node: edit ? '17' : '8', key: edit ? 'value' : 'width' },
-      height: { node: edit ? '18' : '8', key: edit ? 'value' : 'height' },
-      ...(edit ? { refImageSize: { node: '7', key: 'ref_image_size' } } : {}),
-    },
-    ...(edit
-      ? {
-          images: {
-            mode: 'autogrow' as const,
-            loader: { node: '16', key: 'image', output: 0 },
-            target: { node: '7', keyPrefix: 'ref_images.ref_image_', indexBase: 0 },
-            min: 1,
-            max: 9,
-          },
-        }
-      : {}),
-    outputType: 'image',
-  };
-}
-
-function envConfigured(): boolean {
-  return (process.env.PI_COMFYUI_URL?.trim().length ?? 0) > 0;
-}
-
 function loadConfig(cwd: string): ComfyuiConfig {
-  const config = loadComfyuiConfig(cwd, shippedWorkflow());
-  if (loadUserWorkflowNames(cwd).length > 0 || !envConfigured()) return config;
-  return {
-    ...config,
-    defaultWorkflow: QWEN_IMAGE_EDIT_21,
-    workflows: {
-      [QWEN_IMAGE_EDIT_21]: shippedQwenImageEdit21Workflow(),
-      [MINIMAX_H3_REF2VA]: shippedMiniMaxH3Ref2vaWorkflow(),
-      [MINIMAX_H3_FL2VA_T2I]: shippedMiniMaxH3StillWorkflow(false),
-      [MINIMAX_H3_REF2VA_EDIT]: shippedMiniMaxH3StillWorkflow(true),
-    },
-  };
+  return loadComfyuiConfig(cwd, shippedWorkflow(), { manifestPath: BUILTIN_MANIFEST });
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -252,10 +116,12 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
   // the (immutable) tool description.
   const cwd = process.cwd();
 
-  // Auto-disable when neither a config file nor PI_COMFYUI_URL opts in. A
+  // Auto-disable unless a config file declares workflows, PI_COMFYUI_URL is
+  // set, or a config file / PI_COMFYUI_WORKFLOWS selects built-ins. A
   // config-backed setup gets its configured workflows plus the classic shipped
-  // txt2img example. An environment-only setup gets the known-good shipped Qwen
-  // Image 2.1 workflow instead of exposing that server-specific SD1.5 example.
+  // txt2img example (and any explicitly selected built-ins). Otherwise the
+  // curated built-in `default` set from builtin-workflows.json is exposed
+  // instead of that server-specific SD1.5 example.
   //
   // This gate is necessarily registration-time: pi has no unregisterTool API,
   // so we cannot register first and back out on `session_start`. It is keyed
@@ -263,7 +129,7 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
   // the registration-time cwd. A project whose only workflows live under a
   // later `ctx.cwd` that differs from the launch dir would miss this gate, but
   // its handlers still work once that project's config loads at call time.
-  if (loadUserWorkflowNames(cwd).length === 0 && !envConfigured()) return;
+  if (!comfyuiEnabled(cwd)) return;
 
   const registrationConfig = loadConfig(cwd);
   const defaultWorkflow = registrationConfig.defaultWorkflow;

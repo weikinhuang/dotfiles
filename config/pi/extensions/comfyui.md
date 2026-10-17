@@ -381,15 +381,40 @@ outgoing payload.
 
 ## Configuration
 
-Config layers lowest to highest: the shipped `txt2img` example, then `~/.pi/agent/comfyui.json`, then
-`<cwd>/.pi/comfyui.json`.
+Config layers lowest to highest: the shipped `txt2img` example, then the selected built-in workflows, then
+`~/.pi/agent/comfyui.json`, then `<cwd>/.pi/comfyui.json`.
 
-The extension **auto-disables** when neither user nor project `comfyui.json` contributes a `workflows` entry and
-`PI_COMFYUI_URL` is unset. The shipped [`txt2img.api.json`](../comfyui/txt2img.api.json) remains example scaffolding (it
-expects a `v1-5-pruned-emaonly.safetensors` checkpoint most servers will not have). An environment-only setup uses the
-shipped [`qwen-image-edit-2.1.api.json`](../comfyui/qwen-image-edit-2.1.api.json) as its default, plus the H3 still and
-video workflows below. For a config-file setup, add at least one workflow to opt in; see
+The extension **auto-disables** when neither user nor project `comfyui.json` contributes a `workflows` entry,
+`PI_COMFYUI_URL` is unset, and no built-in selection names anything. The shipped
+[`txt2img.api.json`](../comfyui/txt2img.api.json) remains example scaffolding (it expects a
+`v1-5-pruned-emaonly.safetensors` checkpoint most servers will not have). An environment-only setup uses the curated
+built-in set below. For a config-file setup, add at least one workflow to opt in; see
 [`../comfyui-example.json`](../comfyui-example.json) for a starting point.
+
+### Built-in workflows
+
+[`../comfyui/builtin-workflows.json`](../comfyui/builtin-workflows.json) is the shipped manifest: every modern graph
+under [`../comfyui/`](../comfyui/) (all but the SD1.5 `txt2img` / `img2img` examples) with its input map, description,
+tags, and prompt protocol. Its `file` / `guidanceFile` / `refineGuidanceFile` paths resolve against the manifest's
+directory, not the cwd. A spec keeps every entry's maps identical to
+[`../comfyui-example.json`](../comfyui-example.json).
+
+The manifest's `defaultSet` is the curated environment-only set, one entry per model family that renders on the
+reference dual-GPU server: `qwen-image-edit-2.1` (the default), `krea2-2gpu`, `flux2-t2i-fast`, `flux2-edit-fast`,
+`moss-image-fast`, and the three MiniMax H3 workflows. The `anima` family is opt-in because it needs extra custom nodes
+(`ConcatStringSingle`, SAM3 / Florence-2 / Ultralytics for the companions).
+
+Pick a different selection with `builtinWorkflows` in a config layer or `PI_COMFYUI_WORKFLOWS`: a comma-separated string
+or an array of workflow names plus the group tokens `default`, `all`, and `none`, for example
+`PI_COMFYUI_WORKFLOWS=default,anima,anima-detailer`. Selected workflows keep manifest order; unknown names are ignored.
+A built-in's `refineWith` keeps only the companions that are also selected, so `anima` alone exposes no detailer
+hand-off.
+
+- With no config-file workflows, the selection defaults to `default` and the manifest default becomes `defaultWorkflow`
+  (or the first selected name when it is not selected). The `txt2img` example is not exposed.
+- With config-file workflows, no built-ins load unless a selection is set explicitly. Selected built-ins sit below the
+  config files, so a config workflow with the same name replaces the built-in, and `defaultWorkflow` stays the config
+  value.
 
 | Key                         | Default                  | Meaning                                                                                                                                          |
 | --------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -418,6 +443,7 @@ video workflows below. For a config-file setup, add at least one workflow to opt
 | `usageGuidanceFile`         | (none)                   | Main-agent usage-guidance doc injected into the system prompt at turn start (enhancer off). `~` / abs / rel-cwd. See below.                      |
 | `usageGuidanceEnhancedFile` | (none)                   | Replaces `usageGuidanceFile` when prompt enhancement is effectively active this session. `~` / abs / rel-cwd.                                    |
 | `defaults`                  | (none)                   | Generation-param defaults pre-filled when a call omits them; merge by field. See below.                                                          |
+| `builtinWorkflows`          | (see above)              | Built-in manifest selection: names plus `default` / `all` / `none`, as an array or comma string. Beats `PI_COMFYUI_WORKFLOWS`.                   |
 | `workflows`                 | `{ txt2img: <shipped> }` | Named workflows; merge by name across layers.                                                                                                    |
 
 Every scalar above resolves
@@ -796,8 +822,8 @@ and a relative path (`./local/wf.api.json`, `wf/foo.api.json`) resolves against 
 against the cwd regardless of which config layer declared the workflow, so a project-local `<cwd>/.pi/comfyui.json` can
 point at a graph checked into the project with `"file": "./comfyui/my.api.json"`.
 
-With `PI_COMFYUI_URL` and no configured workflows, the extension exposes the shipped Qwen Image 2.1 workflow as the
-default plus MiniMax H3 FL2VA text-to-image, Ref2VA image edit, and Ref2VA video workflows below.
+With `PI_COMFYUI_URL` and no configured workflows, the extension exposes the curated built-in set (see
+[Built-in workflows](#built-in-workflows)), with the shipped Qwen Image 2.1 workflow as the default.
 
 The shipped default [`../comfyui/txt2img.api.json`](../comfyui/txt2img.api.json) is the classic SD1.5 graph; it expects
 a `v1-5-pruned-emaonly.safetensors` checkpoint to be installed on the server. Repoint `defaultWorkflow` / `workflows` at
@@ -1016,16 +1042,17 @@ default (e.g. `steps`) on top of a global one without redeclaring the rest.
 
 ## Environment variables
 
-| Variable                     | Effect                                                                                      |
-| ---------------------------- | ------------------------------------------------------------------------------------------- |
-| `PI_COMFYUI_DISABLED`        | Skip the extension entirely.                                                                |
-| `PI_COMFYUI_URL`             | Override `baseUrl`; also enable the shipped Qwen 2.1 workflow in an environment-only setup. |
-| `PI_COMFYUI_AUTH`            | Override auth with this complete `Authorization` header value.                              |
-| `PI_COMFYUI_TOKEN`           | Convention for a token referenced by `authHeader.value` as `${PI_COMFYUI_TOKEN}`.           |
-| `PI_COMFYUI_DISABLE_ENHANCE` | Hard-disable the prompt enhancer regardless of config / per-call `enhance`.                 |
-| `PI_COMFYUI_ENHANCE_DEBUG`   | Notify on each successful enhance (`enhanced → …`); failures notify regardless.             |
-| `PI_COMFYUI_DISABLE_REFINE`  | Hard-disable the auto-refine loop regardless of config / per-call `autoRefine`.             |
-| `PI_COMFYUI_REFINE_DEBUG`    | Notify on each critic decision / refine round; failures notify regardless.                  |
+| Variable                     | Effect                                                                                    |
+| ---------------------------- | ----------------------------------------------------------------------------------------- |
+| `PI_COMFYUI_DISABLED`        | Skip the extension entirely.                                                              |
+| `PI_COMFYUI_URL`             | Override `baseUrl`; also enable the curated built-in set in an environment-only setup.    |
+| `PI_COMFYUI_WORKFLOWS`       | Built-in selection (names, `default`, `all`, `none`); below `builtinWorkflows` in config. |
+| `PI_COMFYUI_AUTH`            | Override auth with this complete `Authorization` header value.                            |
+| `PI_COMFYUI_TOKEN`           | Convention for a token referenced by `authHeader.value` as `${PI_COMFYUI_TOKEN}`.         |
+| `PI_COMFYUI_DISABLE_ENHANCE` | Hard-disable the prompt enhancer regardless of config / per-call `enhance`.               |
+| `PI_COMFYUI_ENHANCE_DEBUG`   | Notify on each successful enhance (`enhanced → …`); failures notify regardless.           |
+| `PI_COMFYUI_DISABLE_REFINE`  | Hard-disable the auto-refine loop regardless of config / per-call `autoRefine`.           |
+| `PI_COMFYUI_REFINE_DEBUG`    | Notify on each critic decision / refine round; failures notify regardless.                |
 
 Auth headers are sent on every HTTP request. ComfyUI's websocket does not carry custom headers, so on an authenticated
 server the progress stream may not connect; polling still drives completion regardless.

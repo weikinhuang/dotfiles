@@ -20,10 +20,19 @@
  * No pi imports.
  */
 
+import { dirname } from 'node:path';
+
 import { readJsoncOrUndefined } from '../fs-safe.ts';
 import { modelAcceptsImages } from '../image-ref/vision.ts';
 import { piAgentPath, piProjectPath } from '../pi-paths.ts';
 import { isRecord } from '../shared.ts';
+import {
+  type BuiltinManifest,
+  parseBuiltinSelection,
+  pickBuiltinDefault,
+  resolveManifestWorkflows,
+  selectBuiltinWorkflows,
+} from './builtin.ts';
 
 import type {
   AutogrowImageSlots,
@@ -490,6 +499,9 @@ export function coerceConfigLayer(raw: unknown): Partial<ComfyuiConfig> {
   const authHeader = asAuthHeader(raw.authHeader);
   if (authHeader !== undefined) out.authHeader = authHeader;
 
+  const builtinWorkflows = parseBuiltinSelection(raw.builtinWorkflows);
+  if (builtinWorkflows !== undefined) out.builtinWorkflows = builtinWorkflows;
+
   const workflows = asWorkflows(raw.workflows);
   if (workflows !== undefined) out.workflows = workflows;
 
@@ -535,6 +547,7 @@ export function mergeConfigLayers(...overrides: Partial<ComfyuiConfig>[]): Comfy
       result.usageGuidanceEnhancedFile = layer.usageGuidanceEnhancedFile;
     if (layer.defaults !== undefined) result.defaults = { ...result.defaults, ...layer.defaults };
     if (layer.authHeader !== undefined) result.authHeader = { ...layer.authHeader };
+    if (layer.builtinWorkflows !== undefined) result.builtinWorkflows = [...layer.builtinWorkflows];
     if (layer.workflows !== undefined) result.workflows = { ...result.workflows, ...layer.workflows };
   }
 
@@ -608,6 +621,59 @@ export function resolveSendToModel(requested: boolean, modelInput: unknown): Sen
   return { send: true, visionBlocked: false };
 }
 
+/** Where the built-in manifest lives, plus the env the selection reads. */
+export interface BuiltinSource {
+  /** Absolute path to `builtin-workflows.json`. */
+  manifestPath: string;
+  /** Environment for `PI_COMFYUI_URL` / `PI_COMFYUI_WORKFLOWS`. Defaults to `process.env`. */
+  env?: NodeJS.ProcessEnv;
+}
+
+/**
+ * Read + coerce the built-in manifest. Workflow paths resolve against the
+ * manifest's directory. A missing or malformed file yields an empty
+ * manifest so the extension degrades to user-configured workflows only.
+ */
+export function loadBuiltinManifest(manifestPath: string): BuiltinManifest {
+  const raw = readJsoncOrUndefined(manifestPath);
+  if (!isRecord(raw)) return { defaultSet: [], workflows: {} };
+  const workflows = asWorkflows(raw.workflows) ?? {};
+  const defaultWorkflow = asString(raw.defaultWorkflow);
+  return {
+    ...(defaultWorkflow !== undefined && defaultWorkflow.length > 0 ? { defaultWorkflow } : {}),
+    defaultSet: parseBuiltinSelection(raw.defaultSet) ?? [],
+    workflows: resolveManifestWorkflows(workflows, dirname(manifestPath)),
+  };
+}
+
+interface ConfigLayers {
+  user: Partial<ComfyuiConfig>;
+  project: Partial<ComfyuiConfig>;
+}
+
+function readConfigLayers(cwd: string): ConfigLayers {
+  return {
+    user: coerceConfigLayer(readJsoncOrUndefined(piAgentPath('comfyui.json'))),
+    project: coerceConfigLayer(readJsoncOrUndefined(piProjectPath(cwd, 'comfyui.json'))),
+  };
+}
+
+function workflowNames(layers: ConfigLayers): string[] {
+  // A workflow named in both the user-global and project layers is one
+  // workflow (the project layer overrides), so de-dup the merged name list.
+  return [...new Set([...Object.keys(layers.user.workflows ?? {}), ...Object.keys(layers.project.workflows ?? {})])];
+}
+
+/**
+ * The explicit built-in selection: project config, then user config, then
+ * `PI_COMFYUI_WORKFLOWS`. `undefined` when none of them sets one.
+ */
+function explicitBuiltinSelection(layers: ConfigLayers, env: NodeJS.ProcessEnv): string[] | undefined {
+  return (
+    layers.project.builtinWorkflows ?? layers.user.builtinWorkflows ?? parseBuiltinSelection(env.PI_COMFYUI_WORKFLOWS)
+  );
+}
+
 /**
  * Load the fully-resolved config for `cwd`, layering the shipped
  * `txt2img` default (lowest) under the user-global
@@ -616,12 +682,50 @@ export function resolveSendToModel(requested: boolean, modelInput: unknown): Sen
  * `shipped` is the shell-provided {@link WorkflowConfig} for the example
  * workflow (it owns the on-disk path via `extDir`); everything else -
  * reading + coercing + merging the user / project layers - is done here.
+ *
+ * With `builtins`, the selected manifest workflows layer between that base
+ * and the config files, so a user or project entry overrides a built-in by
+ * name. The selection comes from `builtinWorkflows` (project > user), then
+ * `PI_COMFYUI_WORKFLOWS`; when none is set it is the `default` group if no
+ * config file declares workflows, otherwise empty. When no config file
+ * declares workflows, the `txt2img` example is dropped in favor of the
+ * built-ins and the default workflow comes from the manifest unless a config
+ * file sets `defaultWorkflow`.
  */
-export function loadComfyuiConfig(cwd: string, shipped: WorkflowConfig): ComfyuiConfig {
-  const base = { workflows: { txt2img: shipped } };
-  const userLayer = coerceConfigLayer(readJsoncOrUndefined(piAgentPath('comfyui.json')));
-  const projectLayer = coerceConfigLayer(readJsoncOrUndefined(piProjectPath(cwd, 'comfyui.json')));
-  return mergeConfigLayers(base, userLayer, projectLayer);
+export function loadComfyuiConfig(cwd: string, shipped: WorkflowConfig, builtins?: BuiltinSource): ComfyuiConfig {
+  const layers = readConfigLayers(cwd);
+  const txt2imgBase = { workflows: { txt2img: shipped } };
+  if (builtins === undefined) return mergeConfigLayers(txt2imgBase, layers.user, layers.project);
+
+  const configured = workflowNames(layers).length > 0;
+  const selection = explicitBuiltinSelection(layers, builtins.env ?? process.env) ?? (configured ? [] : ['default']);
+  if (selection.length === 0) return mergeConfigLayers(txt2imgBase, layers.user, layers.project);
+
+  const manifest = loadBuiltinManifest(builtins.manifestPath);
+  const selected = selectBuiltinWorkflows(manifest, selection).workflows;
+  if (Object.keys(selected).length === 0) return mergeConfigLayers(txt2imgBase, layers.user, layers.project);
+
+  if (configured) return mergeConfigLayers(txt2imgBase, { workflows: selected }, layers.user, layers.project);
+
+  const builtinDefault = pickBuiltinDefault(manifest, selected);
+  const builtinLayer: Partial<ComfyuiConfig> = {
+    workflows: selected,
+    ...(builtinDefault !== undefined ? { defaultWorkflow: builtinDefault } : {}),
+  };
+  return mergeConfigLayers(builtinLayer, layers.user, layers.project);
+}
+
+/**
+ * Whether the extension should register at all. It opts in when a config
+ * file declares workflows, `PI_COMFYUI_URL` is set, or a config file /
+ * `PI_COMFYUI_WORKFLOWS` explicitly selects built-ins (anything but `none`).
+ */
+export function comfyuiEnabled(cwd: string, env: NodeJS.ProcessEnv = process.env): boolean {
+  const layers = readConfigLayers(cwd);
+  if (workflowNames(layers).length > 0) return true;
+  if ((env.PI_COMFYUI_URL?.trim().length ?? 0) > 0) return true;
+  const selection = explicitBuiltinSelection(layers, env);
+  return selection?.some((token) => token !== 'none') === true;
 }
 
 /**
@@ -634,9 +738,5 @@ export function loadComfyuiConfig(cwd: string, shipped: WorkflowConfig): Comfyui
  * than leaking a broken option into the model's tool list.
  */
 export function loadUserWorkflowNames(cwd: string): string[] {
-  const userWorkflows = coerceConfigLayer(readJsoncOrUndefined(piAgentPath('comfyui.json'))).workflows ?? {};
-  const projectWorkflows = coerceConfigLayer(readJsoncOrUndefined(piProjectPath(cwd, 'comfyui.json'))).workflows ?? {};
-  // A workflow named in both the user-global and project layers is one
-  // workflow (the project layer overrides), so de-dup the merged name list.
-  return [...new Set([...Object.keys(userWorkflows), ...Object.keys(projectWorkflows)])];
+  return workflowNames(readConfigLayers(cwd));
 }

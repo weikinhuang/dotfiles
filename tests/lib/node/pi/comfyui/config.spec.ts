@@ -10,8 +10,10 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import {
   coerceConfigLayer,
+  comfyuiEnabled,
   DEFAULT_CONFIG,
   interpolateEnv,
+  loadBuiltinManifest,
   loadComfyuiConfig,
   loadUserWorkflowNames,
   mergeConfigLayers,
@@ -23,6 +25,12 @@ import {
 import type { WorkflowConfig } from '../../../../../lib/node/pi/comfyui/types.ts';
 
 describe('coerceConfigLayer', () => {
+  test('builtinWorkflows accepts a comma string or an array', () => {
+    expect(coerceConfigLayer({ builtinWorkflows: 'default, krea2' }).builtinWorkflows).toEqual(['default', 'krea2']);
+    expect(coerceConfigLayer({ builtinWorkflows: ['all'] }).builtinWorkflows).toEqual(['all']);
+    expect(coerceConfigLayer({ builtinWorkflows: [] }).builtinWorkflows).toEqual([]);
+    expect(coerceConfigLayer({ builtinWorkflows: 3 }).builtinWorkflows).toBeUndefined();
+  });
   test('keeps well-typed fields and drops wrong-typed ones', () => {
     const out = coerceConfigLayer({
       baseUrl: 'https://comfy.example:8188',
@@ -844,5 +852,111 @@ describe('loadComfyuiConfig / loadUserWorkflowNames', () => {
     const config = loadComfyuiConfig(cwd, shipped);
     expect(config.baseUrl).toBe('http://user:8188');
     expect(loadUserWorkflowNames(cwd)).toEqual(['userwf']);
+  });
+
+  describe('built-in manifest', () => {
+    let manifestPath: string;
+    const env = (vars: Record<string, string> = {}): NodeJS.ProcessEnv => ({ ...vars });
+
+    beforeEach(() => {
+      manifestPath = join(cwd, 'manifest', 'builtin-workflows.json');
+      mkdirSync(join(cwd, 'manifest'), { recursive: true });
+      writeFileSync(
+        manifestPath,
+        JSON.stringify({
+          defaultWorkflow: 'b',
+          defaultSet: ['a', 'b'],
+          workflows: {
+            a: { file: 'a.api.json', inputs: {} },
+            b: { file: 'b.api.json', guidanceFile: 'b.md', inputs: {}, refineWith: { inpaint: 'c' } },
+            c: { file: '/abs/c.api.json', inputs: {} },
+          },
+        }),
+      );
+    });
+
+    test('loadBuiltinManifest resolves relative paths against the manifest dir', () => {
+      const manifest = loadBuiltinManifest(manifestPath);
+      expect(manifest.defaultWorkflow).toBe('b');
+      expect(manifest.defaultSet).toEqual(['a', 'b']);
+      expect(manifest.workflows.a.file).toBe(join(cwd, 'manifest', 'a.api.json'));
+      expect(manifest.workflows.b.guidanceFile).toBe(join(cwd, 'manifest', 'b.md'));
+      expect(manifest.workflows.c.file).toBe('/abs/c.api.json');
+    });
+
+    test('a missing manifest degrades to an empty one', () => {
+      expect(loadBuiltinManifest(join(cwd, 'nope.json'))).toEqual({ defaultSet: [], workflows: {} });
+    });
+
+    test('with no config workflows, exposes the default set and drops txt2img', () => {
+      const config = loadComfyuiConfig(cwd, shipped, { manifestPath, env: env() });
+      expect(Object.keys(config.workflows)).toEqual(['a', 'b']);
+      expect(config.defaultWorkflow).toBe('b');
+      // `c` is not selected, so b's refineWith companion is pruned.
+      expect(config.workflows.b.refineWith).toBeUndefined();
+    });
+
+    test('PI_COMFYUI_WORKFLOWS selects names and groups; companions keep refineWith', () => {
+      const config = loadComfyuiConfig(cwd, shipped, { manifestPath, env: env({ PI_COMFYUI_WORKFLOWS: 'b, c' }) });
+      expect(Object.keys(config.workflows)).toEqual(['b', 'c']);
+      expect(config.workflows.b.refineWith).toEqual({ inpaint: 'c' });
+      const all = loadComfyuiConfig(cwd, shipped, { manifestPath, env: env({ PI_COMFYUI_WORKFLOWS: 'all' }) });
+      expect(Object.keys(all.workflows)).toEqual(['a', 'b', 'c']);
+    });
+
+    test('the default falls back to the first selected name when the preferred one is absent', () => {
+      const config = loadComfyuiConfig(cwd, shipped, { manifestPath, env: env({ PI_COMFYUI_WORKFLOWS: 'c,a' }) });
+      expect(config.defaultWorkflow).toBe('a');
+    });
+
+    test('a config-file defaultWorkflow wins over the manifest default', () => {
+      writeUser({ defaultWorkflow: 'a' });
+      expect(loadComfyuiConfig(cwd, shipped, { manifestPath, env: env() }).defaultWorkflow).toBe('a');
+    });
+
+    test('config workflows keep the txt2img base and add no built-ins unless selected', () => {
+      writeUser({ workflows: { userwf: { file: 'u.json', inputs: {} } } });
+      const config = loadComfyuiConfig(cwd, shipped, { manifestPath, env: env() });
+      expect(Object.keys(config.workflows).sort()).toEqual(['txt2img', 'userwf']);
+      expect(config.defaultWorkflow).toBe('txt2img');
+    });
+
+    test('explicitly selected built-ins merge under config workflows, which override by name', () => {
+      writeUser({ builtinWorkflows: ['default'], workflows: { a: { file: 'mine.json', inputs: {} } } });
+      const config = loadComfyuiConfig(cwd, shipped, { manifestPath, env: env() });
+      expect(Object.keys(config.workflows).sort()).toEqual(['a', 'b', 'txt2img']);
+      expect(config.workflows.a.file).toBe('mine.json');
+      expect(config.defaultWorkflow).toBe('txt2img');
+    });
+
+    test('project builtinWorkflows beats user config, which beats the env var', () => {
+      writeUser({ builtinWorkflows: 'a' });
+      const userWins = loadComfyuiConfig(cwd, shipped, { manifestPath, env: env({ PI_COMFYUI_WORKFLOWS: 'c' }) });
+      expect(Object.keys(userWins.workflows)).toEqual(['a']);
+      writeProject({ builtinWorkflows: ['c'] });
+      const projectWins = loadComfyuiConfig(cwd, shipped, { manifestPath, env: env({ PI_COMFYUI_WORKFLOWS: 'a' }) });
+      expect(Object.keys(projectWins.workflows)).toEqual(['c']);
+    });
+
+    test('none falls back to the txt2img base', () => {
+      const config = loadComfyuiConfig(cwd, shipped, { manifestPath, env: env({ PI_COMFYUI_WORKFLOWS: 'none' }) });
+      expect(Object.keys(config.workflows)).toEqual(['txt2img']);
+    });
+  });
+
+  describe('comfyuiEnabled', () => {
+    test('is off with no config workflows, no URL, and no selection', () => {
+      expect(comfyuiEnabled(cwd, {})).toBe(false);
+      expect(comfyuiEnabled(cwd, { PI_COMFYUI_WORKFLOWS: 'none' })).toBe(false);
+    });
+
+    test('turns on for config workflows, PI_COMFYUI_URL, or an explicit selection', () => {
+      expect(comfyuiEnabled(cwd, { PI_COMFYUI_URL: 'http://127.0.0.1:8188' })).toBe(true);
+      expect(comfyuiEnabled(cwd, { PI_COMFYUI_WORKFLOWS: 'default' })).toBe(true);
+      writeUser({ builtinWorkflows: ['krea2'] });
+      expect(comfyuiEnabled(cwd, {})).toBe(true);
+      writeUser({ workflows: { userwf: { file: 'u.json', inputs: {} } } });
+      expect(comfyuiEnabled(cwd, {})).toBe(true);
+    });
   });
 });
