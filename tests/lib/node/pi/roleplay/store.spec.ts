@@ -15,6 +15,9 @@ import {
   findEntry,
   formatRoleplayBlock,
   formatText,
+  isIsoDate,
+  isReservedSlug,
+  lastInteractionError,
   parseFrontmatter,
   removeEntry,
   renderIndexMd,
@@ -400,8 +403,101 @@ test('upsertEntry inserts, replaces, and sorts by id', () => {
 
 test('removeEntry drops the matching id', () => {
   const entries = [char('a'), char('b')];
-  expect(removeEntry(entries, 'a').map((e) => e.id)).toEqual(['b']);
-  expect(removeEntry(entries, 'missing')).toHaveLength(2);
+  expect(removeEntry(entries, 'character', 'a').map((e) => e.id)).toEqual(['b']);
+  expect(removeEntry(entries, 'character', 'missing')).toHaveLength(2);
+});
+
+test('upsertEntry / removeEntry key on kind + id, not id alone', () => {
+  const loreRhodes: RoleplayEntry = {
+    id: 'rhodes',
+    kind: 'lore',
+    name: 'Rhodes lore',
+    description: 'l',
+    lore: emptyLoreMeta(),
+  };
+  let entries = upsertEntry([char('rhodes', 'Rhodes')], loreRhodes);
+  expect(entries.map((e) => `${e.kind}/${e.id}`)).toEqual(['character/rhodes', 'lore/rhodes']);
+  entries = upsertEntry(entries, { ...loreRhodes, name: 'Rhodes lore v2' });
+  expect(entries).toHaveLength(2);
+  expect(entries.find((e) => e.kind === 'character')!.name).toBe('Rhodes');
+  expect(entries.find((e) => e.kind === 'lore')!.name).toBe('Rhodes lore v2');
+  const after = removeEntry(entries, 'lore', 'rhodes');
+  expect(after.map((e) => `${e.kind}/${e.id}`)).toEqual(['character/rhodes']);
+});
+
+test('unknown frontmatter keys round-trip through parse + serialize after the known keys', () => {
+  const raw = [
+    '---',
+    'name: Rhodes',
+    'description: An org',
+    'kind: lore',
+    'triggers: [Rhodes]',
+    'zeta: keep me',
+    'alpha: 3',
+    'flag: true',
+    'tags: [a, "b, c"]',
+    'meta: {nested: [1, 2], x: "y"}',
+    'note: "true"',
+    '---',
+    '',
+    'Body.',
+    '',
+  ].join('\n');
+  const parsed = parseFrontmatter(raw)!;
+  expect(parsed.frontmatter.lore!.triggers).toEqual(['Rhodes']);
+  const extra = parsed.frontmatter.extra!;
+  expect(Object.keys(extra)).toEqual(['zeta', 'alpha', 'flag', 'tags', 'meta', 'note']);
+  const out = serializeEntry({ ...parsed.frontmatter, body: parsed.body });
+  const header = out.split('\n---\n')[0];
+  expect(header.indexOf('triggers:')).toBeLessThan(header.indexOf('zeta:'));
+  expect(header.indexOf('zeta:')).toBeLessThan(header.indexOf('alpha:'));
+  const reparsed = parseFrontmatter(out)!;
+  expect(reparsed.frontmatter.extra).toStrictEqual(extra);
+  expect(reparsed.frontmatter.extra!.note).toBe('true');
+  expect(reparsed.body.trim()).toBe('Body.');
+});
+
+test('keys consumed by another kind are preserved as extra for this kind', () => {
+  const parsed = parseFrontmatter('---\nname: x\ndescription: y\nkind: summary\naffinity: 40\n---\nb\n')!;
+  expect(parsed.frontmatter.extra).toStrictEqual({ affinity: 40 });
+  expect(
+    parseFrontmatter('---\nname: x\ndescription: y\nkind: character\n---\nb\n')!.frontmatter.extra,
+  ).toBeUndefined();
+});
+
+test('extra keys never reach INDEX.md or the injected block', () => {
+  const entry: RoleplayEntry = { ...char('texas', 'Texas'), extra: { secretKey: 'hidden-value' } };
+  const state = { cast: 'pl', entries: [entry] };
+  expect(renderIndexMd(state)).not.toContain('hidden-value');
+  expect(formatRoleplayBlock(state)).not.toContain('hidden-value');
+  expect(cloneState(state).entries[0].extra).toStrictEqual({ secretKey: 'hidden-value' });
+});
+
+test('secondaryMode NOT_ALL round-trips through serialize + parse', () => {
+  const lore = { ...emptyLoreMeta(), triggers: ['a'], secondaryKeys: ['b', 'c'], secondaryMode: 'NOT_ALL' as const };
+  const out = serializeEntry({ name: 'L', description: 'd', kind: 'lore', body: 'x', lore });
+  expect(out).toContain('secondaryMode: NOT_ALL');
+  expect(parseFrontmatter(out)!.frontmatter.lore!.secondaryMode).toBe('NOT_ALL');
+  expect(parseFrontmatter(out.replace('NOT_ALL', 'not_all'))!.frontmatter.lore!.secondaryMode).toBe('NOT_ALL');
+});
+
+test('lastInteractionError accepts ISO dates and empty, rejects others', () => {
+  expect(lastInteractionError(undefined)).toBeNull();
+  expect(lastInteractionError('')).toBeNull();
+  expect(lastInteractionError('  ')).toBeNull();
+  expect(lastInteractionError('2024-02-29')).toBeNull();
+  expect(lastInteractionError('2024-02-30')).toContain('YYYY-MM-DD');
+  expect(lastInteractionError('yesterday')).toContain('YYYY-MM-DD');
+  expect(lastInteractionError('2024-1-5')).toContain('YYYY-MM-DD');
+  expect(isIsoDate('2023-12-31')).toBe(true);
+  expect(isIsoDate('2023-12-31T00:00:00Z')).toBe(false);
+});
+
+test('isReservedSlug guards only the summary / timeline carry-over slug', () => {
+  expect(isReservedSlug('summary', 'auto')).toBe(true);
+  expect(isReservedSlug('timeline', 'auto')).toBe(true);
+  expect(isReservedSlug('character', 'auto')).toBe(false);
+  expect(isReservedSlug('summary', 'auto-2')).toBe(false);
 });
 
 test('resolveEntry surfaces a helpful error and kind mismatch', () => {

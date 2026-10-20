@@ -278,9 +278,12 @@ describe('roleplay run-start runtime', () => {
     const original = structuredClone(event.message);
     const started = await harness.emit('before_agent_start', event, ctx);
     expect(JSON.stringify(started)).toContain('STATIC');
-    expect(JSON.stringify(started)).toContain('CHARACTER_BODY_MARKER');
+    // Name-triggered sheets ride a reminder, never the cached system prompt.
+    expect(JSON.stringify(started)).not.toContain('CHARACTER_BODY_MARKER');
     expect(JSON.stringify(started)).not.toContain('HARBOR_BODY_MARKER');
     const projected = await harness.project([event.message as ReminderMessage], ctx);
+    expect(JSON.stringify(projected)).toContain('roleplay-scene-fold');
+    expect(JSON.stringify(projected)).toContain('CHARACTER_BODY_MARKER');
     expect(JSON.stringify(projected)).toContain('roleplay-lore');
     expect(JSON.stringify(projected)).toContain('HARBOR_BODY_MARKER');
     expect(event.message).toEqual(original);
@@ -289,8 +292,9 @@ describe('roleplay run-start runtime', () => {
   test('user prompts still trigger scene folds and lore', async () => {
     const event = { ...USER_START, prompt: 'Alice visits harbor' };
     const started = await harness.emit('before_agent_start', event, ctx);
-    expect(JSON.stringify(started)).toContain('CHARACTER_BODY_MARKER');
+    expect(JSON.stringify(started)).not.toContain('CHARACTER_BODY_MARKER');
     const projected = await harness.project([{ role: 'user', content: event.prompt }], ctx);
+    expect(JSON.stringify(projected)).toContain('CHARACTER_BODY_MARKER');
     expect(JSON.stringify(projected)).toContain('HARBOR_BODY_MARKER');
   });
 
@@ -301,6 +305,7 @@ describe('roleplay run-start runtime', () => {
     const started = await harness.emit('before_agent_start', event, ctx);
     expect(JSON.stringify(started)).not.toContain('CHARACTER_BODY_MARKER');
     const projected = await harness.project([event.message as ReminderMessage], ctx);
+    expect(JSON.stringify(projected)).not.toContain('CHARACTER_BODY_MARKER');
     expect(JSON.stringify(projected)).not.toContain('HARBOR_BODY_MARKER');
   });
 

@@ -123,3 +123,39 @@ export function planCharacterFold(entries: readonly RoleplayEntry[], opts: Chara
   const pinnedIds = candidates.filter((c) => c.meta.pinned && firedSet.has(c.entry.id)).map((c) => c.entry.id);
   return { firedIds: timed.fired, pinnedIds, nextTiming: timed.nextState };
 }
+
+export interface FoldDeliveryOptions {
+  /** Name-triggered ids active (fired) this turn, in precedence order. */
+  activeIds: readonly string[];
+  /** Name-triggered ids that were active on the previous narrative turn. */
+  priorActiveIds: ReadonlySet<string>;
+  /** Narrative turn each id's sheet was last actually delivered on. */
+  lastDelivered: ReadonlyMap<string, number>;
+  /** Current narrative turn. */
+  turn: number;
+  /** Re-send a still-active sheet once this many turns have passed since its last delivery (>= 1). */
+  refreshTurns: number;
+}
+
+/**
+ * Pick which name-triggered sheets to (re)deliver as the per-run
+ * `roleplay-scene-fold` reminder this turn. A sheet already delivered and
+ * still sticky stays visible in an earlier reminder snapshot, so re-sending
+ * it every turn only bloats the conversation. An active id is selected when
+ * it (re)enters the active set (absent from `priorActiveIds`), was never
+ * delivered, or its last delivery is at least `refreshTurns` turns old.
+ * Returns ids in `activeIds` order, deduped. Pure.
+ */
+export function selectFoldDeliveries(opts: FoldDeliveryOptions): string[] {
+  const refresh = Math.max(1, Math.floor(opts.refreshTurns));
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const id of opts.activeIds) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const last = opts.lastDelivered.get(id);
+    const entered = !opts.priorActiveIds.has(id);
+    if (entered || last === undefined || opts.turn - last >= refresh) out.push(id);
+  }
+  return out;
+}

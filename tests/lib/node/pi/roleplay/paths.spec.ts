@@ -13,11 +13,13 @@ import { afterEach, beforeEach, expect, test } from 'vitest';
 import { existsSync } from 'node:fs';
 
 import {
+  appendTimelineCarryOver,
   archiveCarryOver,
   archiveFacts,
   archiveFile,
   atomicWriteFile,
   castDir,
+  entryFilePath,
   factFile,
   factsArchiveDir,
   fileFor,
@@ -30,12 +32,13 @@ import {
   readEntryBody,
   rebuildCast,
   removeFileIfExists,
+  resolveImportPath,
   portraitPath,
   scanCast,
   scanCastComplete,
   writeIndex,
 } from '../../../../../lib/node/pi/roleplay/paths.ts';
-import { serializeEntry } from '../../../../../lib/node/pi/roleplay/store.ts';
+import { emptyCharacterMeta, serializeEntry } from '../../../../../lib/node/pi/roleplay/store.ts';
 
 let root: string;
 
@@ -75,7 +78,9 @@ test('scanCast parses well-formed files and reports the cast empty otherwise', (
   writeChar('pl', 'exusiai', 'Exusiai', 'Voice: bright.');
   const { entries, warnings } = scanCast('pl', root);
   expect(warnings).toEqual([]);
-  expect(entries).toEqual([{ id: 'exusiai', kind: 'character', name: 'Exusiai', description: 'd exusiai' }]);
+  expect(entries).toEqual([
+    { id: 'exusiai', kind: 'character', name: 'Exusiai', description: 'd exusiai', character: emptyCharacterMeta() },
+  ]);
 });
 
 test('portraitPath builds <cast>/portraits/<slug>.png under the root', () => {
@@ -377,4 +382,73 @@ test('scanCast (runtime) loads a nested bundle token active-only and stays uncha
   const active = scanCast('pl', root, { loreBundles: ['home/brooklyn-brownstone'] });
   expect(active.entries.map((e) => `${e.bundle ?? ''}/${e.id}`)).toEqual(['/city', 'home/brooklyn-brownstone/layout']);
   expect(active.warnings).toEqual([]);
+});
+
+test('entryFilePath honors the bundle annotation', () => {
+  const base = { id: 'setting', kind: 'lore' as const };
+  expect(entryFilePath('pl', base, root)).toBe(fileFor('pl', 'lore', 'setting', root));
+  expect(entryFilePath('pl', { ...base, bundle: 'loft' }, root)).toBe(
+    join(loreBundleDir('pl', 'loft', root), 'setting.md'),
+  );
+  expect(entryFilePath('pl', { ...base, id: 'renamed', bundle: 'home/loft' }, root)).toBe(
+    join(root, 'casts', 'pl', 'lore', 'home', 'loft', 'renamed.md'),
+  );
+  expect(entryFilePath('pl', { id: 'texas', kind: 'character' }, root)).toBe(fileFor('pl', 'character', 'texas', root));
+});
+
+test('entryFilePath matches where readEntryBody reads bundle lore', () => {
+  writeBundleLore('pl', 'loft', 'setting', 'Setting', 'Loft city.');
+  const entry = { id: 'setting', kind: 'lore' as const, name: 'Setting', description: 'd', bundle: 'loft' };
+  expect(existsSync(entryFilePath('pl', entry, root))).toBe(true);
+  expect(readEntryBody('pl', entry, root)!.trim()).toBe('Loft city.');
+});
+
+test('scanCast carries character fold metadata and unknown keys', () => {
+  atomicWriteFile(
+    fileFor('pl', 'character', 'texas', root),
+    '---\nname: Texas\ndescription: d\nkind: character\naliases: [Tex]\ncustom: kept\n---\nbody\n',
+  );
+  const { entries } = scanCast('pl', root);
+  expect(entries[0].character!.aliases).toEqual(['Tex']);
+  expect(entries[0].extra).toStrictEqual({ custom: 'kept' });
+});
+
+test('resolveImportPath strips quotes, expands ~, resolves against baseDir, keeps inner spaces', () => {
+  expect(resolveImportPath('  card.png  ', '/work', '/home/u')).toBe('/work/card.png');
+  expect(resolveImportPath('"my  card.png"', '/work', '/home/u')).toBe('/work/my  card.png');
+  expect(resolveImportPath("'sub/x y.json'", '/work', '/home/u')).toBe('/work/sub/x y.json');
+  expect(resolveImportPath('~/cards/a.png', '/work', '/home/u')).toBe('/home/u/cards/a.png');
+  expect(resolveImportPath('/abs/a.png', '/work', '/home/u')).toBe('/abs/a.png');
+  expect(resolveImportPath('"mismatched\'', '/work', '/home/u')).toBe('/work/"mismatched\'');
+  expect(resolveImportPath('""', '/work', '/home/u')).toBe('');
+  expect(resolveImportPath('', '/work', '/home/u')).toBe('');
+});
+
+const timelineEntry = { id: 'auto', kind: 'timeline', name: '', description: '' } as const;
+
+test('appendTimelineCarryOver creates the log, then appends only new lines without rewriting', () => {
+  const opts = { maxChars: 1_000_000, ts: '20260101T000000Z', description: 'd' };
+  expect(appendTimelineCarryOver('pl', '- a\n- b', opts, root)).toStrictEqual({ appended: 2, rotated: false });
+  const path = fileFor('pl', 'timeline', 'auto', root);
+  const created = readFileSync(path, 'utf8');
+  expect(created).toContain('kind: timeline');
+  // Duplicates (normalized) are skipped; a no-op leaves the bytes alone.
+  expect(appendTimelineCarryOver('pl', '- A\n-  b', opts, root)).toStrictEqual({ appended: 0, rotated: false });
+  expect(readFileSync(path, 'utf8')).toBe(created);
+  expect(appendTimelineCarryOver('pl', '- b\n- c', opts, root)).toStrictEqual({ appended: 1, rotated: false });
+  // True append: the original bytes are an untouched prefix.
+  const after = readFileSync(path, 'utf8');
+  expect(after.startsWith(created)).toBe(true);
+  expect(after.slice(created.length)).toBe('- c\n');
+  expect(readEntryBody('pl', timelineEntry, root)).toBe('- a\n- b\n- c\n');
+});
+
+test('appendTimelineCarryOver rotates the older half into archive/ once over the cap', () => {
+  const opts = { maxChars: 120, ts: '20260101T000000Z', description: 'd' };
+  appendTimelineCarryOver('pl', '- beat one\n- beat two', opts, root);
+  const res = appendTimelineCarryOver('pl', '- beat three\n- beat four\n- beat five\n- beat six', opts, root);
+  expect(res).toStrictEqual({ appended: 4, rotated: true });
+  const archived = archiveFile('pl', 'timeline', '20260101T000000Z-rotated', root);
+  expect(readFileSync(archived, 'utf8')).toContain('- beat one\n- beat two\n- beat three\n');
+  expect(readEntryBody('pl', timelineEntry, root)?.trim()).toBe('- beat four\n- beat five\n- beat six');
 });

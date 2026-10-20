@@ -23,26 +23,41 @@ export interface BudgetResult {
   dropped: RoleplayEntry[];
 }
 
-/**
- * Rendered cost of a chunk, mirroring `renderChunk` / `formatLoreBlock` in
- * `prompt.ts`. Each kept chunk renders as `### {name}{constant}\n{body}`
- * and is joined to the preceding block with a blank line (`\n\n`), so the
- * framing has to be counted or kept lore can overflow `loreCharBudget`.
- */
-const LORE_HEADING_PREFIX = '### ';
-const LORE_CONSTANT_SUFFIX = ' (always-on)';
-const LORE_CHUNK_SEPARATOR = '\n\n';
+/** Heading line of the fired-lore block rendered by `formatLoreBlock` in `prompt.ts`. */
+export const LORE_BLOCK_HEADER = '## Roleplay lore (relevant to the current turn)';
+/** Separator between the header, each chunk, and the trailer. */
+export const LORE_BLOCK_SEPARATOR = '\n\n';
 
+/** Render one kept chunk as `### {name}{ (always-on)}\n{body}`. */
+export function renderLoreChunk(chunk: LoreChunk): string {
+  const constant = chunk.entry.lore?.constant ? ' (always-on)' : '';
+  return `### ${chunk.entry.name}${constant}\n${chunk.body.trim()}`;
+}
+
+/** Trailer noting entries dropped by the budget, or `null` when none were. */
+export function formatLoreTrailer(dropped: readonly RoleplayEntry[]): string | null {
+  if (dropped.length === 0) return null;
+  const names = dropped.map((e) => e.name).join(', ');
+  return `(lore budget reached; ${dropped.length} more entry(ies) not shown: ${names})`;
+}
+
+/**
+ * Rendered cost of a chunk inside the lore block: the rendered chunk plus
+ * the blank-line separator that joins it to the preceding block. Every
+ * chunk (including the first) follows something - the header or an earlier
+ * chunk - so the separator is always paid. The header itself (and the
+ * dropped-entries trailer, when present) is charged once by
+ * {@link selectWithinBudget}, so the whole block fits `charBudget` except
+ * when the always-kept top entry alone exceeds it.
+ */
 export function chunkCost(chunk: LoreChunk): number {
-  const constant = chunk.entry.lore?.constant ? LORE_CONSTANT_SUFFIX.length : 0;
-  return (
-    LORE_HEADING_PREFIX.length +
-    chunk.entry.name.length +
-    constant +
-    1 + // newline between heading and body
-    chunk.body.trim().length +
-    LORE_CHUNK_SEPARATOR.length
-  );
+  return LORE_BLOCK_SEPARATOR.length + renderLoreChunk(chunk).length;
+}
+
+/** Cost of the trailer for `dropped` (separator + text), or 0 when nothing dropped. */
+function trailerCost(dropped: readonly RoleplayEntry[]): number {
+  const trailer = formatLoreTrailer(dropped);
+  return trailer === null ? 0 : LORE_BLOCK_SEPARATOR.length + trailer.length;
 }
 
 /** Rank fired lore: higher `order` first, then name A->Z, then id for stability. */
@@ -58,16 +73,20 @@ export function rankLore(chunks: readonly LoreChunk[]): LoreChunk[] {
 }
 
 /**
- * Rank then evict to fit `charBudget`. The first (highest-priority) chunk
- * is always kept regardless of budget; subsequent chunks are dropped once
- * the running total would exceed the cap. Dropped entries are returned in
+ * Rank then evict to fit `charBudget`, measured against the full rendered
+ * block (header + chunks + separators + dropped trailer). The first
+ * (highest-priority) chunk is always kept regardless of budget; later
+ * chunks are dropped once the running total would exceed the cap. If the
+ * resulting trailer then overflows, the lowest-ranked kept chunks are
+ * evicted (never the first) until it fits. Dropped entries are returned in
  * rank order so the caller can surface a trailer.
  */
 export function selectWithinBudget(chunks: readonly LoreChunk[], charBudget: number): BudgetResult {
   const ranked = rankLore(chunks);
+  const rankOf = new Map(ranked.map((c, i) => [c.entry.id, i]));
   const kept: LoreChunk[] = [];
-  const dropped: RoleplayEntry[] = [];
-  let used = 0;
+  let dropped: RoleplayEntry[] = [];
+  let used = LORE_BLOCK_HEADER.length;
   for (const chunk of ranked) {
     const cost = chunkCost(chunk);
     if (kept.length > 0 && used + cost > charBudget) {
@@ -76,6 +95,12 @@ export function selectWithinBudget(chunks: readonly LoreChunk[], charBudget: num
     }
     kept.push(chunk);
     used += cost;
+  }
+  while (dropped.length > 0 && kept.length > 1 && used + trailerCost(dropped) > charBudget) {
+    const evicted = kept.pop();
+    if (!evicted) break;
+    used -= chunkCost(evicted);
+    dropped = [...dropped, evicted.entry].toSorted((a, b) => (rankOf.get(a.id) ?? 0) - (rankOf.get(b.id) ?? 0));
   }
   return { kept, dropped };
 }

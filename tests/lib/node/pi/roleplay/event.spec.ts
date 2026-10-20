@@ -153,6 +153,23 @@ test('pickDeckEvent draws deterministically and skips blanks', () => {
   expect(pickDeckEvent([' x ', 'y'], () => 0)).toBe('x');
 });
 
+test('pickDeckEvent applies the eventMaxChars cap when given', () => {
+  const long = 'D'.repeat(500);
+  expect(pickDeckEvent([long], () => 0)).toBe(long);
+  const capped = pickDeckEvent([long], () => 0, 40);
+  expect(capped?.length).toBe(40);
+  expect(capped?.endsWith('…')).toBe(true);
+  expect(pickDeckEvent(['short'], () => 0, 40)).toBe('short');
+});
+
+test('validateEvent rejects null sentinel variants (case, quotes, punctuation, None)', () => {
+  for (const raw of ['NULL', 'Null', 'null.', '"null"', "'null'", '`null`', '*null*', 'None', 'none.', ' (null) ']) {
+    expect(validateEvent(raw, 100)).toBeNull();
+  }
+  expect(validateEvent('Nullification looms.', 100)).toBe('Nullification looms.');
+  expect(validateEvent('None of the guards notice.', 100)).toBe('None of the guards notice.');
+});
+
 test('validateEvent trims, rejects empty/null, truncates over-cap', () => {
   expect(validateEvent('   ', 100)).toBeNull();
   expect(validateEvent('null', 100)).toBeNull();

@@ -6,8 +6,14 @@
 
 import { expect, test } from 'vitest';
 
-import { expandRecursive, MAX_RECURSION_CAP } from '../../../../../lib/node/pi/roleplay/recursion.ts';
+import {
+  expandMatchedRecursive,
+  expandRecursive,
+  MAX_RECURSION_CAP,
+} from '../../../../../lib/node/pi/roleplay/recursion.ts';
+import { matchLore } from '../../../../../lib/node/pi/roleplay/match.ts';
 import { emptyLoreMeta, type LoreMeta, type RoleplayEntry } from '../../../../../lib/node/pi/roleplay/store.ts';
+import { applyTiming } from '../../../../../lib/node/pi/roleplay/timing.ts';
 
 const lore = (id: string, meta: Partial<LoreMeta>, body = ''): { entry: RoleplayEntry; body: string } => ({
   entry: {
@@ -69,4 +75,33 @@ test('maxRecursion is clamped to MAX_RECURSION_CAP', () => {
   // Requesting 99 passes must not exceed the cap (only a,b,c exist anyway).
   const out = expandRecursive([all[0]], all, { bodyOf, maxRecursion: 99 });
   expect(out.map((e) => e.id).sort()).toStrictEqual(['a', 'b', 'c']);
+});
+
+// ── expandMatchedRecursive (pre-timing) ──────────────────────────────────
+
+test('expandMatchedRecursive returns the matched id union from keyword matches', () => {
+  const { all, bodyOf } = fixture();
+  const initial = matchLore(all, 'Alpha arrives.');
+  expect([...expandMatchedRecursive(initial, all, { bodyOf, maxRecursion: 2 })].sort()).toStrictEqual(['a', 'b', 'c']);
+  expect([...expandMatchedRecursive(initial, all, { bodyOf, maxRecursion: 0 })]).toStrictEqual(['a']);
+  expect([...expandMatchedRecursive([], all, { bodyOf, maxRecursion: 2 })]).toStrictEqual([]);
+});
+
+test('recursive matches then go through timing (cooldown / probability are honored)', () => {
+  const { all, bodyOf } = fixture();
+  // b is on cooldown and c never passes its probability roll.
+  const pool = all.map((e) => {
+    if (e.id !== 'c' || !e.lore) return e;
+    const copy = structuredClone(e);
+    if (copy.lore) copy.lore.probability = 0;
+    return copy;
+  });
+  const matched = expandMatchedRecursive(matchLore(pool, 'Alpha arrives.'), pool, { bodyOf, maxRecursion: 2 });
+  const timed = applyTiming(
+    pool.map((e) => ({ id: e.id, meta: e.lore ?? emptyLoreMeta(), matched: matched.has(e.id) })),
+    1,
+    { b: { stickyUntil: 0, cooldownUntil: 5 } },
+    () => 0,
+  );
+  expect(timed.fired).toStrictEqual(['a']);
 });

@@ -20,6 +20,9 @@ import {
   MIN_REPETITION_NGRAM,
   MIN_SUMMARY_CHARS,
   MIN_TIMELINE_INJECT_CHARS,
+  MIN_TIMELINE_FILE_CHARS,
+  MIN_TIMELINE_MEMORY_CHARS,
+  MAX_SCENE_FOLD_REFRESH,
 } from '../../../../../lib/node/pi/roleplay/config.ts';
 
 test('coerceConfigLayer accepts a valid charBudget and floors it', () => {
@@ -174,4 +177,23 @@ test('loadRoleplayConfig accepts an explicit PI_ROLEPLAY_RECAP_STRIDE of 0 (mean
     if (prev === undefined) delete process.env.PI_ROLEPLAY_RECAP_STRIDE;
     else process.env.PI_ROLEPLAY_RECAP_STRIDE = prev;
   }
+});
+
+test('coerceConfigLayer validates scene-fold delivery + refresh cadence', () => {
+  expect(DEFAULT_CONFIG.sceneFoldDelivery).toBe('reminder');
+  expect(DEFAULT_CONFIG.sceneFoldRefreshTurns).toBe(6);
+  expect(coerceConfigLayer({ sceneFoldDelivery: 'system' }).sceneFoldDelivery).toBe('system');
+  expect(coerceConfigLayer({ sceneFoldDelivery: 'bogus' }).sceneFoldDelivery).toBeUndefined();
+  expect(coerceConfigLayer({ sceneFoldRefreshTurns: 0 }).sceneFoldRefreshTurns).toBe(1);
+  expect(coerceConfigLayer({ sceneFoldRefreshTurns: 3.7 }).sceneFoldRefreshTurns).toBe(3);
+  expect(coerceConfigLayer({ sceneFoldRefreshTurns: 1e6 }).sceneFoldRefreshTurns).toBe(MAX_SCENE_FOLD_REFRESH);
+});
+
+test('coerceConfigLayer floors the timeline file + memory caps', () => {
+  expect(DEFAULT_CONFIG.timelineFileMaxChars).toBe(65536);
+  expect(DEFAULT_CONFIG.timelineMemoryMaxChars).toBe(32768);
+  expect(coerceConfigLayer({ timelineFileMaxChars: 10 }).timelineFileMaxChars).toBe(MIN_TIMELINE_FILE_CHARS);
+  expect(coerceConfigLayer({ timelineFileMaxChars: 9000 }).timelineFileMaxChars).toBe(9000);
+  expect(coerceConfigLayer({ timelineMemoryMaxChars: 1 }).timelineMemoryMaxChars).toBe(MIN_TIMELINE_MEMORY_CHARS);
+  expect(coerceConfigLayer({ timelineMemoryMaxChars: 'x' }).timelineMemoryMaxChars).toBeUndefined();
 });

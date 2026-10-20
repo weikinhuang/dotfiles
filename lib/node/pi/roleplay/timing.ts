@@ -15,8 +15,12 @@
  *   - `cooldown`    - after its active window ends it cannot fire again
  *                     for `cooldown` turns.
  *   - `group`       - among entries that fired this turn sharing a
- *                     non-empty group, only ONE survives, chosen by a
- *                     `groupWeight`-weighted random pick.
+ *                     non-empty group, only ONE survives. A sticky carry
+ *                     (already active from a prior fire) is the incumbent
+ *                     and wins outright (several carries: highest
+ *                     `groupWeight`, then id A->Z); otherwise the winner is
+ *                     a `groupWeight`-weighted random pick. Losers do not
+ *                     arm sticky/cooldown.
  *
  * State per entry is two turn numbers, `{ stickyUntil, cooldownUntil }`,
  * both set once at a fresh fire to span the whole sticky+cooldown window -
@@ -25,8 +29,10 @@
  *
  * Determinism: all randomness comes from the injected `rng`. Draw order
  * is fixed - probability rolls in entry order first, then one group pick
- * per contested group in sorted group-name order - so tests with a
- * scripted rng are stable. No pi imports.
+ * per contested group (2+ fired members and NO sticky carry among them)
+ * in sorted group-name order - so tests with a scripted rng are stable.
+ * A group resolved by an incumbent carry consumes no rng draw. No pi
+ * imports.
  */
 
 import type { LoreMeta } from './store.ts';
@@ -78,12 +84,13 @@ export function applyTiming(
 ): TimingResult {
   // Pass 1: per-entry fire decision + tentative next state (entry order, so
   // probability draws are deterministic).
-  const decisions = new Map<string, { fires: boolean; state: TimingState }>();
+  const decisions = new Map<string, { fires: boolean; carry: boolean; state: TimingState }>();
   for (const { id, meta, matched } of entries) {
     // An author kill-switch also defeats constant/sticky activation and clears carried timing state.
     if (meta.enabled === false) continue;
     const st = prior[id] ?? ZERO;
     let fires = false;
+    let carry = false;
     let next: TimingState = { stickyUntil: st.stickyUntil, cooldownUntil: st.cooldownUntil };
 
     if (turn < meta.delay) {
@@ -91,6 +98,7 @@ export function applyTiming(
     } else if (st.stickyUntil > turn) {
       // Sticky carry: stay active, keep the window untouched.
       fires = true;
+      carry = true;
     } else if (turn >= st.cooldownUntil && (matched || meta.constant)) {
       fires = rollProbability(meta.probability, rng);
       if (fires && (meta.sticky > 0 || meta.cooldown > 0)) {
@@ -98,12 +106,15 @@ export function applyTiming(
         next = { stickyUntil, cooldownUntil: stickyUntil + meta.cooldown };
       }
     }
-    decisions.set(id, { fires, state: next });
+    decisions.set(id, { fires, carry, state: next });
   }
 
-  // Pass 2: inclusion groups - among fired members of a group keep one,
-  // weighted by groupWeight. Losers revert to their prior state (they did
-  // not really fire, so they must not arm sticky/cooldown).
+  // Pass 2: inclusion groups - among fired members of a group keep one.
+  // A sticky carry is the incumbent and wins without an rng draw (several
+  // carries: highest groupWeight, then id); otherwise pick weighted by
+  // groupWeight. Losers revert to their prior state (they did not really
+  // fire, so they must not arm sticky/cooldown). A losing carry (only when
+  // several carries share a group) keeps its window, which equals prior.
   const groups = new Map<string, string[]>();
   for (const { id, meta } of entries) {
     const decision = decisions.get(id);
@@ -116,10 +127,14 @@ export function applyTiming(
   for (const groupName of [...groups.keys()].sort()) {
     const members = groups.get(groupName) ?? [];
     if (members.length < 2) continue;
-    const weights = members.map((id) => Math.max(0, metaById.get(id)?.groupWeight ?? 0));
+    const weightOf = (id: string): number => Math.max(0, metaById.get(id)?.groupWeight ?? 0);
+    const carries = members.filter((id) => decisions.get(id)?.carry === true);
+    const weights = members.map(weightOf);
     const total = weights.reduce((a, b) => a + b, 0);
     let winner = members[0];
-    if (total > 0) {
+    if (carries.length > 0) {
+      winner = carries.toSorted((a, b) => weightOf(b) - weightOf(a) || a.localeCompare(b))[0];
+    } else if (total > 0) {
       let r = rng() * total;
       for (let i = 0; i < members.length; i += 1) {
         r -= weights[i];
@@ -131,7 +146,7 @@ export function applyTiming(
     }
     for (const id of members) {
       if (id === winner) continue;
-      decisions.set(id, { fires: false, state: prior[id] ?? ZERO });
+      decisions.set(id, { fires: false, carry: false, state: prior[id] ?? ZERO });
     }
   }
 

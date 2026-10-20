@@ -120,25 +120,41 @@ export function isCurrentEventCapture(params: {
 /**
  * Pick a deck entry at random (the no-model fallback). Returns
  * `undefined` for an empty / all-blank deck so the caller can report
- * that nothing is available.
+ * that nothing is available. When `maxChars` is given, the pick is
+ * truncated to it (the same `eventMaxChars` cap generated events get).
  */
-export function pickDeckEvent(deck: readonly string[], rng: () => number = Math.random): string | undefined {
+export function pickDeckEvent(
+  deck: readonly string[],
+  rng: () => number = Math.random,
+  maxChars?: number,
+): string | undefined {
   const items = deck.map((s) => s.trim()).filter((s) => s.length > 0);
   if (items.length === 0) return undefined;
   const idx = Math.min(items.length - 1, Math.max(0, Math.floor(rng() * items.length)));
-  return items[idx];
+  const item = items[idx];
+  return maxChars !== undefined && item.length > maxChars ? truncate(item, maxChars) : item;
+}
+
+/** Words a generator may emit to mean "no event" (compared case-insensitively). */
+const NULL_SENTINELS = new Set(['null', 'none']);
+
+/** True when `text` is a `null` / `None` sentinel, ignoring case, quotes, and edge punctuation. */
+export function isNullEventSentinel(text: string): boolean {
+  const core = text.replace(/^[\s\p{P}\p{S}]+|[\s\p{P}\p{S}]+$/gu, '').toLowerCase();
+  return NULL_SENTINELS.has(core);
 }
 
 /**
  * Validate a generated event. Returns the trimmed text, or `null` for an
- * empty response or the literal `null` sentinel. An over-long response
+ * empty response or a `null` sentinel (case-insensitive, tolerating
+ * surrounding quotes / punctuation, and `None`). An over-long response
  * is truncated to `maxChars` (a complication is meant to be a one-liner,
  * so a slightly long one is still usable - unlike a recap, which is
  * dropped wholesale).
  */
 export function validateEvent(raw: string, maxChars: number): string | null {
   const trimmed = raw.trim();
-  if (trimmed.length === 0 || trimmed === 'null') return null;
+  if (trimmed.length === 0 || isNullEventSentinel(trimmed)) return null;
   return trimmed.length > maxChars ? truncate(trimmed, maxChars) : trimmed;
 }
 

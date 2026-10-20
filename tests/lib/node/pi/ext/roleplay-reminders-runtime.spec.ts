@@ -23,7 +23,13 @@ import type { ReminderMessage } from '../../../../../lib/node/pi/context-reminde
 import { REMINDER_CAPABILITIES } from '../../../../../lib/node/pi/reminder-lifecycle.ts';
 import { clearActivePersona, setActivePersona } from '../../../../../lib/node/pi/persona/active.ts';
 import { readReminderSnapshots, REMINDER_SNAPSHOT_TYPE } from '../../../../../lib/node/pi/reminder-lifecycle.ts';
-import { emptyLoreMeta, serializeEntry, type LoreMeta } from '../../../../../lib/node/pi/roleplay/store.ts';
+import {
+  emptyCharacterMeta,
+  emptyLoreMeta,
+  serializeEntry,
+  type CharacterMeta,
+  type LoreMeta,
+} from '../../../../../lib/node/pi/roleplay/store.ts';
 import type * as eventModule from '../../../../../lib/node/pi/roleplay/event.ts';
 
 // Scene events use the real command/deck/consume lifecycle, but never launch a child model.
@@ -118,6 +124,8 @@ function text(message: Message): string {
 
 interface Harness {
   lore: (id: string, body: string, meta?: Partial<LoreMeta>) => void;
+  character: (id: string, name: string, body: string, meta?: Partial<CharacterMeta>) => void;
+  systemPrompt: () => string;
   start: (message: Message) => Promise<void>;
   request: (history: Message[], pause?: () => Promise<void>) => Promise<Message[]>;
   aborts: () => number;
@@ -143,6 +151,8 @@ async function harness(
     failSanitizer?: boolean;
     confirmReveal?: boolean;
     memory?: boolean;
+    sceneFoldDelivery?: 'reminder' | 'system';
+    sceneFoldRefreshTurns?: number;
   } = {},
 ): Promise<Harness> {
   const dir = mkdtempSync(join(tmpdir(), 'roleplay-reminder-runtime-'));
@@ -169,6 +179,8 @@ async function harness(
       imageMode: 'off',
       depthLoreInlineTail: options.inline ?? true,
       events: ['QUEUED_EVENT_MARKER'],
+      ...(options.sceneFoldDelivery ? { sceneFoldDelivery: options.sceneFoldDelivery } : {}),
+      ...(options.sceneFoldRefreshTurns ? { sceneFoldRefreshTurns: options.sceneFoldRefreshTurns } : {}),
     }),
   );
   setActivePersona({
@@ -195,6 +207,20 @@ async function harness(
         kind: 'lore',
         body,
         lore: { ...emptyLoreMeta(), ...meta },
+      }),
+    );
+  };
+  const character = (id: string, name: string, body: string, meta?: Partial<CharacterMeta>): void => {
+    const path = join(agentDir, 'roleplay', 'casts', 'runtime-fixture', 'character', `${id}.md`);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(
+      path,
+      serializeEntry({
+        name,
+        description: `${name} fixture`,
+        kind: 'character',
+        body,
+        ...(meta ? { character: { ...emptyCharacterMeta(), ...meta } } : {}),
       }),
     );
   };
@@ -333,6 +359,8 @@ async function harness(
   shutdowns.push(() => dispatch('session_shutdown', { type: 'session_shutdown' }));
   return {
     lore,
+    character,
+    systemPrompt: () => systemPrompt,
     start,
     request,
     dispatch,
@@ -765,3 +793,81 @@ test.each(['sanitizer', 'oversize'] as const)(
     expect(h.records()).toEqual([]);
   },
 );
+
+test('name-triggered character folds ride a reminder and never change the system prompt', async () => {
+  const h = await harness({ sceneFoldRefreshTurns: 3 });
+  h.character('mira', 'Mira', 'MIRA_SHEET {{random:alpha,beta}}');
+  await h.command('roleplay', 'rescan');
+  const quiet = user('quiet scene', 1);
+  await h.start(quiet);
+  await h.request([quiet]);
+  const baseline = h.systemPrompt();
+  expect(baseline).not.toContain('MIRA_SHEET');
+
+  const enter = user('Mira walks in', 2);
+  await h.start(enter);
+  expect(h.systemPrompt()).toBe(baseline);
+  const first = await h.request([quiet, enter]);
+  expect(text(first[0])).not.toContain('MIRA_SHEET');
+  const fold = snapshots(first).find((message) => text(message).includes('id="roleplay-scene-fold"'));
+  expect(fold && text(fold)).toContain('### Mira\nMIRA_SHEET alpha');
+  expect(
+    h
+      .records()
+      .at(-1)
+      ?.specs.map((spec) => spec.id),
+  ).toContain('roleplay-scene-fold');
+
+  // Still sticky on the next turn: no re-send until the refresh cadence.
+  const folds = (): number =>
+    h.records().filter((record) => record.specs.some((spec) => spec.id === 'roleplay-scene-fold')).length;
+  expect(folds()).toBe(1);
+  const history = [quiet, enter];
+  for (const [i, line] of ['Mira sits', 'Mira waits'].entries()) {
+    const next = user(line, 3 + i);
+    history.push(next);
+    await h.start(next);
+    expect(h.systemPrompt()).toBe(baseline);
+    await h.request(history);
+    expect(folds()).toBe(1);
+  }
+  // Third turn since delivery reaches `sceneFoldRefreshTurns: 3` -> refreshed.
+  const refresh = user('Mira laughs', 5);
+  history.push(refresh);
+  await h.start(refresh);
+  expect(h.systemPrompt()).toBe(baseline);
+  await h.request(history);
+  expect(folds()).toBe(2);
+});
+
+test('legacy sceneFoldDelivery=system folds name-triggered sheets into the system prompt', async () => {
+  const h = await harness({ sceneFoldDelivery: 'system' });
+  h.character('mira', 'Mira', 'MIRA_SHEET');
+  await h.command('roleplay', 'rescan');
+  const enter = user('Mira walks in', 1);
+  await h.start(enter);
+  expect(h.systemPrompt()).toContain('## Roleplay scene');
+  expect(h.systemPrompt()).toContain('MIRA_SHEET');
+  const first = await h.request([enter]);
+  expect(JSON.stringify(snapshots(first))).not.toContain('roleplay-scene-fold');
+});
+
+test('suppressed reminders fall back to system-prompt folds so sheets never vanish', async () => {
+  const h = await harness({ disableCache: true });
+  h.character('mira', 'Mira', 'MIRA_SHEET');
+  await h.command('roleplay', 'rescan');
+  await h.start(user('Mira walks in', 1));
+  expect(h.systemPrompt()).toContain('MIRA_SHEET');
+});
+
+test('volatile macros in system-prompt scene sheets resolve byte-stably across turns', async () => {
+  const h = await harness();
+  h.character('lead', 'Lead', 'LEAD {{random:a,b,c,d,e,f,g,h}} {{roll:1d1000}} {{time}} {{date}}', { pinned: true });
+  await h.command('roleplay', 'rescan');
+  await h.start(user('first', 1));
+  const first = h.systemPrompt();
+  expect(first).toMatch(/LEAD [a-h] \d+ \d\d:\d\d \d{4}-\d\d-\d\d/);
+  vi.mocked(Math.random).mockReturnValue(0.99);
+  await h.start(user('second', 2));
+  expect(h.systemPrompt()).toBe(first);
+});

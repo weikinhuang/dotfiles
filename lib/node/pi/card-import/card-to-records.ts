@@ -10,16 +10,43 @@
  *     first message / example dialogue, plus system prompt, post-history
  *     instructions, and alternate greetings folded in as labelled
  *     sections), and
- *   - one `lore` record per `character_book` entry (keys -> triggers,
- *     secondary keys + selective logic -> secondary gate, constant /
- *     insertion_order preserved).
+ *   - one `lore` record per non-empty `character_book` entry.
+ *
+ * Lore field mapping (ST reads most knobs from `entry.extensions`, with a
+ * flat fallback for older books; we do the same):
+ *   - `keys` -> `triggers`; `secondary_keys` (only when `selective`) ->
+ *     `secondaryKeys`; `constant`, `insertion_order` -> `order`.
+ *   - `selectiveLogic` (default 0): 0 AND_ANY -> 'OR', 1 NOT_ALL ->
+ *     'NOT_ALL' (suppress only when ALL secondaries are present),
+ *     2 NOT_ANY -> 'NOT', 3 AND_ALL -> 'AND'.
+ *   - `extensions.position === 4` (ST "at depth") -> `depth` from
+ *     `extensions.depth` (default 4). Other positions leave `depth` unset.
+ *   - `probability` (unless `useProbability === false`), `sticky`,
+ *     `cooldown`, `delay`, `group`, `group_weight` copied when numeric /
+ *     string.
+ *   - `enabled: false` -> `enabled: false` (store kill-switch) rather than
+ *     dropping the entry, so it can be re-enabled in place.
+ *   - `recurse` stays false: ST has no positive recursion opt-in per entry
+ *     (`exclude_recursion` / `prevent_recursion` only opt out of a global
+ *     default), so we keep the store's conservative opt-in default.
+ *   - Knobs we cannot honor (regex-literal keys, `case_sensitive: true`,
+ *     `match_whole_words: false`) are imported anyway with a warning, since
+ *     the store matches literally, whole-word, case-insensitively.
+ *
+ * V3 `nickname` becomes the character record's `aliases`.
  *
  * Persona generation (system_prompt -> persona append, greetings ->
  * persona `openers`) is deferred to Phase 5; for now those fields ride
  * along inside the character body so nothing is lost on import.
  */
 
-import { emptyLoreMeta, type LoreMeta, type RoleplayKind } from '../roleplay/store.ts';
+import {
+  emptyCharacterMeta,
+  emptyLoreMeta,
+  type CharacterMeta,
+  type LoreMeta,
+  type RoleplayKind,
+} from '../roleplay/store.ts';
 import { isRecord } from '../shared.ts';
 
 export interface ImportRecord {
@@ -28,6 +55,8 @@ export interface ImportRecord {
   description: string;
   body: string;
   lore?: LoreMeta;
+  /** Character-fold metadata (e.g. V3 `nickname` -> `aliases`); character records only. */
+  character?: CharacterMeta;
 }
 
 export interface ImportPlan {
@@ -53,10 +82,17 @@ interface NormalizedLore {
   delay: number;
   group: string;
   groupWeight: number;
+  /** Insertion depth when ST placement is "at depth" (position 4); else undefined. */
+  depth: number | undefined;
+  /** Semantics-changing knobs we cannot honor, for warnings. */
+  caseSensitive: boolean;
+  matchWholeWords: boolean;
 }
 
 export interface NormalizedCard {
   name: string;
+  /** V3 `nickname`; '' when absent. */
+  nickname: string;
   description: string;
   personality: string;
   scenario: string;
@@ -115,7 +151,7 @@ function normalizeLoreEntry(raw: unknown): NormalizedLore {
   return {
     keys: strArray(e.keys),
     secondaryKeys: strArray(e.secondary_keys),
-    selectiveLogic: num(e.selectiveLogic, 3),
+    selectiveLogic: num(pick('selectiveLogic'), 0),
     selective: bool(e.selective, false),
     constant: bool(e.constant, false),
     insertionOrder: num(e.insertion_order, 0),
@@ -129,6 +165,11 @@ function normalizeLoreEntry(raw: unknown): NormalizedLore {
     delay: num(pick('delay'), 0),
     group: str(pick('group')),
     groupWeight: num(pick('groupWeight') ?? pick('group_weight'), 100),
+    // Only the spec-compliant extension field: flat `position` is the V2
+    // 'before_char' / 'after_char' string, never a depth placement.
+    depth: ext.position === 4 ? Math.max(0, Math.floor(num(ext.depth, 4))) : undefined,
+    caseSensitive: pick('case_sensitive') === true,
+    matchWholeWords: pick('match_whole_words') !== false,
   };
 }
 
@@ -150,6 +191,7 @@ export function normalizeCard(input: unknown): NormalizedCard | { error: string 
 
   const card: NormalizedCard = {
     name,
+    nickname: str(d.nickname).trim(),
     description: str(d.description),
     personality: str(d.personality),
     scenario: str(d.scenario),
@@ -199,17 +241,40 @@ function composeCharacterBody(card: NormalizedCard): string {
   return sections.join('\n\n');
 }
 
-/** ST `selectiveLogic` -> our coarse secondary mode. */
+/**
+ * ST `selectiveLogic` -> our secondary mode (exact for every ST value).
+ * Unknown values fall back to ST's default, 0 (AND_ANY).
+ */
 function secondaryMode(logic: number): LoreMeta['secondaryMode'] {
   switch (logic) {
-    case 0: // AND ANY
-      return 'OR';
-    case 1: // NOT ALL
-    case 2: // NOT ANY
+    case 1: // NOT_ALL
+      return 'NOT_ALL';
+    case 2: // NOT_ANY
       return 'NOT';
-    default: // 3 = AND ALL (and unknown)
+    case 3: // AND_ALL
       return 'AND';
+    default: // 0 = AND_ANY (and unknown)
+      return 'OR';
   }
+}
+
+/** ST treats a key written as `/pattern/flags` as a regex; we match it literally. */
+const REGEX_KEY = /^\/.+\/[a-z]*$/;
+
+function entryLabel(entry: NormalizedLore, index: number): string {
+  return `lore entry ${index + 1} ("${entry.comment || entry.name || entry.keys[0] || '?'}")`;
+}
+
+/** Warnings for entry knobs that change matching semantics but cannot be honored. */
+function fidelityWarnings(entry: NormalizedLore, index: number, meta: LoreMeta): string[] {
+  const label = entryLabel(entry, index);
+  const out: string[] = [];
+  if ([...meta.triggers, ...meta.secondaryKeys].some((k) => REGEX_KEY.test(k))) {
+    out.push(`${label} has regex keys; they will be matched as literal text`);
+  }
+  if (entry.caseSensitive) out.push(`${label} is case-sensitive; matching will be case-insensitive`);
+  if (!entry.matchWholeWords) out.push(`${label} disables whole-word matching; matching will be whole-word`);
+  return out;
 }
 
 function loreFromEntry(entry: NormalizedLore, index: number): ImportRecord {
@@ -225,6 +290,8 @@ function loreFromEntry(entry: NormalizedLore, index: number): ImportRecord {
   meta.delay = Math.max(0, Math.floor(entry.delay));
   meta.group = entry.group.trim();
   meta.groupWeight = Math.max(0, Math.floor(entry.groupWeight));
+  if (entry.depth !== undefined) meta.depth = entry.depth;
+  meta.enabled = entry.enabled;
   const name = entry.comment.trim() || entry.name.trim() || entry.keys[0] || `lore ${index + 1}`;
   const description =
     entry.comment.trim() || (entry.keys.length > 0 ? `triggers: ${entry.keys.join(', ')}` : 'imported lore');
@@ -233,8 +300,9 @@ function loreFromEntry(entry: NormalizedLore, index: number): ImportRecord {
 
 /**
  * Map a normalized card to an import plan: one `character` record plus a
- * `lore` record per enabled `character_book` entry. Disabled or
- * empty-content book entries are skipped with a warning.
+ * `lore` record per non-empty `character_book` entry. Disabled entries are
+ * kept with `enabled: false`; empty-content entries are skipped with a
+ * warning.
  */
 export function cardToRecords(card: NormalizedCard): ImportPlan {
   const warnings: string[] = [];
@@ -247,15 +315,18 @@ export function cardToRecords(card: NormalizedCard): ImportPlan {
     firstLine(card.personality) ||
     firstLine(card.description) ||
     'imported character card';
-  records.push({ kind: 'character', name: card.name, description, body: charBody || `(imported card "${card.name}")` });
+  const charRec: ImportRecord = {
+    kind: 'character',
+    name: card.name,
+    description,
+    body: charBody || `(imported card "${card.name}")`,
+  };
+  if (card.nickname.length > 0 && card.nickname.toLowerCase() !== card.name.toLowerCase()) {
+    charRec.character = { ...emptyCharacterMeta(), aliases: [card.nickname] };
+  }
+  records.push(charRec);
 
   card.characterBook.forEach((entry, i) => {
-    if (!entry.enabled) {
-      warnings.push(
-        `lore entry ${i + 1} ("${entry.comment || entry.name || entry.keys[0] || '?'}") is disabled; skipped`,
-      );
-      return;
-    }
     if (entry.content.trim().length === 0) {
       warnings.push(`lore entry ${i + 1} has no content; skipped`);
       return;
@@ -265,7 +336,10 @@ export function cardToRecords(card: NormalizedCard): ImportPlan {
         `lore entry ${i + 1} ("${entry.comment || entry.name || '?'}") has no keys and is not constant; it will never fire`,
       );
     }
-    records.push(loreFromEntry(entry, i));
+    const rec = loreFromEntry(entry, i);
+    if (rec.lore) warnings.push(...fidelityWarnings(entry, i, rec.lore));
+    if (!entry.enabled) warnings.push(`${entryLabel(entry, i)} is disabled; imported with enabled: false`);
+    records.push(rec);
   });
 
   return { characterName: card.name, records, warnings };

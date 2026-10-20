@@ -158,6 +158,39 @@ export function appendBeatBody(existing: string, add: string): string {
   return existing.trim() ? `${existing.trimEnd()}\n${add}` : add;
 }
 
+/**
+ * Cap a cumulative beat log to its most-recent whole lines whose joined
+ * length fits `maxChars` (oldest lines dropped first, chronological order
+ * kept). The newest line is always kept even when it alone overflows, so a
+ * non-empty log never caps to nothing. Returns the input unchanged when it
+ * already fits. Bounds the in-memory `timelineText`; injection caps
+ * separately via {@link renderTimelineBlock}.
+ */
+export function capBeatLog(body: string, maxChars: number): string {
+  if (body.length <= maxChars) return body;
+  const lines = parseBeatLog(body);
+  let used = 0;
+  let start = lines.length;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const cost = lines[i].length + (start < lines.length ? 1 : 0);
+    if (start < lines.length && used + cost > maxChars) break;
+    used += cost;
+    start = i;
+  }
+  return lines.slice(start).join('\n');
+}
+
+/**
+ * Split a beat log into its older and newer halves by line count (the
+ * extra line of an odd count stays with the newer half). Used to rotate an
+ * oversized carry-over log: `older` is archived, `newer` stays live.
+ */
+export function splitBeatLogHalves(body: string): { older: string; newer: string } {
+  const lines = parseBeatLog(body);
+  const half = Math.floor(lines.length / 2);
+  return { older: lines.slice(0, half).join('\n'), newer: lines.slice(half).join('\n') };
+}
+
 export interface RenderTimelineOpts {
   /** Keep only the most-recent K lines (chronological order preserved). Default: all. */
   maxLines?: number;

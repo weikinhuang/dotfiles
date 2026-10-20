@@ -7,6 +7,7 @@ import { expect, test } from 'vitest';
 import {
   appendBeatBody,
   buildTimelineExtractionTask,
+  capBeatLog,
   DEFAULT_TIMELINE_GUIDANCE,
   dedupeNewBeats,
   formatBeatLine,
@@ -17,6 +18,7 @@ import {
   parseBeatLog,
   parseTimelineBeats,
   renderTimelineBlock,
+  splitBeatLogHalves,
 } from '../../../../../lib/node/pi/roleplay/timeline.ts';
 
 test('buildTimelineExtractionTask embeds the span and the JSON contract', () => {
@@ -128,4 +130,26 @@ test('appendBeatBody separates with a newline only when existing is non-blank', 
   expect(appendBeatBody('   ', '- a')).toBe('- a');
   expect(appendBeatBody('- a', '- b')).toBe('- a\n- b');
   expect(appendBeatBody('- a\n', '- b')).toBe('- a\n- b');
+});
+
+test('capBeatLog keeps the newest whole lines within the cap', () => {
+  const body = ['- one', '- two', '- three', '- four'].join('\n');
+  expect(capBeatLog(body, 1000)).toBe(body);
+  // '- three\n- four' is 14 chars; adding '- two\n' would exceed 16.
+  expect(capBeatLog(body, 16)).toBe('- three\n- four');
+  expect(capBeatLog(body, 14)).toBe('- three\n- four');
+  expect(capBeatLog(body, 13)).toBe('- four');
+});
+
+test('capBeatLog always keeps the newest line even if it alone overflows', () => {
+  expect(capBeatLog('- a\n- a much longer final beat', 5)).toBe('- a much longer final beat');
+  expect(capBeatLog('', 5)).toBe('');
+});
+
+test('splitBeatLogHalves archives the older half and keeps the extra line newer', () => {
+  expect(splitBeatLogHalves('- 1\n- 2\n\n- 3\n- 4\n- 5')).toStrictEqual({
+    older: '- 1\n- 2',
+    newer: '- 3\n- 4\n- 5',
+  });
+  expect(splitBeatLogHalves('- only')).toStrictEqual({ older: '', newer: '- only' });
 });

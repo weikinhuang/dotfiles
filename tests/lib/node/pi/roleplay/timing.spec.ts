@@ -136,4 +136,55 @@ describe('applyTiming', () => {
     // rng 0.05 -> r=5 -> A:5-10<0 -> A wins.
     expect(applyTiming(e, 0, {}, seqRng(0.05)).fired).toEqual(['a']);
   });
+
+  it('a sticky carry is the group incumbent: it wins with no rng draw, fresh rivals stay unarmed', () => {
+    const e = [entry('a', true, { group: 'g', sticky: 5 }), entry('b', true, { group: 'g', sticky: 5 })];
+    const prior: Record<string, TimingState> = { b: { stickyUntil: 4, cooldownUntil: 4 } };
+    const res = applyTiming(e, 1, prior, NO_RNG);
+    expect(res.fired).toEqual(['b']);
+    expect(res.nextState.b).toEqual({ stickyUntil: 4, cooldownUntil: 4 });
+    expect(res.nextState.a).toBeUndefined();
+    // The loser does not keep re-contesting: next turn the carry still wins outright.
+    expect(applyTiming(e, 2, res.nextState, NO_RNG).fired).toEqual(['b']);
+  });
+
+  it('several carries in a group: highest groupWeight wins, then id', () => {
+    const prior: Record<string, TimingState> = {
+      a: { stickyUntil: 5, cooldownUntil: 5 },
+      b: { stickyUntil: 5, cooldownUntil: 5 },
+      c: { stickyUntil: 5, cooldownUntil: 5 },
+    };
+    const weighted = [
+      entry('a', false, { group: 'g', groupWeight: 10 }),
+      entry('b', false, { group: 'g', groupWeight: 90 }),
+      entry('c', true, { group: 'g', groupWeight: 90 }),
+    ];
+    const res = applyTiming(weighted, 1, prior, NO_RNG);
+    expect(res.fired).toEqual(['b']);
+    // Losing carries keep their (unchanged) window.
+    expect(res.nextState.a).toEqual(prior.a);
+    expect(res.nextState.c).toEqual(prior.c);
+  });
+
+  it('rng order: probability rolls first, then only groups without an incumbent draw', () => {
+    const draws: number[] = [];
+    const rng = (): number => {
+      const v = [0.1, 0.1, 0.9][draws.length] ?? 0;
+      draws.push(v);
+      return v;
+    };
+    const e = [
+      entry('a', true, { group: 'g1', probability: 50 }),
+      entry('b', true, { group: 'g1', probability: 50 }),
+      entry('c', true, { group: 'g2' }),
+      entry('d', false, { group: 'g2' }),
+      entry('x', true, { group: 'g3' }),
+      entry('y', true, { group: 'g3' }),
+    ];
+    const prior: Record<string, TimingState> = { d: { stickyUntil: 3, cooldownUntil: 3 } };
+    const res = applyTiming(e, 1, prior, rng);
+    // 2 probability rolls (a, b), g1 pick (0.9 -> b), g2 resolved by incumbent d (no draw), g3 pick (0 -> x).
+    expect(draws).toEqual([0.1, 0.1, 0.9, 0]);
+    expect(res.fired).toEqual(['b', 'd', 'x']);
+  });
 });

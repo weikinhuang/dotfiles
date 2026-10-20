@@ -58,6 +58,7 @@ import {
 } from '@earendil-works/pi-coding-agent';
 import { Text } from '@earendil-works/pi-tui';
 import { existsSync, readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Type } from 'typebox';
@@ -105,10 +106,10 @@ import {
 } from '../../../lib/node/pi/roleplay/inject.ts';
 import { matchLore } from '../../../lib/node/pi/roleplay/match.ts';
 import { formatLoreBlock } from '../../../lib/node/pi/roleplay/prompt.ts';
-import { type MacroContext, substituteMacros } from '../../../lib/node/pi/roleplay/macros.ts';
-import { composeSceneBlock } from '../../../lib/node/pi/roleplay/scene.ts';
-import { planCharacterFold } from '../../../lib/node/pi/roleplay/scene-fold.ts';
-import { expandRecursive } from '../../../lib/node/pi/roleplay/recursion.ts';
+import { type MacroContext, seededRng, substituteMacros } from '../../../lib/node/pi/roleplay/macros.ts';
+import { composeSceneBlock, composeSceneFoldBlock, resolveCharacter } from '../../../lib/node/pi/roleplay/scene.ts';
+import { planCharacterFold, selectFoldDeliveries } from '../../../lib/node/pi/roleplay/scene-fold.ts';
+import { expandMatchedRecursive } from '../../../lib/node/pi/roleplay/recursion.ts';
 import { applyTiming, type TimingState } from '../../../lib/node/pi/roleplay/timing.ts';
 import {
   clampSummary,
@@ -176,6 +177,7 @@ import { buildFactExtractionTask, parseFactCandidates } from '../../../lib/node/
 import {
   appendBeatBody,
   buildTimelineExtractionTask,
+  capBeatLog,
   dedupeNewBeats,
   formatBeatLines,
   parseTimelineBeats,
@@ -194,10 +196,12 @@ import {
 import { piCreateAgentSession } from '../../../lib/node/pi/ext/pi-session.ts';
 import { resolveChildModel, runOneShotAgent } from '../../../lib/node/pi/subagent/spawn.ts';
 import {
+  appendTimelineCarryOver,
   archiveCarryOver,
   archiveFacts,
   atomicWriteFile,
   castDir,
+  entryFilePath,
   factFile,
   fileFor,
   listCasts,
@@ -207,6 +211,7 @@ import {
   readEntryBody,
   rebuildCast,
   removeFileIfExists,
+  resolveImportPath,
   roleplayRoot,
   writeIndex,
 } from '../../../lib/node/pi/roleplay/paths.ts';
@@ -220,6 +225,9 @@ import {
   emptyRelationshipMeta,
   formatRoleplayBlock,
   formatText,
+  isReservedSlug,
+  lastInteractionError,
+  SECONDARY_MODES,
   type CharacterMeta,
   type LoreMeta,
   type RelationshipMeta,
@@ -233,7 +241,7 @@ import {
   slugifyName,
   upsertEntry,
 } from '../../../lib/node/pi/roleplay/store.ts';
-import { ROLEPLAY_USAGE } from '../../../lib/node/pi/roleplay/usage.ts';
+import { ROLEPLAY_USAGE, roleplaySubverbs } from '../../../lib/node/pi/roleplay/usage.ts';
 import { normalizeInjectedBody } from '../../../lib/node/pi/roleplay/text.ts';
 import {
   collectRoleMessageTexts,
@@ -288,8 +296,9 @@ const RoleplayParams = Type.Object({
     Type.Array(Type.String(), { description: 'Lore only: optional secondary keywords gated by `secondaryMode`.' }),
   ),
   secondaryMode: Type.Optional(
-    StringEnum(['AND', 'OR', 'NOT'] as const, {
-      description: 'Lore only: how `secondaryKeys` combine after a primary hit. Default AND.',
+    StringEnum(SECONDARY_MODES, {
+      description:
+        'Lore only: how `secondaryKeys` combine after a primary hit: AND (all present), OR (any), NOT (none), NOT_ALL (not every one). Default AND.',
     }),
   ),
   constant: Type.Optional(
@@ -325,7 +334,9 @@ const RoleplayParams = Type.Object({
   ),
   trust: Type.Optional(Type.String({ description: 'Relationship only: free-form trust label (e.g. `high`, `wary`).' })),
   lastInteraction: Type.Optional(
-    Type.String({ description: 'Relationship only: ISO date (YYYY-MM-DD) of the last shared scene; decay anchor.' }),
+    Type.String({
+      description: 'Relationship only: ISO date (YYYY-MM-DD) of the last shared scene; decay anchor. "" clears it.',
+    }),
   ),
   openThreads: Type.Optional(
     Type.Array(Type.String(), { description: 'Relationship only: dangling threads to resume next scene.' }),
@@ -425,6 +436,20 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   let timingState: Record<string, TimingState> = {};
   /** Per-character scene-fold timing state (sticky/cooldown), keyed by character id. Reset on cast switch. */
   let sceneTimingState: Record<string, TimingState> = {};
+  /** Narrative turn each name-triggered sheet was last delivered in a `roleplay-scene-fold` reminder. Reset with `sceneTimingState`. */
+  let sceneFoldDelivered = new Map<string, number>();
+  /** Name-triggered ids active on the previous narrative turn (re-entry detection). Reset with `sceneTimingState`. */
+  let sceneFoldPriorActive = new Set<string>();
+  /**
+   * Per-run slot for name-triggered character sheets, delivered as the
+   * `<system-reminder id="roleplay-scene-fold">` block (same lifecycle as
+   * `pendingLore`) so NPCs entering / leaving the sticky window never rewrite
+   * the cached system prompt. `ids` are committed to `sceneFoldDelivered`
+   * only when the block is actually emitted.
+   */
+  let pendingSceneFold: { body: string; ids: string[]; turn: number } | null = null;
+  /** Session-frozen clock for macros in system-prompt (head) text, so `{{time}}` etc. stay byte-stable. */
+  let frozenMacroNow: Date | null = null;
   /** Unsubscribe handle for the comfyui image-generated bus (cleared on shutdown). */
   let unsubscribeImageEvents: (() => void) | null = null;
   let unsubscribeReminderSnapshots: (() => void) | null = null;
@@ -496,10 +521,13 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   /** Lowercased fact names captured this process, to skip re-writing the same fact. */
   const capturedFacts = new Set<string>();
   /** Lazy `roleplay-fact-extractor` runner + one-shot init guard. */
-  let factExtractor: ((ctx: ExtensionContext, task: string) => Promise<string | null>) | null = null;
+  let factExtractor: ((ctx: ExtensionContext, task: string, signal?: AbortSignal) => Promise<string | null>) | null =
+    null;
   let factExtractorInit = false;
   /** Lazy `roleplay-timeline-extractor` runner + one-shot init guard. */
-  let timelineExtractor: ((ctx: ExtensionContext, task: string) => Promise<string | null>) | null = null;
+  let timelineExtractor:
+    | ((ctx: ExtensionContext, task: string, signal?: AbortSignal) => Promise<string | null>)
+    | null = null;
   let timelineExtractorInit = false;
   const resetWindowState = (): void => {
     recapText = '';
@@ -585,6 +613,9 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     turnCount = 0;
     timingState = {};
     sceneTimingState = {};
+    sceneFoldDelivered = new Map();
+    sceneFoldPriorActive = new Set();
+    pendingSceneFold = null;
     keywordVisualLore = [];
     depthVisualLore = [];
     pendingLore = null;
@@ -661,6 +692,8 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   /** Force a re-resolve + scan (session lifecycle hooks). */
   const resync = (ctx: ExtensionContext): void => {
     cwd = ctx.cwd;
+    // Captured once per session (cleared on shutdown) so head macros never tick.
+    frozenMacroNow ??= new Date();
     resetWindowState();
     keywordVisualLore = [];
     depthVisualLore = [];
@@ -737,12 +770,30 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
    *   - any character whose name / alias / trigger appears in `scanText`
    *     (the recent-message + current-prompt window), kept alive by its
    *     sticky window via {@link planCharacterFold}.
-   * Returns `null` when nothing folds. Missing declared names are
-   * warn-dropped (deduped so the notice fires only when the set changes).
+   *
+   * Delivery (`sceneFoldDelivery`): in `reminder` mode (default) only the
+   * STABLE folds (persona-declared, `pinned`, POV) go into the returned
+   * system-prompt block; name-triggered sheets are rendered separately into
+   * `pendingSceneFold` (emitted as `roleplay-scene-fold` by the first
+   * narrative `context` request) so NPC churn never rewrites the cached
+   * prefix. A sheet is (re)sent only when it (re)enters the active set or
+   * its last delivery is `sceneFoldRefreshTurns` old. `system` mode, or
+   * globally suppressed reminders, folds everything into the head (legacy).
+   *
+   * Head sheets resolve macros against a session-frozen clock and a
+   * (session, entry)-seeded rng so `{{time}}` / `{{random}}` / `{{roll}}`
+   * stay byte-stable across turns; reminder sheets keep live macros.
+   *
+   * Returns `null` when nothing folds into the head. Missing declared names
+   * are warn-dropped (deduped so the notice fires only when the set changes).
    */
   const buildSceneBlock = (ctx: ExtensionContext, scanText: string): string | null => {
+    pendingSceneFold = null;
     const persona = getActivePersona();
     if (!persona?.roleplay) return null;
+    const cfg = loadRoleplayConfig(cwd, envCharBudget);
+    // Never let folds silently vanish: suppressed reminders fall back to the head.
+    const foldToReminder = cfg.sceneFoldDelivery === 'reminder' && remindersEnabled;
     const foldPlan = planCharacterFold(state.entries, {
       scanText,
       turn: turnCount,
@@ -754,27 +805,67 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     const nameOf = (id: string): string | undefined => byId.get(id)?.name;
     const pinnedSet = new Set(foldPlan.pinnedIds);
     const pinnedNames = foldPlan.pinnedIds.map(nameOf).filter((n): n is string => Boolean(n));
-    const triggeredNames = foldPlan.firedIds
-      .filter((id) => !pinnedSet.has(id))
-      .map(nameOf)
-      .filter((n): n is string => Boolean(n));
-    // Precedence order: persona-declared, then pinned, then name-triggered.
-    // composeSceneBlock dedups by resolved id and evicts from the tail, so
-    // the lowest-precedence (name-triggered) sheets drop first under budget.
-    const characters = [...(persona.characters ?? []), ...pinnedNames, ...triggeredNames];
-    if (characters.length === 0 && !persona.pov) return null;
-    const bodyCache = new Map<string, string>();
-    const bodyOf = (entry: RoleplayEntry): string => {
-      const cached = bodyCache.get(entry.id);
+    const triggeredIds = foldPlan.firedIds.filter((id) => !pinnedSet.has(id));
+    let sid = 'nosession';
+    try {
+      sid = ctx.sessionManager?.getSessionId() ?? 'nosession';
+    } catch {
+      /* --no-session */
+    }
+    frozenMacroNow ??= new Date();
+    const headNow = frozenMacroNow;
+    const headBodies = new Map<string, string>();
+    const headBodyOf = (entry: RoleplayEntry): string => {
+      const cached = headBodies.get(entry.id);
       if (cached !== undefined) return cached;
-      const body = substituteMacros(readEntryBody(state.cast, entry) ?? '', macroCtx(entry.name));
-      bodyCache.set(entry.id, body);
+      const body = substituteMacros(readEntryBody(state.cast, entry) ?? '', {
+        ...macroCtx(entry.name),
+        now: headNow,
+        rng: seededRng(`${sid}\u0000${entry.id}`),
+      });
+      headBodies.set(entry.id, body);
       return body;
     };
-    const { block, missing } = composeSceneBlock(state, bodyOf, {
+
+    let headTriggered: string[] = [];
+    if (foldToReminder) {
+      // Head-resident ids (declared / pov / pinned) never double-deliver.
+      const headIds = new Set<string>(pinnedSet);
+      for (const name of [...(persona.characters ?? []), ...(persona.pov ? [persona.pov] : [])]) {
+        const resolved = resolveCharacter(state, name);
+        if (resolved) headIds.add(resolved.id);
+      }
+      const active = triggeredIds.filter((id) => !headIds.has(id));
+      const deliver = selectFoldDeliveries({
+        activeIds: active,
+        priorActiveIds: sceneFoldPriorActive,
+        lastDelivered: sceneFoldDelivered,
+        turn: turnCount,
+        refreshTurns: cfg.sceneFoldRefreshTurns,
+      });
+      sceneFoldPriorActive = new Set(active);
+      if (deliver.length > 0) {
+        const fold = composeSceneFoldBlock(
+          state,
+          (entry) => substituteMacros(readEntryBody(state.cast, entry) ?? '', macroCtx(entry.name)),
+          { characters: deliver, maxChars: cfg.charBudget },
+        );
+        if (fold.block) pendingSceneFold = { body: fold.block, ids: fold.keptIds, turn: turnCount };
+      }
+    } else {
+      sceneFoldPriorActive = new Set();
+      headTriggered = triggeredIds.map(nameOf).filter((n): n is string => Boolean(n));
+    }
+
+    // Precedence order: persona-declared, then pinned, then (legacy mode
+    // only) name-triggered. composeSceneBlock dedups by resolved id and
+    // evicts from the tail, so the lowest-precedence sheets drop first.
+    const characters = [...(persona.characters ?? []), ...pinnedNames, ...headTriggered];
+    if (characters.length === 0 && !persona.pov) return null;
+    const { block, missing } = composeSceneBlock(state, headBodyOf, {
       characters,
       pov: persona.pov,
-      maxChars: charBudget(),
+      maxChars: cfg.charBudget,
     });
     const sig = missing.join('\u0000');
     if (missing.length > 0 && sig !== lastSceneMissingSig) {
@@ -784,11 +875,6 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     return block;
   };
 
-  /**
-   * Build the fired-lore section for `scanText` (the latest user prompt in
-   * Phase 2). Returns `null` when the lorebook is disabled or nothing
-   * fires. Bodies are loaded from disk for fired entries only.
-   */
   /** Ids of lore entries with an empty (injection-normalized) body, memoized per cast. */
   const emptyLoreIds = (): Set<string> => {
     if (loreEmptyCache && loreEmptyCache.cast === state.cast) return loreEmptyCache.ids;
@@ -803,6 +889,12 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     return ids;
   };
 
+  /**
+   * Build the fired-lore section for `scanText` (the recent-message scan
+   * window). Returns `null` when the lorebook is disabled or nothing
+   * fires. Bodies are loaded from disk lazily (matched recursion sources
+   * and fired entries only).
+   */
   const buildLoreInjection = (scanText: string): string | null => {
     keywordVisualLore = [];
     if (!lorebookEnabled) return null;
@@ -811,19 +903,6 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     const lore = state.entries.filter((e) => e.kind === 'lore' && e.lore?.depth === undefined && !empties.has(e.id));
     if (lore.length === 0) return null;
     const cfg = loadRoleplayConfig(cwd, envCharBudget);
-    // Keyword matching decides candidates; the timing pass (delay / probability /
-    // sticky / cooldown / inclusion-group) decides what actually fires this turn.
-    const matchedIds = new Set(matchLore(lore, scanText).map((e) => e.id));
-    const timed = applyTiming(
-      lore.map((e) => ({ id: e.id, meta: e.lore ?? emptyLoreMeta(), matched: matchedIds.has(e.id) })),
-      turnCount,
-      timingState,
-      Math.random,
-    );
-    timingState = timed.nextState;
-    const firedSet = new Set(timed.fired);
-    const initial = lore.filter((e) => firedSet.has(e.id));
-    if (initial.length === 0) return null;
     const bodyCache = new Map<string, string>();
     const bodyOf = (entry: RoleplayEntry): string => {
       const cached = bodyCache.get(entry.id);
@@ -832,7 +911,23 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       bodyCache.set(entry.id, body);
       return body;
     };
-    const fired = expandRecursive(initial, lore, { bodyOf, maxRecursion: cfg.maxRecursion });
+    // Keyword matching (plus opt-in recursion over matched bodies) decides
+    // candidates; the timing pass (delay / probability / sticky / cooldown /
+    // inclusion-group) then decides what actually fires this turn, so
+    // recursive hits go through timing exactly like keyword hits.
+    const matchedIds = expandMatchedRecursive(matchLore(lore, scanText), lore, {
+      bodyOf,
+      maxRecursion: cfg.maxRecursion,
+    });
+    const timed = applyTiming(
+      lore.map((e) => ({ id: e.id, meta: e.lore ?? emptyLoreMeta(), matched: matchedIds.has(e.id) })),
+      turnCount,
+      timingState,
+      Math.random,
+    );
+    timingState = timed.nextState;
+    const firedSet = new Set(timed.fired);
+    const fired = lore.filter((e) => firedSet.has(e.id));
     if (fired.length === 0) return null;
     const chunks: LoreChunk[] = fired
       .map((entry) => ({ entry, body: bodyOf(entry).trim() }))
@@ -855,6 +950,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     resyncIfChanged(ctx);
     gateRoleplayTool();
     pendingLore = null;
+    pendingSceneFold = null;
     pendingDepthScan = null;
     pendingEventForRun = null;
     pendingEventGenerationForRun = null;
@@ -1230,7 +1326,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     model: RecapModelInfo['model'];
     spanFrom: number;
     spanTo: number;
-    mode: 'sync' | 'async';
+    mode: 'sync' | 'async' | 'compact';
     forced?: boolean;
   }): void => {
     try {
@@ -1270,7 +1366,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
    */
   const buildExtractorRunner = (
     agentName: string,
-  ): ((ctx: ExtensionContext, task: string) => Promise<string | null>) | null => {
+  ): ((ctx: ExtensionContext, task: string, signal?: AbortSignal) => Promise<string | null>) | null => {
     let agent: AgentDef | null = null;
     try {
       const layers = defaultAgentLayers({ extensionDir: extDir, cwd });
@@ -1293,7 +1389,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       }
     })();
     const theAgent = agent;
-    return async (rctx, task) => {
+    return async (rctx, task, signal) => {
       const resolution = resolveChildModel({
         override: settings?.summarizeModel,
         agent: theAgent,
@@ -1325,7 +1421,11 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
           agentDir: getAgentDir(),
           sessionManager: summarizerSessionManager(rctx, cwd),
           ...(gateFactory ? { extensionFactories: [gateFactory as never] } : {}),
-          ...(rctx.signal ? { signal: rctx.signal } : {}),
+          // The caller's explicit signal (the recap's AbortController on the
+          // async path, the turn signal on the sync path), never the turn's
+          // `rctx.signal` implicitly: a background capture must be cancellable
+          // by resetWindowState and must not die with an unrelated turn abort.
+          ...(signal ? { signal } : {}),
           timeoutMs: 60000,
         });
         return result.stopReason === 'completed' ? result.finalText : null;
@@ -1344,7 +1444,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
    */
   const getFactExtractor = (
     _ctx: ExtensionContext,
-  ): ((ctx: ExtensionContext, task: string) => Promise<string | null>) | null => {
+  ): ((ctx: ExtensionContext, task: string, signal?: AbortSignal) => Promise<string | null>) | null => {
     if (factExtractorInit) return factExtractor;
     factExtractorInit = true;
     factExtractor = buildExtractorRunner('roleplay-fact-extractor');
@@ -1359,7 +1459,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
    */
   const getTimelineExtractor = (
     _ctx: ExtensionContext,
-  ): ((ctx: ExtensionContext, task: string) => Promise<string | null>) | null => {
+  ): ((ctx: ExtensionContext, task: string, signal?: AbortSignal) => Promise<string | null>) | null => {
     if (timelineExtractorInit) return timelineExtractor;
     timelineExtractorInit = true;
     timelineExtractor = buildExtractorRunner('roleplay-timeline-extractor');
@@ -1508,23 +1608,18 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   };
 
   /**
-   * Append new beats to the two-tier timeline append-logs: the live
-   * `timeline/sessions/<sid>.md` (this session's beats) and the carry-over
-   * `timeline/auto.md` (per-cast seed, interleaves all sessions). APPEND-ONLY
-   * (never rewrite), so concurrent same-cast sessions just add distinct lines
-   * with no clobber. Also folds the new lines into the in-memory
-   * `timelineText` used for injection. Best-effort; never throws.
+   * Append new beats to the per-cast carry-over `timeline/auto.md` (a TRUE
+   * append via {@link appendTimelineCarryOver}: concurrent same-cast sessions
+   * interleave lines instead of clobbering; the file rotates its older half
+   * into `timeline/archive/` past `timelineFileMaxChars`). Also folds the
+   * new lines into the in-memory `timelineText` (capped to
+   * `timelineMemoryMaxChars` of whole beat lines). Returns the lines newly
+   * added to `timelineText` (the v2 branch-entry delta). Best-effort; never
+   * throws.
    */
-  const appendTimelineBeats = (lines: string): void => {
-    if (lines.trim().length === 0) return;
-    const date = new Date().toISOString().slice(0, 10);
-    const compose = (body: string): string =>
-      serializeEntry({
-        name: 'Auto timeline',
-        description: `Chronological scene beats, auto-updated ${date}`,
-        kind: 'timeline',
-        body,
-      });
+  const appendTimelineBeats = (lines: string): string => {
+    if (lines.trim().length === 0) return '';
+    const cfg = loadRoleplayConfig(cwd, envCharBudget);
     // De-dup on append: overlapping span coverage across rolls (or a
     // resume/fork replay) re-extracts identical beats, which the append-only
     // log would otherwise stack verbatim. `dedupeNewBeats` drops any
@@ -1532,22 +1627,28 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     // normalized text) and collapses repeats within the batch; distinct
     // wording of a genuine recurrence still survives.
     //
-    // Carry-over append-log (cross-session seed for future sessions). The
-    // within-session / resume / fork store is the SESSION BRANCH (the
-    // `roleplay-timeline` audit entry stamps the cumulative timeline every
-    // roll - see captureTimeline), so the redundant `sessions/<sid>.md` live
-    // tier is retired; this only refreshes the per-cast carry-over.
+    // The within-session / resume / fork store is the SESSION BRANCH (the
+    // `roleplay-timeline` audit entry carries each roll's delta - see
+    // captureTimeline); this only refreshes the cross-session carry-over.
     try {
-      const existing = readEntryBody(state.cast, { id: 'auto', kind: 'timeline', name: '', description: '' }) ?? '';
-      const fresh = dedupeNewBeats(lines, existing);
-      if (fresh.length > 0)
-        atomicWriteFile(fileFor(state.cast, 'timeline', 'auto'), compose(appendBeatBody(existing, fresh)));
+      const now = new Date();
+      appendTimelineCarryOver(state.cast, lines, {
+        maxChars: cfg.timelineFileMaxChars,
+        ts: now
+          .toISOString()
+          .replace(/[-:]/g, '')
+          .replace(/\.\d+Z$/, 'Z'),
+        description: `Chronological scene beats, auto-updated ${now.toISOString().slice(0, 10)}`,
+      });
     } catch {
       /* carry-over append best-effort */
     }
     // Keep the injected timeline current in-memory too (de-duped against it).
     const freshMem = dedupeNewBeats(lines, timelineText);
-    if (freshMem.length > 0) timelineText = appendBeatBody(timelineText, freshMem);
+    if (freshMem.length > 0) {
+      timelineText = capBeatLog(appendBeatBody(timelineText, freshMem), cfg.timelineMemoryMaxChars);
+    }
+    return freshMem;
   };
 
   /**
@@ -1557,11 +1658,18 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
    * the recap + capture, AFTER the recap resolves (shares the recap endpoint,
    * so it must not run concurrently) and is AWAITED (never fire-and-forget).
    * Default-OFF (`PI_ROLEPLAY_TIMELINE`); best-effort, never throws.
+   *
+   * `signal` cancels the extractor (the recap's AbortController on the async
+   * path). `isCurrent` is re-checked after the extractor resolves: when a
+   * reset / branch change invalidated this roll meanwhile, the beats are
+   * discarded before mutating `timelineText` or appending a branch entry.
    */
   const captureTimeline = async (
     ctx: ExtensionContext,
     span: SummarizableMessage[],
     sid: string | null,
+    signal: AbortSignal | undefined,
+    isCurrent: () => boolean,
   ): Promise<void> => {
     if (!timelineEnabled()) return;
     const audit = {
@@ -1572,10 +1680,12 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       parsed: 0,
       wrote: 0,
       skip: '' as string,
-      // Cumulative active-branch timeline text, so a resume/fork can
-      // rehydrate the timeline from the session log (branch-primary store)
-      // instead of the branch-blind carry-over. Empty on skip paths.
-      timeline: '' as string,
+      // v2: only this roll's NEW beat lines (a delta, not the cumulative
+      // log) so the session JSONL grows linearly. Hydration rebuilds the
+      // timeline from the latest legacy snapshot + every later delta (see
+      // scanBranchForTimeline). Empty on skip paths.
+      version: 2 as const,
+      beats: '' as string,
     };
     const emit = (): void => {
       try {
@@ -1608,7 +1718,11 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       const raw = await extractor(
         ctx,
         buildTimelineExtractionTask(plan.spanText, resolvePromptGuidance('timeline', { cwd })),
+        signal,
       );
+      // Stale (reset / branch change while extracting): discard silently -
+      // no in-memory mutation and no entry on the (now different) branch.
+      if (!isCurrent()) return;
       if (raw === null) {
         audit.skip = 'extractor-null';
         emit();
@@ -1622,12 +1736,10 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         emit();
         return;
       }
-      appendTimelineBeats(formatBeatLines(beats));
+      // Stamp the delta into the audit entry so it doubles as the
+      // branch-primary timeline store (see hydrateTimelineFromBranch).
+      audit.beats = appendTimelineBeats(formatBeatLines(beats));
       audit.wrote = beats.length;
-      // Snapshot the now-current cumulative timeline into the audit entry so
-      // it doubles as the branch-primary timeline store (see
-      // hydrateTimelineFromBranch).
-      audit.timeline = timelineText;
       emit();
     } catch {
       audit.skip = 'error';
@@ -1635,7 +1747,12 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     }
   };
 
-  const captureFacts = async (ctx: ExtensionContext, span: SummarizableMessage[]): Promise<void> => {
+  const captureFacts = async (
+    ctx: ExtensionContext,
+    span: SummarizableMessage[],
+    sid: string | null,
+    signal: AbortSignal | undefined,
+  ): Promise<void> => {
     if (!captureEnabled()) return;
     // Auditable outcome (custom entry, never sent to the LLM). Emitted on
     // every return path so a zero-write run is debuggable: which gate hit.
@@ -1655,12 +1772,9 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         /* audit write is best-effort */
       }
     };
-    let sessionId: string | null = null;
-    try {
-      sessionId = ctx.sessionManager?.getSessionId() ?? null;
-    } catch {
-      sessionId = null;
-    }
+    // `sid` is snapshotted by the caller at roll-plan time: the async path
+    // must not read the session manager inside its `.then`.
+    const sessionId = sid;
     if (!sessionId) {
       audit.skip = 'no-session'; // --no-session: capture is a silent no-op
       emit();
@@ -1688,7 +1802,11 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         return;
       }
       audit.planned = true;
-      const raw = await extractor(ctx, buildFactExtractionTask(plan.spanText, resolvePromptGuidance('facts', { cwd })));
+      const raw = await extractor(
+        ctx,
+        buildFactExtractionTask(plan.spanText, resolvePromptGuidance('facts', { cwd })),
+        signal,
+      );
       if (raw === null) {
         audit.skip = 'extractor-null';
         emit();
@@ -1726,7 +1844,15 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     }
   };
 
-  if (contextWindowEnabled || lorebookEnabled || depthInjectEnabled || repetitionEnabled || eventsEnabled) {
+  // `remindersEnabled && autoInjectEnabled` covers the `roleplay-scene-fold` producer.
+  if (
+    contextWindowEnabled ||
+    lorebookEnabled ||
+    depthInjectEnabled ||
+    repetitionEnabled ||
+    eventsEnabled ||
+    (remindersEnabled && autoInjectEnabled)
+  ) {
     // Recover a running recap from the SESSION BRANCH (custom recap-audit
     // entries), which travels with pi's session tree and carries the exact
     // coverage boundary. This is the authoritative resume source when the
@@ -1793,10 +1919,9 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
           /* usage is best-effort */
         }
 
-        // Lazily hydrate the recap from the durable summary/auto record once
-        // per (re)load, so a resume continues the memory instead of rebuilding
-        // it. Assume the record covers everything currently aged (the record
-        // does not store its cutoff index); new turns roll forward normally.
+        // Lazily hydrate the recap once per (re)load, so a resume continues
+        // the memory instead of rebuilding it (branch first, then the
+        // per-cast carry-over seed; see the ladder below).
         if (!recapHydrated) {
           recapHydrated = true;
           if (recapMode) {
@@ -1822,27 +1947,39 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
                 branchTimeline ??
                 readEntryBody(state.cast, { id: 'auto', kind: 'timeline', name: '', description: '' }) ??
                 '';
-              if (priorTimeline.trim()) timelineText = priorTimeline.trim();
+              if (priorTimeline.trim()) {
+                timelineText = capBeatLog(
+                  priorTimeline.trim(),
+                  loadRoleplayConfig(cwd, envCharBudget).timelineMemoryMaxChars,
+                );
+              }
             } else {
               // 2. New tree (genuinely fresh session, or a fork with no recap
               //    on its path yet): `getBranch()` has nothing to hydrate, so
-              //    seed continuity from the per-cast carry-over. `recapCutoff =
-              //    natural` is an accepted approximation here (the seed is
-              //    narrative continuity; the floor + first roll re-anchor the
-              //    coverage boundary). 3. Cold start: no carry-over -> recapText
-              //    stays ''. Either way this load is a non-resume, so the
-              //    one-shot facts seed (B2) may run.
+              //    seed continuity from the per-cast carry-over. Only the recap
+              //    TEXT is seeded; coverage stays 0 (recapCutoff =
+              //    committedCutoff = 0). The carry-over came from ANOTHER
+              //    session, so it covers none of this session's messages: on a
+              //    resumed long session that never rolled, claiming `natural`
+              //    would drop all aged history and replace it with a foreign
+              //    recap. A genuinely fresh session has natural == 0 anyway,
+              //    and the seed is still injected (injection keys on recapText,
+              //    not coverage). Normal rolls (folding into the seed as prior)
+              //    + the safety floor take over from there. 3. Cold start: no
+              //    carry-over -> recapText stays ''. Either way this load is a
+              //    non-resume, so the one-shot facts seed (B2) may run.
               const priorEntry = state.entries.find((e) => e.kind === 'summary' && e.id === 'auto');
               const prior = priorEntry ? (readEntryBody(state.cast, priorEntry) ?? '') : '';
-              if (prior.trim()) {
-                recapText = prior.trim();
-                recapCutoff = natural;
-                committedCutoff = natural;
-              }
+              if (prior.trim()) recapText = prior.trim();
               // Seed the timeline from the per-cast carry-over log (C5).
               const priorTimeline =
                 readEntryBody(state.cast, { id: 'auto', kind: 'timeline', name: '', description: '' }) ?? '';
-              if (priorTimeline.trim()) timelineText = priorTimeline.trim();
+              if (priorTimeline.trim()) {
+                timelineText = capBeatLog(
+                  priorTimeline.trim(),
+                  loadRoleplayConfig(cwd, envCharBudget).timelineMemoryMaxChars,
+                );
+              }
               // B2: seed the per-cast carry-over facts (facts/*.md) into this
               // session's memory note tier so a fresh session inherits the
               // pinned specifics alongside the recap seed - not just the
@@ -1857,6 +1994,8 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         // (byte-identical), so the prompt-prefix cache is reused.
         const rollFired = planRecap(natural, committedCutoff, strideValue());
         if (rollFired) {
+          /** True once this roll actually started (sync) or launched (async) a recap. */
+          let recapStarted = false;
           if (recapMode) {
             const rollCfg = loadRoleplayConfig(cwd, envCharBudget);
             const info = resolveRecapModelInfo(ctx);
@@ -1872,7 +2011,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
             // 190 turns in the field). The lag circuit-breaker below guarantees
             // coverage can never wedge permanently even if an increment is still
             // rejected.
-            const spanTo = boundRollSpanTo(recapCutoff, natural, rollCfg.recapMaxAdvance);
+            const spanTo = boundRollSpanTo(messages, recapCutoff, natural, rollCfg.recapMaxAdvance);
             const lag = natural - recapCutoff;
             const lagCeiling = rollCfg.recapLagCeiling;
             const span = messages.slice(spanFrom, spanTo).map(toSummarizable);
@@ -1884,12 +2023,15 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
               // reset / branch change clobbering the current recap after the fact.
               if (!recapInFlight) {
                 recapInFlight = true;
+                recapStarted = true;
                 const gen = recapGen;
+                const isCurrent = (): boolean => gen === recapGen;
                 const prior = recapText;
-                recapAbort = new AbortController();
-                void doRecap(ctx, span, prior, info, recapAbort.signal)
+                const abort = new AbortController();
+                recapAbort = abort;
+                void doRecap(ctx, span, prior, info, abort.signal)
                   .then(async (result) => {
-                    if (gen !== recapGen) return; // stale (reset / branch change): discard
+                    if (!isCurrent()) return; // stale (reset / branch change): discard
                     // Force-accept a rejected-but-usable candidate once coverage
                     // has lagged past the ceiling, so a persistently collapsing
                     // OR persistently over-cap summarizer can't wedge coverage
@@ -1915,11 +2057,15 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
                       // shares the recap endpoint, so awaiting stops the next
                       // roll from starting a concurrent recap on that single
                       // instance, and keeps capture from being orphaned as a
-                      // fire-and-forget promise when the turn returns.
-                      await captureFacts(ctx, span);
+                      // fire-and-forget promise when the turn returns. Both
+                      // extractors run under the recap's own AbortController
+                      // (cancelled by resetWindowState, immune to a turn
+                      // abort) and re-check staleness after every await.
+                      await captureFacts(ctx, span, sid, abort.signal);
+                      if (!isCurrent()) return;
                       // Timeline runs AFTER capture, sequential + awaited, for
                       // the same single-endpoint reason (C4).
-                      await captureTimeline(ctx, span, sid);
+                      await captureTimeline(ctx, span, sid, abort.signal, isCurrent);
                     }
                   })
                   .catch(() => {
@@ -1935,6 +2081,8 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
             } else {
               // Blocking (inherited / same endpoint): one llama.cpp instance
               // cannot serve the recap and the main turn concurrently.
+              recapStarted = true;
+              const gen = recapGen;
               const result = await doRecap(ctx, span, recapText, info, ctx.signal);
               const salvaged = result.applied ? result.next : clampSummary(result.raw ?? '', rollCfg.summarizeMaxChars);
               const forced = !result.applied && shouldForceRecap({ candidate: salvaged, lag, lagCeiling });
@@ -1943,8 +2091,8 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
                 recapText = commit;
                 recapCutoff = spanTo;
                 writeRecapRecord(commit, sid);
-                await captureFacts(ctx, span);
-                await captureTimeline(ctx, span, sid);
+                await captureFacts(ctx, span, sid, ctx.signal);
+                await captureTimeline(ctx, span, sid, ctx.signal, () => gen === recapGen);
               }
               writeRecapAudit({ result, model: info.model, spanFrom, spanTo, mode: 'sync', forced });
             }
@@ -1957,7 +2105,13 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
           // (committedCutoff = min(recapCutoff, natural)) churns the
           // front-injected recap and re-cuts the floor every turn, busting the
           // prompt-prefix cache on a session catching up a large backlog.
-          committedCutoff = natural;
+          //
+          // In recap mode, only advance when a recap was actually started
+          // this roll: if an in-flight async recap blocked it, holding the
+          // boundary keeps planRecap firing so the backlog starts as soon as
+          // the in-flight one lands, instead of waiting a whole extra stride.
+          // Holding is also cache-neutral (the frozen prefix does not move).
+          if (!recapMode || recapStarted) committedCutoff = natural;
         }
 
         // Hard safety floor: guarantee the reduced prompt fits the session
@@ -2014,15 +2168,18 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
           // roll stride's worth of growth.
           const MIN_OUTPUT_TOKENS = 1024;
           const overflowLimit = windowTokens - Math.round((sysChars + injectChars) / cpt) - MIN_OUTPUT_TOKENS;
-          const heldConvTokens =
-            frozenFloorCutoff > 0 ? estimateChars(messages.slice(frozenFloorCutoff)) / cpt : Infinity;
+          // Estimate from where the drop actually holds: the larger of the
+          // frozen floor and the recap drop boundary (a recap that already
+          // drops more than the floor shrinks the held suffix).
+          const heldStart = Math.max(frozenFloorCutoff, recapCutoff);
+          const heldConvTokens = heldStart > 0 ? estimateChars(messages.slice(heldStart)) / cpt : Infinity;
           const overflow = overflowLimit > 0 && heldConvTokens > overflowLimit;
           // Freeze the floor: recompute only on the overflow valve, never per
           // turn. NB do NOT key this on `rollFired` - a session draining a recap
           // backlog rolls every turn, which would recompute (and wiggle) the
           // floor every turn and defeat the freeze. The valve alone advances it
           // when holding would overflow; otherwise the drop boundary is stable.
-          frozenFloorCutoff = freezeFloorCutoff({ frozen: frozenFloorCutoff, rawFloor, rollFired: false, overflow });
+          frozenFloorCutoff = freezeFloorCutoff({ frozen: frozenFloorCutoff, rawFloor, overflow });
           floorCutoff = frozenFloorCutoff;
         }
         const dropCutoff = Math.max(recapCutoff, floorCutoff);
@@ -2152,6 +2309,13 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
             pi.events.emit('cache-reminders:insertions', plan.insertions);
             if (plan.tailBlock) reminders.push({ id: 'roleplay-depth', body: plan.tailBlock });
           }
+          const sceneFold = pendingSceneFold;
+          pendingSceneFold = null;
+          if (sceneFold) {
+            reminders.push({ id: 'roleplay-scene-fold', body: sceneFold.body });
+            // Only sheets that actually reached this run's snapshot count as delivered.
+            for (const id of sceneFold.ids) sceneFoldDelivered.set(id, sceneFold.turn);
+          }
           if (lorebookEnabled) reminders.push({ id: 'roleplay-lore', body: pendingLore });
           if (repetitionEnabled) reminders.push({ id: 'roleplay-repetition', body: buildRepetitionNudge(messages) });
           if (eventsEnabled) reminders.push({ id: 'roleplay-event', body: pendingEventForRun });
@@ -2214,9 +2378,9 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   //
   // The rolling window (context hook) owns the common path; this handler
   // only cancels pi's THRESHOLD auto-compaction and, on the manual /
-  // overflow safety-net paths, folds the evicted span into `summary/auto`
-  // (a strict side-write that never breaks compaction). Summarizer infra
-  // (extDir / getSummarizer / toSummarizable) is defined above.
+  // overflow safety-net paths, folds the evicted span into the running
+  // recap (a strict side-write that never breaks compaction). Summarizer
+  // infra (extDir / getSummarizer / toSummarizable) is defined above.
   if (summarizeEnabled) {
     pi.on('session_before_compact', async (event, ctx) => {
       const reason = (event as unknown as { reason?: string }).reason;
@@ -2226,18 +2390,25 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       // recovery always run (belt-and-suspenders safety net).
       if (ownCompaction && reason === 'threshold') return { cancel: true };
       // Manual / overflow (or threshold when not owning): fold the evicted
-      // span into the durable recap so continuity survives the compaction.
+      // span into the recap so continuity survives the compaction.
       try {
         if (activeCast() === null) return undefined;
         resyncIfChanged(ctx);
         if (state.cast.length === 0) return undefined;
         const cfg = loadRoleplayConfig(cwd, envCharBudget);
-        const priorEntry = state.entries.find((e) => e.kind === 'summary' && e.id === 'auto');
-        const prior = priorEntry ? (readEntryBody(state.cast, priorEntry) ?? undefined) : undefined;
+        // Prior: the in-memory, branch-correct recap. The per-cast carry-over
+        // (`summary/auto.md`, shared across same-cast sessions) is only a
+        // fallback when this process holds no recap (e.g. the context window
+        // is off, or nothing has hydrated / rolled yet).
+        let prior = recapText.trim();
+        if (!prior) {
+          const priorEntry = state.entries.find((e) => e.kind === 'summary' && e.id === 'auto');
+          prior = priorEntry ? (readEntryBody(state.cast, priorEntry) ?? '').trim() : '';
+        }
         const info = resolveRecapModelInfo(ctx);
         const maxSpanChars = deriveMaxSpanChars({
           contextWindowTokens: info.model?.contextWindow,
-          priorRecapChars: prior?.length ?? 0,
+          priorRecapChars: prior.length,
           charsPerToken,
         });
         const messages = (event.preparation?.messagesToSummarize ?? []).map(toSummarizable);
@@ -2245,24 +2416,77 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         if (!plan) return undefined;
         const sum = getSummarizer(ctx);
         if (!sum?.isEnabled()) return undefined;
+        const startedAt = Date.now();
         const recap = await sum.summarize(
           { cwd, model: ctx.model, modelRegistry: ctx.modelRegistry as never, signal: event.signal },
           plan.spanText,
-          prior,
+          prior || undefined,
           resolvePromptGuidance('summary', { cwd }),
         );
         // Collapse guard: never let a degenerate recap clobber a longer prior.
-        if (recap === null || !acceptRecap(prior ?? '', recap)) return undefined;
-        // Two-tier: live per-session record + carry-over auto.md (A4).
+        if (recap === null || !acceptRecap(prior, recap)) return undefined;
+        recapText = recap;
+        // Refresh the per-cast carry-over seed, and keep the in-memory index
+        // aware of it WITHOUT applyCast (which would reset lorebook timing as
+        // a side effect).
         writeRecapRecord(recap, currentSessionId(ctx));
-        // Re-scan so the index + in-memory state reflect the new record; a
-        // subsequent context turn re-hydrates recapText from it.
-        applyCast(state.cast, ctx);
+        const rec = composeAutoSummaryRecord(recap);
+        state = {
+          cast: state.cast,
+          entries: upsertEntry(state.entries, {
+            id: rec.id,
+            kind: 'summary',
+            name: rec.name,
+            description: rec.description,
+          }),
+        };
+        // Branch-primary store: stamp the recap on the branch. Coverage is 0
+        // because indices into the pre-compaction message array mean nothing
+        // afterwards (scanBranchForRecap also zeroes coverage for any recap
+        // followed by a compaction entry, so this stays consistent).
+        writeRecapAudit({
+          result: {
+            next: recap,
+            raw: recap,
+            applied: true,
+            spanLen: plan.messageCount,
+            priorLen: prior.length,
+            startedAt,
+          },
+          model: info.model,
+          spanFrom: 0,
+          spanTo: 0,
+          mode: 'compact',
+        });
         ctx.ui.notify(`roleplay: folded ${plan.messageCount} evicted message(s) into the auto recap.`, 'info');
       } catch {
         // Side-write must never break compaction.
       }
       return undefined;
+    });
+  }
+
+  // After a successful compaction the context is a NEW, shorter message
+  // array (compaction summary + kept messages), so every index-valued cutoff
+  // is stale. Keep the recap / timeline TEXT (still the scene memory) but
+  // reset coverage to 0 and invalidate any in-flight async recap (its
+  // `spanTo` indexes the old array). Normal rolls re-anchor coverage.
+  if (contextWindowEnabled) {
+    pi.on('session_compact', () => {
+      recapGen += 1;
+      recapInFlight = false;
+      if (recapAbort) {
+        try {
+          recapAbort.abort();
+        } catch {
+          /* ignore */
+        }
+        recapAbort = null;
+      }
+      recapCutoff = 0;
+      committedCutoff = 0;
+      frozenFloorCutoff = 0;
+      lastSentEstChars = 0;
     });
   }
 
@@ -2397,13 +2621,33 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       // A separate bus teardown must still run if another resource failed.
     }
     unsubscribeReminderSnapshots = null;
-    for (const unsubscribe of unsubscribePipeline.splice(0)) unsubscribe();
+    for (const unsubscribe of unsubscribePipeline.splice(0)) {
+      try {
+        unsubscribe();
+      } catch {
+        // One failing unsubscribe must not block the rest of teardown.
+      }
+    }
+    // Lazily built runners capture the first ctx they saw; drop them so a
+    // later session rebuilds against its own ctx.
+    summarizer = null;
+    summarizerInit = false;
+    eventGen = null;
+    eventGenInit = false;
+    factExtractor = null;
+    factExtractorInit = false;
+    timelineExtractor = null;
+    timelineExtractorInit = false;
     state = emptyState();
     castOverride = null;
     syncedCast = null;
     pendingEvent = null;
     eventConsumed = false;
     pendingLore = null;
+    pendingSceneFold = null;
+    sceneFoldDelivered = new Map();
+    sceneFoldPriorActive = new Set();
+    frozenMacroNow = null;
     pendingDepthScan = null;
     pendingEventForRun = null;
     pendingEventGenerationForRun = null;
@@ -2466,7 +2710,13 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     const body = (params.body ?? '').trim();
     if (body.length === 0) return fail('save', '`body` is required for `save`');
 
+    const lastInteractionErr = lastInteractionError(params.lastInteraction);
+    if (lastInteractionErr) return fail('save', lastInteractionErr);
+
     const slug = chooseSlug(state.entries, params.name);
+    if (isReservedSlug(kind, slug)) {
+      return fail('save', `slug "${slug}" is reserved for the ${kind} carry-over record; choose a different \`name\``);
+    }
     const lore = kind === 'lore' ? buildLoreMeta(params) : undefined;
     const character = kind === 'character' ? buildCharacterMeta(params) : undefined;
     const relationship = kind === 'relationship' ? buildRelationshipMeta(params) : undefined;
@@ -2530,6 +2780,8 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     }
     const nextName = params.name !== undefined ? params.name.trim() : resolved.name;
     if (nextName.length === 0) return fail('update', '`name` may not be empty');
+    const lastInteractionErr = lastInteractionError(params.lastInteraction);
+    if (lastInteractionErr) return fail('update', lastInteractionErr);
     const nextDescription = params.description !== undefined ? params.description.trim() : resolved.description;
 
     let nextBody: string;
@@ -2549,9 +2801,14 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     let entries = state.entries;
     let nextId = resolved.id;
     if (renamed) {
-      entries = removeEntry(entries, resolved.id);
+      entries = removeEntry(entries, resolved.kind, resolved.id);
       nextId = chooseSlug(entries, params.name!);
-      removeFileIfExists(fileFor(state.cast, resolved.kind, resolved.id));
+      if (isReservedSlug(resolved.kind, nextId)) {
+        return fail(
+          'update',
+          `slug "${nextId}" is reserved for the ${resolved.kind} carry-over record; choose a different \`name\``,
+        );
+      }
     }
     const lore = resolved.kind === 'lore' ? buildLoreMeta(params, resolved.lore ?? emptyLoreMeta()) : undefined;
     const character =
@@ -2562,8 +2819,11 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       resolved.kind === 'relationship'
         ? buildRelationshipMeta(params, resolved.relationship ?? emptyRelationshipMeta())
         : undefined;
+    // Bundle lore stays in its bundle dir (`lore/<bundle>/<id>.md`); a
+    // rename only changes the stem. Write the new file BEFORE removing the
+    // old one so a failed write never loses the record.
     atomicWriteFile(
-      fileFor(state.cast, resolved.kind, nextId),
+      entryFilePath(state.cast, { ...resolved, id: nextId }),
       serializeEntry({
         name: nextName,
         description: nextDescription,
@@ -2572,8 +2832,15 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         lore,
         character,
         relationship,
+        extra: resolved.extra,
       }),
     );
+    if (renamed) {
+      const oldPath = entryFilePath(state.cast, resolved);
+      // chooseSlug can hand back the old stem (e.g. `foo-2` renamed to `Foo`
+      // while `foo` exists); never delete the file just written.
+      if (oldPath !== entryFilePath(state.cast, { ...resolved, id: nextId })) removeFileIfExists(oldPath);
+    }
     const entry: RoleplayEntry = {
       id: nextId,
       kind: resolved.kind,
@@ -2582,6 +2849,8 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       ...(lore ? { lore } : {}),
       ...(character ? { character } : {}),
       ...(relationship ? { relationship } : {}),
+      ...(resolved.extra ? { extra: resolved.extra } : {}),
+      ...(resolved.bundle ? { bundle: resolved.bundle } : {}),
     };
     state = { cast: state.cast, entries: upsertEntry(entries, entry) };
     persist();
@@ -2594,8 +2863,8 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   const actRemove = (params: RoleplayParamsT): ActionOut => {
     const resolved = resolveEntry(state, params);
     if ('error' in resolved) return fail('remove', resolved.error);
-    removeFileIfExists(fileFor(state.cast, resolved.kind, resolved.id));
-    state = { cast: state.cast, entries: removeEntry(state.entries, resolved.id) };
+    removeFileIfExists(entryFilePath(state.cast, resolved));
+    state = { cast: state.cast, entries: removeEntry(state.entries, resolved.kind, resolved.id) };
     persist();
     return {
       content: `Removed [${state.cast}/${resolved.kind}] ${resolved.id}\n\n${formatText(state)}`,
@@ -2634,11 +2903,18 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   /**
    * Import a SillyTavern character card (`.json` V1/V2/V3 or `.png` with a
    * `chara`/`ccv3` chunk) into the active cast: writes one `character`
-   * record plus a `lore` record per enabled `character_book` entry, then
-   * rebuilds `INDEX.md`. Returns a human summary or an error string.
+   * record (carrying fold metadata such as V3 nickname aliases) plus a
+   * `lore` record per non-empty `character_book` entry (disabled entries
+   * are imported with `enabled: false`), then rebuilds `INDEX.md`.
+   * Relative paths resolve against `baseDir` (the session cwd) and a
+   * leading `~/` expands to the home dir. Returns a human summary or an
+   * error string.
    */
-  const importCardFile = (rawPath: string): { ok: true; summary: string } | { ok: false; error: string } => {
-    const path = rawPath.trim();
+  const importCardFile = (
+    rawPath: string,
+    baseDir: string,
+  ): { ok: true; summary: string } | { ok: false; error: string } => {
+    const path = resolveImportPath(rawPath, baseDir, homedir());
     if (path.length === 0) return { ok: false, error: 'usage: /roleplay import <path.json|.png>' };
 
     let json: string | null;
@@ -2669,6 +2945,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
           kind: rec.kind,
           body: rec.body,
           lore: rec.lore,
+          character: rec.character,
         }),
       );
       const entry: RoleplayEntry = {
@@ -2677,6 +2954,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         name: rec.name,
         description: rec.description,
         ...(rec.lore ? { lore: rec.lore } : {}),
+        ...(rec.character ? { character: rec.character } : {}),
       };
       entries = upsertEntry(entries, entry);
       written.push(`  [${rec.kind}] ${slug} - ${rec.name}`);
@@ -2900,19 +3178,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
 
   pi.registerCommand('roleplay', {
     description: 'Inspect or switch the active roleplay cast',
-    getArgumentCompletions: (prefix) =>
-      completeSubverbs(prefix, {
-        list: { description: 'List the active cast' },
-        context: { description: 'Show the context-window state (cutoffs, tokens, cache, drain)' },
-        cast: { description: 'Switch / set the active cast', args: () => listCasts().map((c) => ({ label: c })) },
-        import: { description: 'Import a SillyTavern card (.json/.png) into the active cast' },
-        event: { description: 'Queue a one-shot scene complication (LLM-generated, or from the deck)' },
-        images: { description: 'Show or change the image interface', args: ['simple', 'full', 'off'] },
-        newscene: { description: 'Start a fresh scene: archive + clear the recap / timeline / fact carry-overs' },
-        dir: { description: 'Print the roleplay store dir' },
-        rescan: { description: 'Rescan the active cast from disk' },
-        casts: { description: 'List every cast on disk' },
-      }),
+    getArgumentCompletions: (prefix) => completeSubverbs(prefix, roleplaySubverbs(listCasts)),
     handler: async (args, ctx) => {
       if (isHelpArg(args)) {
         ctx.ui.notify(ROLEPLAY_USAGE, 'info');
@@ -2921,6 +3187,8 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       const raw = (args ?? '').trim();
       const [sub, ...rest] = raw.split(/\s+/);
       const verb = (sub ?? '').toLowerCase();
+      // Verbatim remainder after the verb (inner whitespace preserved).
+      const remainder = raw.slice((sub ?? '').length).trim();
 
       const dormant = activeCast() === null;
       const dormantNote =
@@ -2980,12 +3248,13 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
           ctx.ui.notify(dormantNote, 'warning');
           return;
         }
-        const target = rest.join(' ').trim();
+        const target = remainder;
         if (target.length === 0) {
           ctx.ui.notify('Usage: /roleplay import <path.json|.png>', 'info');
           return;
         }
-        const result = importCardFile(target);
+        resyncIfChanged(ctx);
+        const result = importCardFile(target, ctx.cwd);
         if (!result.ok) {
           ctx.ui.notify(`roleplay import: ${result.error}`, 'error');
           return;

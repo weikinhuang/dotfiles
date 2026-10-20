@@ -17,8 +17,8 @@
  * a sibling and is never touched by this extension.
  */
 
-import { existsSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync } from 'node:fs';
-import { join } from 'node:path';
+import { appendFileSync, existsSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync } from 'node:fs';
+import { isAbsolute, join, resolve } from 'node:path';
 
 import { atomicWriteFile, ensureDirSync } from '../atomic-write.ts';
 import { piAgentPath } from '../pi-paths.ts';
@@ -29,7 +29,9 @@ import {
   type RoleplayEntry,
   type RoleplayKind,
   type RoleplayState,
+  serializeEntry,
 } from './store.ts';
+import { appendBeatBody, dedupeNewBeats, splitBeatLogHalves } from './timeline.ts';
 
 export { atomicWriteFile, ensureDirSync };
 
@@ -118,6 +120,65 @@ export function archiveCarryOver(cast: string, kind: RoleplayKind, ts: string, r
   } catch {
     return false;
   }
+}
+
+export interface TimelineCarryOverOptions {
+  /** Rotate once the file exceeds this many characters. */
+  maxChars: number;
+  /** Archive stamp for a rotation (`timeline/archive/<ts>-rotated.md`). */
+  ts: string;
+  /** Frontmatter description for a freshly created / rotated file. */
+  description: string;
+}
+
+export interface TimelineCarryOverResult {
+  /** Beat lines newly appended (after de-dup). */
+  appended: number;
+  /** Whether the log was rotated into the archive. */
+  rotated: boolean;
+}
+
+/**
+ * Append beat lines to the per-cast carry-over `timeline/auto.md` without
+ * rewriting it. Lines already in the log (normalized) are de-duped. A
+ * missing file is created atomically with frontmatter; an existing file
+ * only gets the new lines appended (`appendFileSync`), so concurrent
+ * same-cast sessions interleave lines instead of clobbering each other.
+ * When the file then exceeds `maxChars` the older half of its beats moves
+ * to `timeline/archive/<ts>-rotated.md` and `auto.md` is atomically
+ * rewritten with the newer half (rare). Throws on I/O failure; callers
+ * treat the carry-over as best-effort.
+ */
+export function appendTimelineCarryOver(
+  cast: string,
+  lines: string,
+  opts: TimelineCarryOverOptions,
+  root: string = roleplayRoot(),
+): TimelineCarryOverResult {
+  const compose = (body: string): string =>
+    serializeEntry({ name: 'Auto timeline', description: opts.description, kind: 'timeline', body });
+  const path = fileFor(cast, 'timeline', 'auto', root);
+  const raw = readTextFile(path);
+  if (raw === null) {
+    const fresh = dedupeNewBeats(lines, '');
+    if (fresh.length === 0) return { appended: 0, rotated: false };
+    ensureDirSync(kindDir(cast, 'timeline', root));
+    atomicWriteFile(path, compose(fresh));
+    return { appended: fresh.split('\n').length, rotated: false };
+  }
+  const existing = parseFrontmatter(raw)?.body ?? raw;
+  const fresh = dedupeNewBeats(lines, existing);
+  if (fresh.length === 0) return { appended: 0, rotated: false };
+  const chunk = `${raw.length > 0 && !raw.endsWith('\n') ? '\n' : ''}${fresh}\n`;
+  appendFileSync(path, chunk);
+  const appended = fresh.split('\n').length;
+  if (raw.length + chunk.length <= opts.maxChars) return { appended, rotated: false };
+  const { older, newer } = splitBeatLogHalves(appendBeatBody(existing, fresh));
+  if (older.length === 0) return { appended, rotated: false };
+  ensureDirSync(archiveDir(cast, 'timeline', root));
+  atomicWriteFile(archiveFile(cast, 'timeline', `${opts.ts}-rotated`, root), compose(older));
+  atomicWriteFile(path, compose(newer));
+  return { appended, rotated: true };
 }
 
 export function indexFileFor(cast: string, root: string = roleplayRoot()): string {
@@ -227,15 +288,48 @@ export function archiveFacts(cast: string, ts: string, root: string = roleplayRo
   return moved;
 }
 
-export function readEntryBody(cast: string, entry: RoleplayEntry, root: string = roleplayRoot()): string | null {
-  const path = entry.bundle
+/**
+ * On-disk path of an entry's record file, honoring the runtime `bundle`
+ * annotation: bundle-sourced lore lives at `lore/<bundle>/<id>.md`, every
+ * other record at `<kind>/<id>.md`. Pure path math (no I/O). Pass a
+ * different `id` via `{ ...entry, id }` to compute a rename target inside
+ * the same bundle dir.
+ */
+export function entryFilePath(
+  cast: string,
+  entry: Pick<RoleplayEntry, 'id' | 'kind' | 'bundle'>,
+  root: string = roleplayRoot(),
+): string {
+  return entry.bundle
     ? join(loreBundleDir(cast, entry.bundle, root), `${entry.id}.md`)
     : fileFor(cast, entry.kind, entry.id, root);
+}
+
+export function readEntryBody(cast: string, entry: RoleplayEntry, root: string = roleplayRoot()): string | null {
+  const path = entryFilePath(cast, entry, root);
   if (!existsSync(path)) return null;
   const raw = readTextFile(path);
   if (raw == null) return null;
   const parsed = parseFrontmatter(raw);
   return parsed ? parsed.body : raw;
+}
+
+/**
+ * Normalize a user-typed import path (the raw remainder after
+ * `/roleplay import`): trim, strip ONE pair of matching surrounding quotes
+ * (`"..."` or `'...'`), expand a leading `~` / `~/` against `home`, and
+ * resolve a relative path against `baseDir` (the session cwd, not the
+ * process cwd). Inner whitespace is preserved verbatim. Returns `''` for
+ * an empty input. Pure path math (no I/O).
+ */
+export function resolveImportPath(raw: string, baseDir: string, home: string): string {
+  let p = raw.trim();
+  const quote = p.startsWith('"') ? '"' : p.startsWith("'") ? "'" : '';
+  if (quote && p.length >= 2 && p.endsWith(quote)) p = p.slice(1, -1);
+  if (p.length === 0) return '';
+  if (p === '~') p = home;
+  else if (p.startsWith('~/')) p = join(home, p.slice(2));
+  return isAbsolute(p) ? p : resolve(baseDir, p);
 }
 
 export interface ScanWarning {
@@ -349,7 +443,9 @@ function readKindDir(dir: string, kind: RoleplayKind, warnings: ScanWarning[], b
       name: parsed.frontmatter.name,
       description: parsed.frontmatter.description,
       ...(parsed.frontmatter.lore ? { lore: parsed.frontmatter.lore } : {}),
+      ...(parsed.frontmatter.character ? { character: parsed.frontmatter.character } : {}),
       ...(parsed.frontmatter.relationship ? { relationship: parsed.frontmatter.relationship } : {}),
+      ...(parsed.frontmatter.extra ? { extra: parsed.frontmatter.extra } : {}),
       ...(bundle ? { bundle } : {}),
     });
   }

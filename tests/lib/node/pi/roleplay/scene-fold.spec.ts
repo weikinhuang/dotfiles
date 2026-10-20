@@ -7,7 +7,12 @@
 
 import { expect, test } from 'vitest';
 
-import { characterKeys, characterMatches, planCharacterFold } from '../../../../../lib/node/pi/roleplay/scene-fold.ts';
+import {
+  characterKeys,
+  characterMatches,
+  planCharacterFold,
+  selectFoldDeliveries,
+} from '../../../../../lib/node/pi/roleplay/scene-fold.ts';
 import { type CharacterMeta, type RoleplayEntry } from '../../../../../lib/node/pi/roleplay/store.ts';
 
 function char(id: string, name: string, meta?: Partial<CharacterMeta>): RoleplayEntry {
@@ -117,4 +122,47 @@ test('delay makes a character ineligible to fold until the turn threshold', () =
   expect(early.firedIds).toStrictEqual([]);
   const onTime = planCharacterFold(entries, { scanText: 'Late arrives', turn: 3, priorTiming: {}, rng: always });
   expect(onTime.firedIds).toStrictEqual(['late']);
+});
+
+// ── delivery selection (reminder mode) ────────────────────────────────────
+
+test('selectFoldDeliveries sends a newly active sheet, skips a sticky one until the refresh', () => {
+  const base = { refreshTurns: 3, lastDelivered: new Map([['a', 5]]) };
+  // `a` entered this turn -> deliver even though delivered recently.
+  expect(selectFoldDeliveries({ ...base, activeIds: ['a'], priorActiveIds: new Set(), turn: 6 })).toStrictEqual(['a']);
+  // Still active, delivered 1-2 turns ago -> skip.
+  expect(selectFoldDeliveries({ ...base, activeIds: ['a'], priorActiveIds: new Set(['a']), turn: 6 })).toStrictEqual(
+    [],
+  );
+  expect(selectFoldDeliveries({ ...base, activeIds: ['a'], priorActiveIds: new Set(['a']), turn: 7 })).toStrictEqual(
+    [],
+  );
+  // Refresh boundary reached.
+  expect(selectFoldDeliveries({ ...base, activeIds: ['a'], priorActiveIds: new Set(['a']), turn: 8 })).toStrictEqual([
+    'a',
+  ]);
+});
+
+test('selectFoldDeliveries delivers a never-delivered active id, keeps order, dedups', () => {
+  expect(
+    selectFoldDeliveries({
+      activeIds: ['b', 'a', 'b', 'c'],
+      priorActiveIds: new Set(['a', 'b', 'c']),
+      lastDelivered: new Map([['a', 9]]),
+      turn: 10,
+      refreshTurns: 6,
+    }),
+  ).toStrictEqual(['b', 'c']);
+});
+
+test('selectFoldDeliveries floors refreshTurns at 1 (every turn)', () => {
+  expect(
+    selectFoldDeliveries({
+      activeIds: ['a'],
+      priorActiveIds: new Set(['a']),
+      lastDelivered: new Map([['a', 4]]),
+      turn: 5,
+      refreshTurns: 0,
+    }),
+  ).toStrictEqual(['a']);
 });

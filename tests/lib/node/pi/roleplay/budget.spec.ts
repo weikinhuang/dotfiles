@@ -6,7 +6,14 @@
 
 import { expect, test } from 'vitest';
 
-import { chunkCost, type LoreChunk, rankLore, selectWithinBudget } from '../../../../../lib/node/pi/roleplay/budget.ts';
+import {
+  chunkCost,
+  LORE_BLOCK_HEADER,
+  type LoreChunk,
+  rankLore,
+  selectWithinBudget,
+} from '../../../../../lib/node/pi/roleplay/budget.ts';
+import { formatLoreBlock } from '../../../../../lib/node/pi/roleplay/prompt.ts';
 import { emptyLoreMeta, type RoleplayEntry } from '../../../../../lib/node/pi/roleplay/store.ts';
 
 const chunk = (id: string, order: number, body: string): LoreChunk => ({
@@ -75,4 +82,36 @@ test('always keeps the top-ranked chunk even when it alone exceeds budget', () =
   const { kept, dropped } = selectWithinBudget([chunk('hi', 100, 'x'.repeat(9999)), chunk('lo', 1, 'y')], 10);
   expect(kept.map((c) => c.entry.id)).toStrictEqual(['hi']);
   expect(dropped.map((e) => e.id)).toStrictEqual(['lo']);
+});
+
+test('budget accounting matches the rendered block exactly (header once, no trailer)', () => {
+  const chunks = [chunk('a', 3, 'alpha body'), chunk('b', 2, 'beta body')];
+  const exact = (formatLoreBlock({ kept: chunks, dropped: [] }) ?? '').length;
+  expect(exact).toBe(LORE_BLOCK_HEADER.length + chunks.reduce((n, c) => n + chunkCost(c), 0));
+  const fits = selectWithinBudget(chunks, exact);
+  expect(fits.kept).toHaveLength(2);
+  expect(fits.dropped).toHaveLength(0);
+});
+
+test('rendered block (including the dropped trailer) never exceeds the budget once >1 chunk is kept', () => {
+  const chunks = Array.from({ length: 12 }, (_, i) =>
+    chunk(`entry${String(i).padStart(2, '0')}`, 100 - i, 'z'.repeat(40)),
+  );
+  for (let budget = 100; budget <= 1200; budget += 7) {
+    const result = selectWithinBudget(chunks, budget);
+    expect(result.kept.length + result.dropped.length).toBe(chunks.length);
+    expect(result.kept[0].entry.id).toBe('entry00');
+    // Dropped stays in rank order.
+    expect(result.dropped.map((e) => e.id)).toStrictEqual(result.dropped.map((e) => e.id).toSorted());
+    expect(result.kept.length <= 1 || (formatLoreBlock(result) ?? '').length <= budget).toBe(true);
+  }
+});
+
+test('trailer overflow evicts the lowest-ranked kept chunk but never the first', () => {
+  const chunks = [chunk('a', 3, 'x'.repeat(10)), chunk('b', 2, 'x'.repeat(10)), chunk('c', 1, 'x'.repeat(500))];
+  const headerPlusTwo = LORE_BLOCK_HEADER.length + chunkCost(chunks[0]) + chunkCost(chunks[1]);
+  // Room for a + b but not for the trailer naming c.
+  const result = selectWithinBudget(chunks, headerPlusTwo + 5);
+  expect(result.kept.map((c) => c.entry.id)).toStrictEqual(['a']);
+  expect(result.dropped.map((e) => e.id)).toStrictEqual(['b', 'c']);
 });

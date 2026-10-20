@@ -37,6 +37,38 @@ test('hasKeyword is false for empty / whitespace keys', () => {
   expect(hasKeyword('anything', '   ')).toBe(false);
 });
 
+test('hasKeyword fires CJK keywords inside unspaced CJK text', () => {
+  expect(hasKeyword('阿米娅说你好', '阿米娅')).toBe(true);
+  expect(hasKeyword('博士和阿米娅说', '阿米娅')).toBe(true);
+  expect(hasKeyword('ドクターが来た', 'ドクター')).toBe(true);
+  expect(hasKeyword('こんにちは世界', 'こんにちは')).toBe(true);
+  expect(hasKeyword('สวัสดีครับ', 'สวัสดี')).toBe(true);
+  expect(hasKeyword('小王子', '阿米娅')).toBe(false);
+});
+
+test('hasKeyword treats an adjacent no-space-script char as a boundary for Latin keys', () => {
+  expect(hasKeyword('罗德岛RI基地', 'RI')).toBe(true);
+  expect(hasKeyword('springtime基地', 'RI')).toBe(false);
+});
+
+test('hasKeyword keeps strict boundaries for Hangul (space-delimited)', () => {
+  expect(hasKeyword('아미야 안녕', '아미야')).toBe(true);
+  expect(hasKeyword('아미야가 왔다', '아미야')).toBe(false);
+});
+
+test('hasKeyword treats combining marks as word characters', () => {
+  expect(hasKeyword('le cafe\u0301 ouvert', 'cafe')).toBe(false);
+  expect(hasKeyword('le cafe ouvert', 'cafe')).toBe(true);
+});
+
+test('hasKeyword escapes regex metacharacters in the keyword', () => {
+  expect(hasKeyword('uses C++ daily', 'C++')).toBe(true);
+  expect(hasKeyword('price is $5 (approx)', '$5 (approx)')).toBe(true);
+  expect(hasKeyword('a.b.c', 'a*b')).toBe(false);
+  expect(hasKeyword('the [x] marker', '[x]')).toBe(true);
+  expect(hasKeyword('A-B route', 'A-B')).toBe(true);
+});
+
 // ── loreFires ────────────────────────────────────────────────────────────
 
 test('constant lore always fires regardless of text', () => {
@@ -69,6 +101,13 @@ test('secondary NOT excludes when any key present', () => {
   const e = lore('ri', { triggers: ['Rhodes'], secondaryKeys: ['Reunion'], secondaryMode: 'NOT' });
   expect(loreFires(e, 'Rhodes Island briefing')).toBe(true);
   expect(loreFires(e, 'Rhodes vs Reunion')).toBe(false);
+});
+
+test('secondary NOT_ALL suppresses only when every key is present', () => {
+  const e = lore('ri', { triggers: ['Rhodes'], secondaryKeys: ['Reunion', 'Talulah'], secondaryMode: 'NOT_ALL' });
+  expect(loreFires(e, 'Rhodes Island briefing')).toBe(true);
+  expect(loreFires(e, 'Rhodes vs Reunion')).toBe(true);
+  expect(loreFires(e, 'Rhodes vs Reunion and Talulah')).toBe(false);
 });
 
 test('enabled:false silences an entry, even a constant one', () => {

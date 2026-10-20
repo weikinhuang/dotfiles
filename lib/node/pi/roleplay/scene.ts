@@ -157,3 +157,73 @@ export function composeSceneBlock(
 
   return { block: lines.join('\n').trimEnd(), missing };
 }
+
+const FOLD_HEADER = '## Roleplay scene: on-stage characters';
+
+export interface SceneFoldOptions {
+  /** Character names / ids to render, in precedence order (highest first). */
+  characters: readonly string[];
+  /** Soft char cap on the rendered block. Floor 500. */
+  maxChars?: number;
+}
+
+export interface SceneFoldResult {
+  /** The rendered block, or `null` when nothing renders. */
+  block: string | null;
+  /** Ids whose sheet actually rendered (survived the budget), in order. */
+  keptIds: string[];
+  /** Requested names that did not resolve to a cast character. */
+  missing: string[];
+}
+
+/**
+ * Render name-triggered character sheets as a standalone block for the
+ * per-run `roleplay-scene-fold` reminder (kept off the cached system
+ * prompt). Same `### <Name>` section shape as {@link composeSceneBlock} but
+ * with no POV announcement and its own budget: sheets are kept greedily in
+ * the given order, the first is always kept so a small cap never blanks the
+ * block, and omitted sheets are reported via a trailer. Pure.
+ */
+export function composeSceneFoldBlock(
+  state: RoleplayState,
+  bodyOf: (entry: RoleplayEntry) => string,
+  opts: SceneFoldOptions,
+): SceneFoldResult {
+  const missing: string[] = [];
+  const keptIds: string[] = [];
+  const seen = new Set<string>();
+  const sections: { id: string; rendered: string }[] = [];
+  for (const raw of opts.characters) {
+    const name = raw.trim();
+    if (name.length === 0) continue;
+    const entry = resolveCharacter(state, name);
+    if (!entry) {
+      missing.push(name);
+      continue;
+    }
+    if (seen.has(entry.id)) continue;
+    seen.add(entry.id);
+    const body = bodyOf(entry).trim();
+    if (body.length === 0) continue;
+    sections.push({ id: entry.id, rendered: `### ${entry.name}\n${body}` });
+  }
+  if (sections.length === 0) return { block: null, keptIds, missing };
+
+  const cap = Math.max(500, opts.maxChars ?? 3000);
+  const lines: string[] = [FOLD_HEADER, ''];
+  let used = lines.join('\n').length;
+  let omitted = 0;
+  for (const [i, section] of sections.entries()) {
+    if (i > 0 && used + section.rendered.length + 2 > cap) {
+      omitted++;
+      continue;
+    }
+    lines.push(section.rendered, '');
+    used += section.rendered.length + 2;
+    keptIds.push(section.id);
+  }
+  if (omitted > 0) {
+    lines.push(`(${omitted} character sheet(s) omitted for length - raise \`charBudget\` to include them.)`);
+  }
+  return { block: lines.join('\n').trimEnd(), keptIds, missing };
+}

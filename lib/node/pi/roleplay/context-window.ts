@@ -174,12 +174,35 @@ export function applyContextWindowAt(
 }
 
 /**
+ * Snap a non-zero drop index onto a user-message boundary so dropping
+ * `messages[0..drop)` never leaves the list opening on an assistant message
+ * or a tool result orphaned from its call. Snaps DOWN to the nearest user
+ * message in `(0, drop]` (re-admitting a few covered messages is safe;
+ * losing uncovered ones is not); when there is none, falls forward to the
+ * next one (snapping to 0 would cancel the drop entirely). Returns `drop` unchanged when it is
+ * 0, already a user message, or there is no user message at all.
+ */
+export function snapDropToUserBoundary(messages: readonly Msg[], drop: number): number {
+  if (drop <= 0 || drop >= messages.length) return drop;
+  if (messages[drop].role === 'user') return drop;
+  for (let i = drop - 1; i > 0; i--) {
+    if (messages[i].role === 'user') return i;
+  }
+  for (let i = drop + 1; i < messages.length; i++) {
+    if (messages[i].role === 'user') return i;
+  }
+  return drop;
+}
+
+/**
  * Layered window for the recap-backed (bounded) mode. Unlike
  * {@link applyContextWindowAt} this makes total size O(1) in conversation
  * length: the recap-covered prefix `[0, dropCutoff)` is REMOVED, not just
  * shortened; `[dropCutoff, condenseCutoff)` is condensed head+tail; the rest
- * is verbatim. Both cutoffs must land on user-message boundaries
- * (computeCutoff guarantees this).
+ * is verbatim. Both cutoffs should land on user-message boundaries
+ * (computeCutoff guarantees this); as a defensive belt a non-zero drop that
+ * does not is snapped to one via {@link snapDropToUserBoundary}, so the
+ * reduced list never opens on an assistant message or an orphan tool result.
  */
 export function applyLayeredWindow(
   messages: readonly Msg[],
@@ -187,7 +210,7 @@ export function applyLayeredWindow(
   condenseCutoff: number,
   opts: WindowOptions,
 ): { messages: readonly Msg[]; dropped: number; condensed: number } {
-  const drop = Math.max(0, Math.min(dropCutoff, messages.length));
+  const drop = snapDropToUserBoundary(messages, Math.max(0, Math.min(dropCutoff, messages.length)));
   const condense = Math.max(drop, Math.min(condenseCutoff, messages.length));
   if (drop === 0 && condense === 0) return { messages, dropped: 0, condensed: 0 };
   let condensed = 0;
@@ -306,8 +329,10 @@ export function planRecap(oldCount: number, covered: number, chunk: number): boo
  * floor obey the same freeze-between-rolls invariant `committedCutoff` /
  * `recapCutoff` already follow.
  *
- * - On a roll (`rollFired`) the whole prefix is re-cut anyway, so adopt the
- *   fresh `rawFloor`.
+ * The floor is deliberately NOT re-cut on a roll: a session draining a recap
+ * backlog rolls often, and re-cutting then would wiggle the drop boundary and
+ * defeat the freeze.
+ *
  * - `overflow` is the hard-safety valve: when HOLDING the frozen floor would
  *   actually exceed the window budget (the caller estimates this from the held
  *   suffix), advance to `rawFloor` even mid-cycle rather than send an
@@ -316,14 +341,8 @@ export function planRecap(oldCount: number, covered: number, chunk: number): boo
  * - Otherwise hold the frozen index. Never regress (a smaller cut would only
  *   re-admit already-dropped messages and bust cache for no benefit).
  */
-export function freezeFloorCutoff(opts: {
-  frozen: number;
-  rawFloor: number;
-  rollFired: boolean;
-  overflow: boolean;
-}): number {
-  const { frozen, rawFloor, rollFired, overflow } = opts;
-  if (rollFired) return rawFloor;
+export function freezeFloorCutoff(opts: { frozen: number; rawFloor: number; overflow: boolean }): number {
+  const { frozen, rawFloor, overflow } = opts;
   if (overflow) return Math.max(frozen, rawFloor);
   return frozen;
 }
@@ -344,10 +363,31 @@ export function freezeFloorCutoff(opts: {
  * and which never exceeds the summarizer's span-text cap - so coverage drains
  * a bounded step per roll and `acceptRecap` passes naturally. `maxAdvance <= 0`
  * disables the cap (legacy `spanTo = natural`).
+ *
+ * The result becomes `recapCutoff`, the DROP boundary, so it must land on a
+ * user-message index (the same boundary semantics as {@link computeCutoff}):
+ * a raw `recapCutoff + maxAdvance` can split an assistant tool call from its
+ * result or open the kept list on an assistant turn. The bounded value snaps
+ * DOWN to the last user message in `(recapCutoff, bound]`; when that range
+ * holds none (a single long turn), it falls FORWARD to the first user message
+ * in `(bound, natural]`. Never exceeds `natural` (itself a user boundary).
  */
-export function boundRollSpanTo(recapCutoff: number, natural: number, maxAdvance: number): number {
+export function boundRollSpanTo(
+  messages: readonly Msg[],
+  recapCutoff: number,
+  natural: number,
+  maxAdvance: number,
+): number {
   if (maxAdvance <= 0) return natural;
-  return Math.min(natural, recapCutoff + maxAdvance);
+  const bound = Math.min(natural, recapCutoff + maxAdvance);
+  if (bound >= natural) return natural;
+  for (let i = bound; i > recapCutoff; i--) {
+    if (messages[i]?.role === 'user') return i;
+  }
+  for (let i = bound + 1; i < natural; i++) {
+    if (messages[i]?.role === 'user') return i;
+  }
+  return natural;
 }
 
 /**

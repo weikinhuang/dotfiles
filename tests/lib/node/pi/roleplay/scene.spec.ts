@@ -6,7 +6,11 @@
 
 import { expect, test } from 'vitest';
 
-import { composeSceneBlock, resolveCharacter } from '../../../../../lib/node/pi/roleplay/scene.ts';
+import {
+  composeSceneBlock,
+  composeSceneFoldBlock,
+  resolveCharacter,
+} from '../../../../../lib/node/pi/roleplay/scene.ts';
 import { type RoleplayEntry, type RoleplayState } from '../../../../../lib/node/pi/roleplay/store.ts';
 
 function char(id: string, name: string): RoleplayEntry {
@@ -151,4 +155,33 @@ test('lowest-precedence (listed-last) NPC sheets drop first under budget', () =>
   expect(block).toContain('### Exusiai');
   expect(block).not.toContain('### Texas');
   expect(block).not.toContain('### Lappland');
+});
+
+// ── composeSceneFoldBlock (reminder-delivered name-triggered sheets) ───────
+
+test('composeSceneFoldBlock renders sheets without a POV line and reports kept ids', () => {
+  const { block, keptIds, missing } = composeSceneFoldBlock(state, bodyOf, {
+    characters: ['texas', 'Nobody', 'Texas', 'exusiai'],
+  });
+  expect(block).toContain('## Roleplay scene: on-stage characters');
+  expect(block).toContain('### Texas\nTexas is a stoic Lupo executive.');
+  expect(block).toContain('### Exusiai');
+  expect(block).not.toContain('The user plays');
+  expect(keptIds).toStrictEqual(['texas', 'exusiai']);
+  expect(missing).toStrictEqual(['Nobody']);
+});
+
+test('composeSceneFoldBlock returns null when nothing renders', () => {
+  expect(composeSceneFoldBlock(state, () => '', { characters: ['texas'] }).block).toBeNull();
+  expect(composeSceneFoldBlock(state, bodyOf, { characters: [] }).block).toBeNull();
+});
+
+test('composeSceneFoldBlock keeps the first sheet and evicts the tail under its own cap', () => {
+  const big = (e: RoleplayEntry): string => 'q'.repeat(400) + e.id;
+  const { block, keptIds } = composeSceneFoldBlock(state, big, {
+    characters: ['lappland', 'texas'],
+    maxChars: 500,
+  });
+  expect(keptIds).toStrictEqual(['lappland']);
+  expect(block).toMatch(/1 character sheet\(s\) omitted for length/);
 });

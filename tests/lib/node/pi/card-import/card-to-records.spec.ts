@@ -188,7 +188,7 @@ test('maps timed-effect / group knobs from extensions and flat fields', () => {
   expect(lore[1].lore).toMatchObject({ probability: 100, group: 'ambient', groupWeight: 100 });
 });
 
-test('selectiveLogic maps to the secondary mode (0=OR, 2=NOT, 3=AND)', () => {
+test('selectiveLogic maps to the secondary mode (0=OR, 1=NOT_ALL, 2=NOT, 3=AND)', () => {
   const make = (logic: number): ReturnType<typeof normalizeCard> =>
     normalizeCard({
       spec: 'chara_card_v2',
@@ -205,11 +205,87 @@ test('selectiveLogic maps to the secondary mode (0=OR, 2=NOT, 3=AND)', () => {
     return cardToRecords(card).records.find((r) => r.kind === 'lore')!.lore!.secondaryMode;
   };
   expect(mode(0)).toBe('OR');
+  expect(mode(1)).toBe('NOT_ALL');
   expect(mode(2)).toBe('NOT');
   expect(mode(3)).toBe('AND');
 });
 
-test('skips disabled and empty-content book entries with warnings', () => {
+/** Build a one-entry V2 card and return its plan. */
+function planFor(entry: Record<string, unknown>, data: Record<string, unknown> = {}): ReturnType<typeof cardToRecords> {
+  const card = normalizeCard({
+    spec: 'chara_card_v2',
+    data: {
+      name: 'X',
+      description: 'd',
+      ...data,
+      character_book: { entries: [{ keys: ['k'], content: 'c', comment: 'E', ...entry }] },
+    },
+  });
+  if ('error' in card) throw new Error(card.error);
+  return cardToRecords(card);
+}
+
+test('selectiveLogic defaults to 0 (AND_ANY -> OR) when absent', () => {
+  const plan = planFor({ secondary_keys: ['s', 't'], selective: true });
+  expect(plan.records.find((r) => r.kind === 'lore')!.lore!.secondaryMode).toBe('OR');
+});
+
+test('selectiveLogic is read from extensions (ST export placement)', () => {
+  const plan = planFor({ secondary_keys: ['s'], selective: true, extensions: { selectiveLogic: 3 } });
+  expect(plan.records.find((r) => r.kind === 'lore')!.lore!.secondaryMode).toBe('AND');
+});
+
+test('NOT_ALL with several secondary keys maps exactly (no approximation warning)', () => {
+  const plan = planFor({ secondary_keys: ['s', 't'], selective: true, selectiveLogic: 1 });
+  expect(plan.records.find((r) => r.kind === 'lore')!.lore!.secondaryMode).toBe('NOT_ALL');
+  expect(plan.warnings.filter((w) => w.includes('NOT_ALL'))).toStrictEqual([]);
+});
+
+test('at-depth placement (extensions.position 4) maps to depth', () => {
+  const lore = (ext: Record<string, unknown>): Record<string, unknown> =>
+    planFor({ extensions: ext }).records.find((r) => r.kind === 'lore')!.lore as unknown as Record<string, unknown>;
+  expect(lore({ position: 4, depth: 2 }).depth).toBe(2);
+  expect(lore({ position: 4 }).depth).toBe(4);
+  expect(lore({ position: 1, depth: 2 })).not.toHaveProperty('depth');
+  // flat V2 `position` is a before/after string, never a depth placement
+  const flat = planFor({ position: 'after_char', depth: 2 }).records.find((r) => r.kind === 'lore')!.lore!;
+  expect(flat).not.toHaveProperty('depth');
+});
+
+test('recurse stays false regardless of ST recursion knobs', () => {
+  const plan = planFor({ extensions: { exclude_recursion: false, prevent_recursion: false } });
+  expect(plan.records.find((r) => r.kind === 'lore')!.lore!.recurse).toBe(false);
+});
+
+test('warns on regex keys, case_sensitive, and match_whole_words:false', () => {
+  const plan = planFor({ keys: ['/foo.*/i'], case_sensitive: true, extensions: { match_whole_words: false } });
+  expect(plan.warnings.some((w) => w.includes('regex'))).toBe(true);
+  expect(plan.warnings.some((w) => w.includes('case-sensitive'))).toBe(true);
+  expect(plan.warnings.some((w) => w.includes('whole-word'))).toBe(true);
+  expect(plan.records.filter((r) => r.kind === 'lore')).toHaveLength(1);
+});
+
+test('extensions.case_sensitive true warns; ST export defaults (use_regex true, nulls) do not', () => {
+  expect(planFor({ extensions: { case_sensitive: true } }).warnings.some((w) => w.includes('case-sensitive'))).toBe(
+    true,
+  );
+  const plain = planFor({ use_regex: true, extensions: { case_sensitive: null, match_whole_words: null } });
+  expect(plain.warnings).toStrictEqual([]);
+});
+
+test('V3 nickname becomes a character alias', () => {
+  const card = normalizeCard({ spec: 'chara_card_v3', data: { name: 'Amiya', nickname: 'Bunny', description: 'd' } });
+  if ('error' in card) throw new Error(card.error);
+  const charRec = cardToRecords(card).records.find((r) => r.kind === 'character')!;
+  expect(charRec.character?.aliases).toStrictEqual(['Bunny']);
+});
+
+test('no character meta when nickname is absent or equals the name', () => {
+  expect(planFor({}).records[0].character).toBeUndefined();
+  expect(planFor({}, { nickname: 'x' }).records[0].character).toBeUndefined();
+});
+
+test('imports disabled entries with enabled:false; skips empty-content entries with warnings', () => {
   const card = normalizeCard({
     spec: 'chara_card_v2',
     data: {
@@ -226,9 +302,12 @@ test('skips disabled and empty-content book entries with warnings', () => {
   if ('error' in card) throw new Error(card.error);
   const plan = cardToRecords(card);
   const lore = plan.records.filter((r) => r.kind === 'lore');
-  expect(lore).toHaveLength(1);
-  expect(lore[0].name).toBe('A');
-  expect(plan.warnings.length).toBeGreaterThanOrEqual(2);
+  expect(lore.map((r) => [r.name, r.lore!.enabled])).toStrictEqual([
+    ['A', true],
+    ['B', false],
+  ]);
+  expect(plan.warnings.some((w) => w.includes('"B"') && w.includes('enabled: false'))).toBe(true);
+  expect(plan.warnings.some((w) => w.includes('entry 3') && w.includes('no content'))).toBe(true);
 });
 
 test('non-selective entry ignores secondary keys', () => {

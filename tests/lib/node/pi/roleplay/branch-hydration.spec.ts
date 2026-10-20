@@ -71,6 +71,16 @@ test('scanBranchForRecap ignores non-custom and empty-recap entries', () => {
   expect(scanBranchForRecap(entries, 50)).toBeNull();
 });
 
+test('scanBranchForRecap resets coveredTo to 0 when a compaction follows the recap, keeping the text', () => {
+  const entries = [recapEntry({ recap: 'kept text', coveredTo: 30, applied: true }), { type: 'compaction' }];
+  expect(scanBranchForRecap(entries, 50)).toEqual({ recap: 'kept text', coveredTo: 0 });
+});
+
+test('scanBranchForRecap keeps the normal coveredTo when the compaction precedes the recap', () => {
+  const entries = [{ type: 'compaction' }, recapEntry({ recap: 'after compaction', coveredTo: 30, applied: true })];
+  expect(scanBranchForRecap(entries, 50)).toEqual({ recap: 'after compaction', coveredTo: 30 });
+});
+
 test('scanBranchForTimeline returns the newest non-empty snapshot, trimmed', () => {
   const entries = [timelineEntry('older'), timelineEntry('  newest\n')];
   expect(scanBranchForTimeline(entries)).toBe('newest');
@@ -84,4 +94,32 @@ test('scanBranchForTimeline skips empty snapshots and returns null when none car
 test('scanBranchForTimeline cold-starts on a newscene marker', () => {
   const entries = [timelineEntry('archived beats'), newscene()];
   expect(scanBranchForTimeline(entries)).toBeNull();
+});
+
+const deltaEntry = (beats: string): Record<string, unknown> => ({
+  type: 'custom',
+  customType: 'roleplay-timeline',
+  data: { version: 2, beats },
+});
+
+test('scanBranchForTimeline concatenates v2 deltas in branch order', () => {
+  const entries = [deltaEntry('- a'), deltaEntry(''), { type: 'compaction' }, deltaEntry('- b\n- c\n')];
+  expect(scanBranchForTimeline(entries)).toBe('- a\n- b\n- c');
+});
+
+test('scanBranchForTimeline starts from the latest legacy cumulative snapshot, then appends v2 deltas', () => {
+  const entries = [
+    timelineEntry('- stale'),
+    deltaEntry('- shadowed by the later legacy snapshot'),
+    timelineEntry('- x\n- y'),
+    deltaEntry('- z'),
+    deltaEntry('- w'),
+  ];
+  expect(scanBranchForTimeline(entries)).toBe('- x\n- y\n- z\n- w');
+});
+
+test('scanBranchForTimeline: a newscene marker drops deltas and legacy snapshots before it', () => {
+  const entries = [timelineEntry('- old'), deltaEntry('- old delta'), newscene(), deltaEntry('- fresh')];
+  expect(scanBranchForTimeline(entries)).toBe('- fresh');
+  expect(scanBranchForTimeline([deltaEntry('- old'), newscene()])).toBeNull();
 });

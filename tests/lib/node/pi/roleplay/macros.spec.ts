@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { substituteMacros } from '../../../../../lib/node/pi/roleplay/macros.ts';
+import { hashString, mulberry32, seededRng, substituteMacros } from '../../../../../lib/node/pi/roleplay/macros.ts';
 
 /** Deterministic rng: cycles through the given draws, repeating the last. */
 function seqRng(...draws: number[]): () => number {
@@ -73,6 +73,21 @@ describe('substituteMacros', () => {
     expect(substituteMacros('{{roll:0d6}}')).toBe('{{roll:0d6}}');
   });
 
+  it('{{roll}} beyond the dice / sides cap is left literal without rolling', () => {
+    let draws = 0;
+    const rng = (): number => {
+      draws += 1;
+      return 0;
+    };
+    expect(substituteMacros('{{roll:999999999d6}}', { rng })).toBe('{{roll:999999999d6}}');
+    expect(substituteMacros('{{roll:101d6}}', { rng })).toBe('{{roll:101d6}}');
+    expect(substituteMacros('{{roll:1d1000001}}', { rng })).toBe('{{roll:1d1000001}}');
+    expect(substituteMacros('{{roll:1000001}}', { rng })).toBe('{{roll:1000001}}');
+    expect(draws).toBe(0);
+    expect(substituteMacros('{{roll:100d1000000}}', { rng })).toBe('100');
+    expect(draws).toBe(100);
+  });
+
   it('resolves multiple macros in one pass and does not recurse into output', () => {
     expect(
       substituteMacros('{{char}}: "{{random:hi,yo}}" to {{user}} on {{weekday}}', {
@@ -82,5 +97,33 @@ describe('substituteMacros', () => {
         rng: seqRng(0),
       }),
     ).toBe('Exusiai: "hi" to Doctor on Sunday');
+  });
+});
+
+describe('seeded rng', () => {
+  it('hashString is deterministic and key-sensitive', () => {
+    expect(hashString('abc')).toBe(hashString('abc'));
+    expect(hashString('abc')).not.toBe(hashString('abd'));
+    expect(hashString('')).toBe(0x811c9dc5);
+  });
+
+  it('mulberry32 yields a reproducible [0, 1) stream', () => {
+    const a = mulberry32(42);
+    const b = mulberry32(42);
+    const xs = Array.from({ length: 50 }, () => a());
+    expect(Array.from({ length: 50 }, () => b())).toStrictEqual(xs);
+    for (const x of xs) {
+      expect(x).toBeGreaterThanOrEqual(0);
+      expect(x).toBeLessThan(1);
+    }
+    expect(new Set(xs).size).toBeGreaterThan(40);
+  });
+
+  it('seededRng + a frozen now make volatile macros byte-stable across calls', () => {
+    const now = new Date(2024, 0, 2, 3, 4);
+    const text = '{{time}} {{date}} {{weekday}} {{random:a,b,c,d,e,f}} {{roll:3d20}}';
+    const once = substituteMacros(text, { now, rng: seededRng('sid\u0000entry') });
+    expect(substituteMacros(text, { now, rng: seededRng('sid\u0000entry') })).toBe(once);
+    expect(once.startsWith('03:04 2024-01-02 Tuesday ')).toBe(true);
   });
 });

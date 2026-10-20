@@ -91,7 +91,23 @@ export interface RoleplayConfig {
   timeline: boolean;
   /** Soft cap on the injected `## Recent timeline` block, in characters. */
   timelineMaxInjectChars: number;
+  /**
+   * Where name-triggered character sheets are delivered. `reminder` (default)
+   * keeps them off the cached system prompt as a per-run
+   * `roleplay-scene-fold` reminder; `system` restores the legacy behavior of
+   * folding them into the `## Roleplay scene` system-prompt block.
+   */
+  sceneFoldDelivery: SceneFoldDelivery;
+  /** Re-send a still-sticky name-triggered sheet after this many narrative turns (reminder delivery only). */
+  sceneFoldRefreshTurns: number;
+  /** Rotate the carry-over `timeline/auto.md` into `timeline/archive/` once it exceeds this many characters. */
+  timelineFileMaxChars: number;
+  /** Cap on the in-memory cumulative timeline log (whole beat lines, newest kept), in characters. */
+  timelineMemoryMaxChars: number;
 }
+
+/** Delivery mode for name-triggered character folds. */
+export type SceneFoldDelivery = 'reminder' | 'system';
 
 /** Shipped defaults - lowest config layer. Parity with memory's 3000-char cap. */
 export const DEFAULT_CONFIG: RoleplayConfig = {
@@ -123,6 +139,10 @@ export const DEFAULT_CONFIG: RoleplayConfig = {
   capture: false,
   timeline: false,
   timelineMaxInjectChars: 1200,
+  sceneFoldDelivery: 'reminder',
+  sceneFoldRefreshTurns: 6,
+  timelineFileMaxChars: 65536,
+  timelineMemoryMaxChars: 32768,
 };
 
 /** Floor for the injected-block budgets so a tiny value can't blank them. */
@@ -159,6 +179,16 @@ export const MIN_WINDOW_CHARS = 40;
 
 /** Floor for the injected timeline block so a tiny value can't blank it. */
 export const MIN_TIMELINE_INJECT_CHARS = 200;
+
+/** Bounds on the scene-fold refresh cadence, in narrative turns. */
+export const MIN_SCENE_FOLD_REFRESH = 1;
+export const MAX_SCENE_FOLD_REFRESH = 100;
+
+/** Floor for the carry-over timeline file rotation threshold. */
+export const MIN_TIMELINE_FILE_CHARS = 4096;
+
+/** Floor for the in-memory cumulative timeline cap. */
+export const MIN_TIMELINE_MEMORY_CHARS = 1024;
 
 /** Validate an untrusted JSON layer into a `Partial<RoleplayConfig>`. */
 export function coerceConfigLayer(raw: unknown): Partial<RoleplayConfig> {
@@ -252,6 +282,21 @@ export function coerceConfigLayer(raw: unknown): Partial<RoleplayConfig> {
   }
   if (typeof v.timelineMaxInjectChars === 'number' && Number.isFinite(v.timelineMaxInjectChars)) {
     out.timelineMaxInjectChars = Math.max(MIN_TIMELINE_INJECT_CHARS, Math.floor(v.timelineMaxInjectChars));
+  }
+  if (v.sceneFoldDelivery === 'reminder' || v.sceneFoldDelivery === 'system') {
+    out.sceneFoldDelivery = v.sceneFoldDelivery;
+  }
+  if (typeof v.sceneFoldRefreshTurns === 'number' && Number.isFinite(v.sceneFoldRefreshTurns)) {
+    out.sceneFoldRefreshTurns = Math.max(
+      MIN_SCENE_FOLD_REFRESH,
+      Math.min(MAX_SCENE_FOLD_REFRESH, Math.floor(v.sceneFoldRefreshTurns)),
+    );
+  }
+  if (typeof v.timelineFileMaxChars === 'number' && Number.isFinite(v.timelineFileMaxChars)) {
+    out.timelineFileMaxChars = Math.max(MIN_TIMELINE_FILE_CHARS, Math.floor(v.timelineFileMaxChars));
+  }
+  if (typeof v.timelineMemoryMaxChars === 'number' && Number.isFinite(v.timelineMemoryMaxChars)) {
+    out.timelineMemoryMaxChars = Math.max(MIN_TIMELINE_MEMORY_CHARS, Math.floor(v.timelineMemoryMaxChars));
   }
   return out;
 }

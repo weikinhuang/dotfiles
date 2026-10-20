@@ -18,6 +18,7 @@ import {
   planRecap,
   RECAP_PREFIX,
   shouldForceRecap,
+  snapDropToUserBoundary,
   TIMELINE_PREFIX,
   truncateText,
   updateCharsPerToken,
@@ -149,6 +150,27 @@ describe('applyLayeredWindow', () => {
     expect(out.dropped).toBe(4);
     expect(out.messages.length).toBe(msgs.length - 4);
   });
+
+  it('never leaves a leading toolResult when the drop splits a toolCall from its result', () => {
+    const msgs: Msg[] = [
+      { role: 'user', content: 'u0' },
+      { role: 'assistant', content: [{ type: 'toolCall', id: 't1', name: 'x', arguments: {} }] },
+      { role: 'toolResult', toolCallId: 't1', content: 'r1' },
+      { role: 'assistant', content: 'a0' },
+      { role: 'user', content: 'u1' },
+      { role: 'assistant', content: [{ type: 'toolCall', id: 't2', name: 'x', arguments: {} }] },
+      { role: 'toolResult', toolCallId: 't2', content: 'r2' },
+      { role: 'assistant', content: 'a1' },
+      { role: 'user', content: 'u2' },
+    ];
+    for (const drop of [2, 6]) {
+      const out = applyLayeredWindow(msgs, drop, drop, OPTS);
+      expect(out.messages[0].role).toBe('user');
+      expect(msgs[out.dropped].role).toBe('user');
+    }
+    // drop=6 (toolResult) snaps back to the user at 4
+    expect(applyLayeredWindow(msgs, 6, 6, OPTS).dropped).toBe(4);
+  });
 });
 
 describe('acceptRecap', () => {
@@ -224,74 +246,112 @@ describe('planRecap', () => {
 });
 
 describe('freezeFloorCutoff', () => {
-  it('re-cuts to the fresh raw floor on a roll', () => {
-    expect(freezeFloorCutoff({ frozen: 100, rawFloor: 140, rollFired: true, overflow: false })).toBe(140);
-    // Even when the fresh cut is smaller (e.g. a longer recap freed budget), a
-    // roll adopts it - the prefix is being re-cut anyway.
-    expect(freezeFloorCutoff({ frozen: 140, rawFloor: 120, rollFired: true, overflow: false })).toBe(120);
-  });
-
   it('holds the frozen index between rolls even as the raw floor creeps up', () => {
     // The raw fit floor advances a message or two every turn; freezing pins the
     // drop boundary so the prompt prefix stays byte-stable and cache survives.
     let frozen = 100;
     for (const rawFloor of [102, 104, 106, 108]) {
-      frozen = freezeFloorCutoff({ frozen, rawFloor, rollFired: false, overflow: false });
+      frozen = freezeFloorCutoff({ frozen, rawFloor, overflow: false });
       expect(frozen).toBe(100);
     }
   });
 
   it('advances mid-cycle only when holding would overflow (hard-safety valve)', () => {
-    expect(freezeFloorCutoff({ frozen: 100, rawFloor: 130, rollFired: false, overflow: true })).toBe(130);
+    expect(freezeFloorCutoff({ frozen: 100, rawFloor: 130, overflow: true })).toBe(130);
     // Never regresses below the frozen index on an overflow valve.
-    expect(freezeFloorCutoff({ frozen: 140, rawFloor: 120, rollFired: false, overflow: true })).toBe(140);
-  });
-
-  it('sawtooth vs frozen: a per-turn recompute steps every turn, freezing steps only on rolls', () => {
-    // Simulate the raw floor creeping +2/turn with a roll every 4th turn.
-    let frozen = 0;
-    const frozenSteps: number[] = [];
-    let raw = 100;
-    for (let turn = 0; turn < 12; turn++) {
-      const rollFired = turn % 4 === 0;
-      frozen = freezeFloorCutoff({ frozen: frozen || raw, rawFloor: raw, rollFired, overflow: false });
-      frozenSteps.push(frozen);
-      raw += 2;
-    }
-    // The raw floor changed all 12 turns; the frozen floor changes only on the
-    // 3 roll turns (indices 0, 4, 8), so 9 of 12 turns keep a byte-stable prefix.
-    const distinctFrozen = new Set(frozenSteps).size;
-    expect(distinctFrozen).toBe(3);
+    expect(freezeFloorCutoff({ frozen: 140, rawFloor: 120, overflow: true })).toBe(140);
   });
 });
 
 describe('boundRollSpanTo', () => {
+  /** `n` user messages: every index is a user boundary, so snapping is the identity. */
+  const users = (n: number): Msg[] => Array.from({ length: n }, (_, i) => ({ role: 'user', content: `U${i}` }));
+  const U = { role: 'user', content: 'u' };
+  const A = { role: 'assistant', content: 'a' };
+  const T = { role: 'toolResult', content: 'r' };
+
   it('caps the advance to recapCutoff + maxAdvance', () => {
-    expect(boundRollSpanTo(1643, 1947, 24)).toBe(1667);
+    expect(boundRollSpanTo(users(2000), 1643, 1947, 24)).toBe(1667);
   });
 
   it('never overshoots natural when the remaining span is small', () => {
-    expect(boundRollSpanTo(1940, 1947, 24)).toBe(1947);
+    expect(boundRollSpanTo(users(2000), 1940, 1947, 24)).toBe(1947);
   });
 
   it('maxAdvance <= 0 disables the cap (legacy spanTo = natural)', () => {
-    expect(boundRollSpanTo(1643, 1947, 0)).toBe(1947);
-    expect(boundRollSpanTo(1643, 1947, -5)).toBe(1947);
+    expect(boundRollSpanTo(users(2000), 1643, 1947, 0)).toBe(1947);
+    expect(boundRollSpanTo(users(2000), 1643, 1947, -5)).toBe(1947);
   });
 
   it('drains a stalled backlog in bounded steps instead of re-attempting it whole', () => {
     // A wedged recap 300 messages behind advances 24/roll rather than retrying
     // the entire 300-message span (which is what collapsed + wedged it).
+    const msgs = users(2000);
     let recapCutoff = 1643;
     const natural = 1943; // 300 behind; fixed for this check
     const steps: number[] = [];
     for (let i = 0; i < 5; i++) {
-      const spanTo = boundRollSpanTo(recapCutoff, natural, 24);
+      const spanTo = boundRollSpanTo(msgs, recapCutoff, natural, 24);
       steps.push(spanTo - recapCutoff);
       recapCutoff = spanTo; // simulate an accepted incremental roll
     }
     expect(steps).toEqual([24, 24, 24, 24, 24]);
     expect(recapCutoff).toBe(1763); // 1643 + 5*24, still draining toward natural
+  });
+
+  it('snaps down to a user boundary when the bound lands on an assistant message', () => {
+    const msgs = transcript(10); // users at even indices
+    // bound = 0 + 5 = 5 (assistant) -> last user in (0, 5] is 4
+    expect(boundRollSpanTo(msgs, 0, 18, 5)).toBe(4);
+    expect(msgs[4].role).toBe('user');
+  });
+
+  it('snaps down past a toolResult so a tool call is never split from its result', () => {
+    // 0:U 1:A(toolCall) 2:T 3:A 4:U 5:A 6:T 7:A 8:U 9:A 10:U
+    const msgs: Msg[] = [U, A, T, A, U, A, T, A, U, A, U];
+    expect(boundRollSpanTo(msgs, 0, 10, 6)).toBe(4); // bound 6 = toolResult
+    expect(boundRollSpanTo(msgs, 0, 10, 7)).toBe(4); // bound 7 = assistant
+  });
+
+  it('falls forward to the next user when (recapCutoff, bound] holds none', () => {
+    // 0:U then a long single turn 1..6, next user at 7, natural 9
+    const msgs: Msg[] = [U, A, T, A, T, A, T, U, A, U];
+    expect(boundRollSpanTo(msgs, 0, 9, 3)).toBe(7);
+  });
+
+  it('falls forward to natural when no user lies before it, and never exceeds natural', () => {
+    const msgs: Msg[] = [U, A, T, A, T, A, T, A, U, A];
+    expect(boundRollSpanTo(msgs, 0, 8, 3)).toBe(8);
+    for (let adv = 1; adv < 20; adv++) {
+      expect(boundRollSpanTo(msgs, 0, 8, adv)).toBeLessThanOrEqual(8);
+    }
+  });
+});
+
+describe('snapDropToUserBoundary', () => {
+  const U = { role: 'user', content: 'u' };
+  const A = { role: 'assistant', content: 'a' };
+  const T = { role: 'toolResult', content: 'r' };
+  // 0:U 1:A 2:T 3:A 4:U 5:A
+  const msgs: Msg[] = [U, A, T, A, U, A];
+
+  it('leaves a user index unchanged', () => {
+    expect(snapDropToUserBoundary(msgs, 4)).toBe(4);
+  });
+
+  it('snaps an assistant or toolResult index back to the previous user', () => {
+    expect(snapDropToUserBoundary(msgs, 5)).toBe(4);
+    // No user in (0, 2], so it falls forward to the next user.
+    expect(snapDropToUserBoundary(msgs, 2)).toBe(4);
+    const more: Msg[] = [U, A, U, A, T, A];
+    expect(snapDropToUserBoundary(more, 3)).toBe(2);
+    expect(snapDropToUserBoundary(more, 4)).toBe(2);
+  });
+
+  it('returns 0 and >= length unchanged', () => {
+    expect(snapDropToUserBoundary(msgs, 0)).toBe(0);
+    expect(snapDropToUserBoundary(msgs, msgs.length)).toBe(msgs.length);
+    expect(snapDropToUserBoundary(msgs, msgs.length + 3)).toBe(msgs.length + 3);
   });
 });
 
@@ -332,6 +392,8 @@ describe('recap wedge regression (persistent over-cap candidate)', () => {
   const overCapRecap = (): string => 'X'.repeat(CAP + 500);
 
   it('never wedges: coverage advances once lag passes the ceiling', () => {
+    // Every index is a user message, so the user-boundary snap is the identity.
+    const msgs: Msg[] = Array.from({ length: 301 }, (_, i) => ({ role: 'user', content: `U${i}` }));
     let recapCutoff = 0;
     let recapText = '';
     let natural = 0;
@@ -340,7 +402,7 @@ describe('recap wedge regression (persistent over-cap candidate)', () => {
     // 300 turns of aged messages arrive; a roll fires each iteration.
     for (let turn = 0; turn < 300; turn++) {
       natural += 1; // one more aged message each turn
-      const spanTo = boundRollSpanTo(recapCutoff, natural, MAX_ADVANCE);
+      const spanTo = boundRollSpanTo(msgs, recapCutoff, natural, MAX_ADVANCE);
       const lag = natural - recapCutoff;
 
       // doRecap: the raw model text is over-cap, so validateSummary => null.

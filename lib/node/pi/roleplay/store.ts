@@ -18,6 +18,8 @@
  *     `depth` / `recurse` via a small inline-list parser, and `character`
  *     entries round-trip the fold metadata `aliases` / `triggers` /
  *     `pinned` / `order` / `sticky` / `cooldown` / `probability` / `delay`.
+ *     Keys a kind does not consume ride along on `extra` and are re-emitted
+ *     on serialize, so a rewrite never drops hand-authored fields.
  *   - Pure index CRUD (callers pair these with disk writes in the shell).
  *   - `INDEX.md` renderer + the injected `## Roleplay` block.
  *
@@ -36,14 +38,21 @@ import { parseFencedFrontmatter } from '../shared/strict-frontmatter.ts';
 export const ROLEPLAY_KINDS = ['character', 'lore', 'relationship', 'summary', 'timeline'] as const;
 export type RoleplayKind = (typeof ROLEPLAY_KINDS)[number];
 
-/** Selective-key combination logic for a lore entry's secondary keys. */
-export type SecondaryMode = 'AND' | 'OR' | 'NOT';
+/**
+ * Selective-key combination logic for a lore entry's secondary keys:
+ * `AND` = all present, `OR` = any present, `NOT` = none present,
+ * `NOT_ALL` = not every one present (SillyTavern "NOT ALL").
+ */
+export type SecondaryMode = 'AND' | 'OR' | 'NOT' | 'NOT_ALL';
+
+/** Every accepted {@link SecondaryMode}, in display order. */
+export const SECONDARY_MODES = ['AND', 'OR', 'NOT', 'NOT_ALL'] as const satisfies readonly SecondaryMode[];
 
 /**
  * World-Info / lorebook metadata, present only on `lore` entries
  * (`RoleplayEntry.lore`). Drives keyword-triggered injection:
  *   - `triggers`: primary keys, OR'd. Any hit fires the entry.
- *   - `secondaryKeys` + `secondaryMode`: optional AND/OR/NOT gate applied
+ *   - `secondaryKeys` + `secondaryMode`: optional AND/OR/NOT/NOT_ALL gate applied
  *     against the same scan text after a primary hit.
  *   - `constant`: always fire (budget permitting), ignoring triggers.
  *   - `order`: higher wins when the char budget forces eviction.
@@ -184,6 +193,36 @@ export interface RelationshipMeta {
   openThreads: string[];
 }
 
+/**
+ * True when `v` is a real calendar date in strict ISO `YYYY-MM-DD` form
+ * (rejects `2024-02-30`, timestamps, and other shapes).
+ */
+export function isIsoDate(v: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
+  const d = new Date(`${v}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
+}
+
+/**
+ * Validate a tool-supplied `lastInteraction`: an ISO `YYYY-MM-DD` date, or
+ * the empty string (after trim) to clear it. Returns an error message, or
+ * `null` when valid / absent.
+ */
+export function lastInteractionError(v: string | undefined): string | null {
+  if (v === undefined) return null;
+  const t = v.trim();
+  if (t.length === 0 || isIsoDate(t)) return null;
+  return `\`lastInteraction\` must be an ISO date (YYYY-MM-DD) or "" to clear; got "${v}"`;
+}
+
+/** Slug reserved for the per-kind carry-over file (`<kind>/auto.md`). */
+export const CARRY_OVER_SLUG = 'auto';
+
+/** True when `kind`/`slug` names a reserved carry-over record a tool write must not clobber. */
+export function isReservedSlug(kind: RoleplayKind, slug: string): boolean {
+  return slug === CARRY_OVER_SLUG && (kind === 'summary' || kind === 'timeline');
+}
+
 export function emptyRelationshipMeta(): RelationshipMeta {
   return { affinity: 50, trust: '', openThreads: [] };
 }
@@ -212,6 +251,14 @@ export interface RoleplayEntry {
    * location, not file content).
    */
   bundle?: string;
+  /**
+   * Unknown frontmatter keys carried verbatim from the file so an
+   * `update` round-trips hand-authored / future fields instead of
+   * dropping them. Runtime-only passthrough: never rendered in
+   * `INDEX.md` or the injected block, and re-emitted by
+   * {@link serializeEntry} after the known keys.
+   */
+  extra?: Record<string, unknown>;
 }
 
 export interface RoleplayState {
@@ -229,6 +276,7 @@ export function cloneEntry(e: RoleplayEntry): RoleplayEntry {
   if (e.lore) copy.lore = cloneLoreMeta(e.lore);
   if (e.character) copy.character = cloneCharacterMeta(e.character);
   if (e.relationship) copy.relationship = cloneRelationshipMeta(e.relationship);
+  if (e.extra) copy.extra = structuredClone(e.extra);
   return copy;
 }
 
@@ -294,6 +342,8 @@ export interface Frontmatter {
   character?: CharacterMeta;
   /** Present iff `kind === 'relationship'`. */
   relationship?: RelationshipMeta;
+  /** Unknown (not consumed for this kind) keys, in file order; absent when none. */
+  extra?: Record<string, unknown>;
 }
 
 /**
@@ -355,7 +405,8 @@ function parseLoreMeta(fields: Readonly<Record<string, unknown>>): LoreMeta {
   if (fields.secondaryKeys !== undefined) meta.secondaryKeys = asStringArray(fields.secondaryKeys);
   if (fields.secondaryMode !== undefined) {
     const mode = (asString(fields.secondaryMode) ?? '').toUpperCase();
-    if (mode === 'OR' || mode === 'NOT' || mode === 'AND') meta.secondaryMode = mode;
+    const known = SECONDARY_MODES.find((m) => m === mode);
+    if (known !== undefined) meta.secondaryMode = known;
   }
   if (fields.constant !== undefined) meta.constant = asBool(fields.constant, false);
   if (fields.order !== undefined) meta.order = asInt(fields.order, 0);
@@ -411,10 +462,51 @@ export interface ParsedRoleplayFile {
 
 const FENCE = '---';
 
+/** Frontmatter keys consumed for every kind. */
+const CORE_KEYS: readonly string[] = ['name', 'description', 'kind'];
+
+/** Frontmatter keys consumed per kind (beyond {@link CORE_KEYS}). */
+const KIND_KEYS: Record<RoleplayKind, readonly string[]> = {
+  lore: [
+    'triggers',
+    'secondaryKeys',
+    'secondaryMode',
+    'constant',
+    'order',
+    'depth',
+    'recurse',
+    'probability',
+    'sticky',
+    'cooldown',
+    'delay',
+    'group',
+    'groupWeight',
+    'enabled',
+  ],
+  character: ['aliases', 'triggers', 'pinned', 'order', 'sticky', 'cooldown', 'probability', 'delay'],
+  relationship: ['affinity', 'trust', 'lastInteraction', 'openThreads'],
+  summary: [],
+  timeline: [],
+};
+
+/** Collect the keys a given kind does not consume, preserving file order. */
+function unknownFields(fields: Readonly<Record<string, unknown>>, kind: RoleplayKind): Record<string, unknown> | null {
+  const known = new Set([...CORE_KEYS, ...KIND_KEYS[kind]]);
+  const out: Record<string, unknown> = {};
+  let any = false;
+  for (const [key, value] of Object.entries(fields)) {
+    if (known.has(key)) continue;
+    out[key] = value;
+    any = true;
+  }
+  return any ? out : null;
+}
+
 /**
  * Parse a roleplay markdown file. Returns `null` if the frontmatter fence
  * is missing/incomplete or the three required keys aren't all present and
- * valid. Unknown keys are ignored (forward-compat for Phase 2 fields).
+ * valid. Unknown keys (not consumed by the entry's kind) are preserved on
+ * `frontmatter.extra` so a rewrite can re-emit them.
  *
  * Fence detection, header splitting, and body slicing are delegated to
  * the shared {@link parseFencedFrontmatter} (which returns raw, un-quoted
@@ -440,6 +532,8 @@ export function parseFrontmatter(raw: string): ParsedRoleplayFile | null {
   if (kind === 'lore') frontmatter.lore = parseLoreMeta(fields);
   if (kind === 'character') frontmatter.character = parseCharacterMeta(fields);
   if (kind === 'relationship') frontmatter.relationship = parseRelationshipMeta(fields);
+  const extra = unknownFields(fields, kind);
+  if (extra) frontmatter.extra = extra;
 
   return { frontmatter, body };
 }
@@ -464,6 +558,26 @@ function yamlListItem(raw: string): string {
   return `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
 
+/**
+ * Render a preserved unknown frontmatter value as YAML. Plain identifier-
+ * like strings stay bare; everything else (other strings, numbers,
+ * booleans, null, lists, maps) is emitted as JSON, which is valid YAML
+ * flow syntax and reparses to the same value. Returns `null` for
+ * unrepresentable values (e.g. `undefined`).
+ */
+function yamlExtraValue(value: unknown): string | null {
+  if (
+    typeof value === 'string' &&
+    /^[A-Za-z][\w ./-]*$/.test(value) &&
+    !value.endsWith(' ') &&
+    !/^(?:true|false|null|yes|no|on|off|y|n)$/i.test(value)
+  ) {
+    return value;
+  }
+  const json: string | undefined = JSON.stringify(value);
+  return json ?? null;
+}
+
 export function serializeEntry(input: {
   name: string;
   description: string;
@@ -472,6 +586,8 @@ export function serializeEntry(input: {
   lore?: LoreMeta;
   character?: CharacterMeta;
   relationship?: RelationshipMeta;
+  /** Unknown keys to re-emit after the known ones (see {@link RoleplayEntry.extra}). */
+  extra?: Readonly<Record<string, unknown>>;
 }): string {
   const body = input.body.replace(/\r\n/g, '\n').replace(/\s+$/, '');
   const lines = [
@@ -517,6 +633,14 @@ export function serializeEntry(input: {
     if (m.lastInteraction !== undefined) lines.push(`lastInteraction: ${m.lastInteraction}`);
     if (m.openThreads.length > 0) lines.push(`openThreads: [${m.openThreads.map(yamlListItem).join(', ')}]`);
   }
+  if (input.extra) {
+    const emitted = new Set([...CORE_KEYS, ...KIND_KEYS[input.kind]]);
+    for (const [key, value] of Object.entries(input.extra)) {
+      if (emitted.has(key)) continue;
+      const rendered = yamlExtraValue(value);
+      if (rendered !== null) lines.push(`${/^[A-Za-z_][\w-]*$/.test(key) ? key : JSON.stringify(key)}: ${rendered}`);
+    }
+  }
   lines.push(FENCE, '', body, '');
   return lines.join('\n');
 }
@@ -559,16 +683,21 @@ function sortEntries(entries: RoleplayEntry[]): RoleplayEntry[] {
   return entries;
 }
 
+/**
+ * Insert or replace `entry`, keyed on `kind` + `id` (the same slug may
+ * legitimately exist under several kinds).
+ */
 export function upsertEntry(entries: readonly RoleplayEntry[], entry: RoleplayEntry): RoleplayEntry[] {
   const next = entries.map(cloneEntry);
-  const existing = next.findIndex((e) => e.id === entry.id);
+  const existing = next.findIndex((e) => e.kind === entry.kind && e.id === entry.id);
   if (existing === -1) next.push(cloneEntry(entry));
   else next[existing] = cloneEntry(entry);
   return sortEntries(next);
 }
 
-export function removeEntry(entries: readonly RoleplayEntry[], id: string): RoleplayEntry[] {
-  return entries.map(cloneEntry).filter((e) => e.id !== id);
+/** Drop the entry keyed on `kind` + `id`; same-id entries of other kinds survive. */
+export function removeEntry(entries: readonly RoleplayEntry[], kind: RoleplayKind, id: string): RoleplayEntry[] {
+  return entries.map(cloneEntry).filter((e) => !(e.kind === kind && e.id === id));
 }
 
 // ──────────────────────────────────────────────────────────────────────
