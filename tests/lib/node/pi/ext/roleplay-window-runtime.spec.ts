@@ -140,6 +140,8 @@ interface Harness {
   carryOver: string;
   castDir: string;
   tool: (params: Record<string, unknown>) => Promise<{ text: string; isError?: boolean }>;
+  /** Run `/roleplay <args>` and return the last notification text. */
+  command: (args: string) => Promise<string>;
 }
 
 async function harness(config: Record<string, unknown>): Promise<Harness> {
@@ -170,11 +172,12 @@ async function harness(config: Record<string, unknown>): Promise<Harness> {
   const stored: Stored[] = [];
   const bus = new EventEmitter();
   const registerTool = vi.fn();
+  const registerCommand = vi.fn();
   const pi = {
     on: (name: string, handler: Handler) => {
       hooks.set(name, [...(hooks.get(name) ?? []), handler]);
     },
-    registerCommand: vi.fn(),
+    registerCommand,
     registerTool,
     getActiveTools: () => ['read', 'roleplay'],
     getAllTools: () => [{ name: 'read' }, { name: 'roleplay' }],
@@ -237,6 +240,14 @@ async function harness(config: Record<string, unknown>): Promise<Harness> {
         isError?: boolean;
       };
       return { text: result.content[0].text, isError: result.isError };
+    },
+    command: async (args) => {
+      const def = registerCommand.mock.calls.find((call) => call[0] === 'roleplay')![1] as {
+        handler: (args: string, ctx: ExtensionContext) => Promise<void>;
+      };
+      await def.handler(args, ctx);
+      const calls = (ctx.ui.notify as ReturnType<typeof vi.fn>).mock.calls;
+      return String(calls.at(-1)?.[0] ?? '');
     },
   };
 }
@@ -371,4 +382,48 @@ test('roleplay tool applies planned writes before removes and refreshes the inde
   expect(existsSync(join(h.castDir, 'lore', 'mira-vale.md'))).toBe(false);
   expect(existsSync(join(h.castDir, 'character', 'mira-vale.md'))).toBe(true);
   expect((await h.tool({ action: 'search', query: 'mira body' })).text).toContain('[character] mira-vale');
+});
+
+test('/roleplay recap force rolls the next pass off-stride, then clears', async () => {
+  const h = await harness({ recapAsync: false, recapStride: 100, recapMaxAdvance: 6 });
+  stub.summarizeDetailed.mockResolvedValue({ recap: 'FORCED RECAP', raw: 'FORCED RECAP' });
+  const messages = history(6);
+  await h.request(messages);
+  expect(stub.summarizeDetailed).not.toHaveBeenCalled();
+
+  expect(await h.command('recap force')).toContain('Forced recap armed');
+  expect(await h.command('recap')).toContain('forced roll armed');
+  const out = await h.request(messages);
+  expect(stub.summarizeDetailed).toHaveBeenCalledTimes(1);
+  expect(text(out[0]).startsWith(`${RECAP_PREFIX}\nFORCED RECAP\n]`)).toBe(true);
+  expect(h.recaps()).toEqual([expect.objectContaining({ coveredFrom: 0, coveredTo: 4, applied: true })]);
+
+  // One-shot: the next pass is back on the stride gate.
+  await h.request(messages);
+  expect(stub.summarizeDetailed).toHaveBeenCalledTimes(1);
+  const shown = await h.command('recap show');
+  expect(shown).toContain('coverage : recap=4  committed=16  natural(last pass)=16');
+  expect(shown).toContain('status   : idle');
+  expect(shown).toContain('FORCED RECAP');
+});
+
+test('/roleplay recap force is refused when recap mode is off', async () => {
+  vi.stubEnv('PI_ROLEPLAY_DISABLE_SUMMARIZE', '1');
+  const h = await harness({});
+  expect(await h.command('recap force')).toContain('Cannot force a recap: recap mode is off (summarize is disabled');
+});
+
+test('/roleplay export writes a V2 card once and /roleplay rel lists relationships', async () => {
+  const h = await harness({});
+  await h.tool({ action: 'save', name: 'Mira', description: 'lead', body: 'MIRA BODY' });
+  expect(await h.command('rel')).toContain('no relationship records');
+
+  const msg = await h.command('export');
+  expect(msg).toContain('Exported "Mira"');
+  const out = join(h.castDir, '..', '..', '..', '..', 'mira.card.json');
+  const card = JSON.parse(readFileSync(out, 'utf8')) as { spec: string; data: { name: string; description: string } };
+  expect(card).toMatchObject({ spec: 'chara_card_v2', data: { name: 'Mira', description: 'MIRA BODY' } });
+  expect(await h.command('export mira')).toContain('already exists; pick another path');
+  expect(await h.command('export nobody')).toContain('no character "nobody"');
+  expect(await h.command('export mira sub/m.json')).toContain('sub/m.json');
 });

@@ -136,6 +136,8 @@ interface Harness {
   records: () => ReturnType<typeof readReminderSnapshots>;
   queueEvent: () => Promise<void>;
   snapshotEntryCount: () => number;
+  /** Text of the last `ctx.ui.notify` call. */
+  lastNotice: () => string;
 }
 
 async function harness(
@@ -382,6 +384,7 @@ async function harness(
     },
     snapshotEntryCount: () =>
       stored.filter((entry) => entry.type === 'custom' && entry.customType === REMINDER_SNAPSHOT_TYPE).length,
+    lastNotice: () => String(notify.mock.calls.at(-1)?.[0] ?? ''),
   };
 }
 
@@ -870,4 +873,23 @@ test('volatile macros in system-prompt scene sheets resolve byte-stably across t
   vi.mocked(Math.random).mockReturnValue(0.99);
   await h.start(user('second', 2));
   expect(h.systemPrompt()).toBe(first);
+});
+
+test('/roleplay lore reports the last narrative turn selection and timing', async () => {
+  const h = await harness();
+  h.lore('sticky-reef', 'STICKY_REEF', { triggers: ['reef'], sticky: 2, cooldown: 1, order: 9 });
+  await h.dispatch('session_start', { type: 'session_start' });
+  await h.command('roleplay', 'lore');
+  expect(h.lastNotice()).toContain('No narrative turn yet');
+
+  const input = user('reef');
+  await h.start(input);
+  await h.request([input]);
+  await h.command('roleplay', 'lore');
+  const out = h.lastNotice();
+  expect(out).toContain('Roleplay lore (turn 1; bundles: (none))');
+  expect(out).toMatch(/Keyword lore kept \(2\):\n {4}sticky-reef {2}order=9 {2}11 chars\n {4}reef-keyword {2}order=0/);
+  expect(out).toContain('Depth lore kept (2):');
+  expect(out).toContain('reef-primary  depth=0');
+  expect(out).toContain('sticky-reef: sticky 2 turns, then cooldown 1 turn');
 });

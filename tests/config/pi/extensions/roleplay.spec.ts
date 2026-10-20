@@ -19,7 +19,10 @@ import { completeSubverbs, type SubverbSpec } from '../../../../lib/node/pi/comm
 import { ROLEPLAY_USAGE, roleplaySubverbs } from '../../../../lib/node/pi/roleplay/usage.ts';
 
 /** The real subverb spec roleplay.ts registers, with a fixed cast list. */
-const ROLEPLAY_SUBVERBS: SubverbSpec = roleplaySubverbs(() => ['exusiai', 'texas']);
+const ROLEPLAY_SUBVERBS: SubverbSpec = roleplaySubverbs(
+  () => ['exusiai', 'texas'],
+  () => ['mira', 'kai'],
+);
 
 test('roleplay command lists every subverb (including event) at level 1', () => {
   const all = completeSubverbs('', ROLEPLAY_SUBVERBS);
@@ -27,8 +30,12 @@ test('roleplay command lists every subverb (including event) at level 1', () => 
   expect(labels).toEqual([
     'list',
     'context',
+    'lore',
+    'recap',
+    'relationships',
     'cast',
     'import',
+    'export',
     'event',
     'images',
     'newscene',
@@ -85,4 +92,35 @@ test('context is a terminal subverb documented in USAGE (with its aliases)', () 
 
 test('cast subverb completes from the injected cast list', () => {
   expect(completeSubverbs('cast t', ROLEPLAY_SUBVERBS)?.map((c) => c.label)).toEqual(['texas']);
+});
+
+test('lore and relationships are terminal subverbs documented in USAGE', () => {
+  expect(completeSubverbs('lore ', ROLEPLAY_SUBVERBS)).toBeNull();
+  expect(completeSubverbs('relationships ', ROLEPLAY_SUBVERBS)).toBeNull();
+  expect(completeSubverbs('rel', ROLEPLAY_SUBVERBS)?.map((c) => c.label)).toEqual(['relationships']);
+  expect(ROLEPLAY_USAGE).toContain('`lore`');
+  expect(ROLEPLAY_USAGE).toContain('alias `rel`');
+});
+
+test('recap subverb completes show / force with the full verb prefix', () => {
+  expect(completeSubverbs('recap ', ROLEPLAY_SUBVERBS)).toEqual([
+    { value: 'recap show', label: 'show' },
+    { value: 'recap force', label: 'force' },
+  ]);
+  expect(completeSubverbs('recap f', ROLEPLAY_SUBVERBS)).toEqual([{ value: 'recap force', label: 'force' }]);
+  expect(ROLEPLAY_USAGE).toContain('recap [show|force]');
+});
+
+test('export subverb completes character ids from the injected list', () => {
+  expect(completeSubverbs('export m', ROLEPLAY_SUBVERBS)).toEqual([{ value: 'export mira', label: 'mira' }]);
+  expect(ROLEPLAY_USAGE).toContain('export [character] [path]');
+});
+
+test('export completion defaults to no characters when none are injected', () => {
+  expect(
+    completeSubverbs(
+      'export ',
+      roleplaySubverbs(() => []),
+    ),
+  ).toBeNull();
 });

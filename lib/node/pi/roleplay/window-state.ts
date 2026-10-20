@@ -6,7 +6,7 @@
  * No pi imports.
  */
 
-import { DEFAULT_CHARS_PER_TOKEN } from './context-window.ts';
+import { DEFAULT_CHARS_PER_TOKEN, planRecap } from './context-window.ts';
 
 export interface WindowState {
   /** Cumulative scene memory injected as a prefix (mirrors the `summary/auto` record). */
@@ -35,6 +35,12 @@ export interface WindowState {
   lastSentEstChars: number;
   /** Safety-floor anchor carried between final-projection limiter passes. */
   projectedFloorAnchor: string | undefined;
+  /**
+   * One-shot `/roleplay recap force`: the next context pass rolls the recap
+   * regardless of the stride gate. Cleared once a recap actually starts, when
+   * there is nothing uncovered to summarize, and on every full reset.
+   */
+  forceRecap: boolean;
 }
 
 export function createWindowState(): WindowState {
@@ -51,6 +57,7 @@ export function createWindowState(): WindowState {
     charsPerToken: DEFAULT_CHARS_PER_TOKEN,
     lastSentEstChars: 0,
     projectedFloorAnchor: undefined,
+    forceRecap: false,
   };
 }
 
@@ -87,6 +94,7 @@ export function resetWindowState(win: WindowState): void {
   win.recapHydrated = false;
   win.lastSentEstChars = 0;
   win.projectedFloorAnchor = undefined;
+  win.forceRecap = false;
   invalidateRecap(win);
 }
 
@@ -102,4 +110,41 @@ export function resetWindowCoverage(win: WindowState): void {
   win.committedCutoff = 0;
   win.frozenFloorCutoff = 0;
   win.lastSentEstChars = 0;
+}
+
+/** Arm the one-shot forced roll (`/roleplay recap force`). */
+export function armForcedRecap(win: WindowState): void {
+  win.forceRecap = true;
+}
+
+export interface RollDecision {
+  /** Roll this pass (stride gate OR an armed force with uncovered aged messages). */
+  roll: boolean;
+  /** The roll is due only because of the armed force. */
+  forced: boolean;
+}
+
+/**
+ * Decide whether this context pass rolls. The stride gate is
+ * {@link planRecap}; an armed force additionally rolls when there are aged
+ * messages the recap does not cover yet (`natural > recapCutoff`). A force
+ * with nothing to cover is dropped (cleared) so it cannot linger.
+ */
+export function planRoll(win: WindowState, natural: number, stride: number): RollDecision {
+  const strideRoll = planRecap(natural, win.committedCutoff, stride);
+  if (!win.forceRecap) return { roll: strideRoll, forced: false };
+  if (natural <= win.recapCutoff) {
+    win.forceRecap = false;
+    return { roll: strideRoll, forced: false };
+  }
+  return { roll: true, forced: !strideRoll };
+}
+
+/**
+ * Settle the force after a roll: clear it once a recap actually started.
+ * When an in-flight async recap blocked this roll, the force stays armed so
+ * the next pass retries.
+ */
+export function settleForcedRecap(win: WindowState, recapStarted: boolean): void {
+  if (recapStarted) win.forceRecap = false;
 }

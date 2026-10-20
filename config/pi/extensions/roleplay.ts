@@ -52,7 +52,7 @@ import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-cod
 import { Text } from '@earendil-works/pi-tui';
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Type } from 'typebox';
 
@@ -125,17 +125,29 @@ import {
   DEFAULT_CHARS_PER_TOKEN,
   deriveMaxSpanChars,
   estimateChars,
-  planRecap,
   shouldForceRecap,
   updateCharsPerToken,
   type WindowOptions,
 } from '../../../lib/node/pi/roleplay/context-window.ts';
 import { applyWindowPass, planWindowFloor } from '../../../lib/node/pi/roleplay/window-pass.ts';
 import {
+  armForcedRecap,
   createWindowState,
+  planRoll,
   resetWindowCoverage,
   resetWindowState as resetWindowStateFields,
+  settleForcedRecap,
 } from '../../../lib/node/pi/roleplay/window-state.ts';
+import {
+  createLoreSelection,
+  formatLoreReadout,
+  recordDepthSelection,
+  recordKeywordSelection,
+  type LoreSelectionSnapshot,
+} from '../../../lib/node/pi/roleplay/lore-readout.ts';
+import { formatRecapReadout, recapUnavailableReason } from '../../../lib/node/pi/roleplay/recap-readout.ts';
+import { formatRelationshipsReadout } from '../../../lib/node/pi/roleplay/relationship-readout.ts';
+import { recordsToCard } from '../../../lib/node/pi/card-import/records-to-card.ts';
 import { parseModelSpec } from '../../../lib/node/pi/model-spec.ts';
 import {
   buildEventTask,
@@ -438,6 +450,8 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   let pendingEventGenerationForRun: number | null = null;
   /** Operational runs preserve the previous narrative head without advancing scene timing. */
   let lastSceneBlock: string | null = null;
+  /** Last narrative turn's lore selection (kept / dropped), for `/roleplay lore`. Reset on cast switch. */
+  let lastLoreSelection: LoreSelectionSnapshot | null = null;
   /** Only lore actually selected for this turn may contribute visual identity. */
   let keywordVisualLore: readonly LoreChunk[] = [];
   let depthVisualLore: readonly LoreChunk[] = [];
@@ -534,6 +548,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   const applyCast = (cast: string | null, ctx?: ExtensionContext): void => {
     // A cast switch resets lorebook timing (sticky windows / cooldowns / turn count).
     resetCastTiming(timing);
+    lastLoreSelection = null;
     pendingSceneFold = null;
     keywordVisualLore = [];
     depthVisualLore = [];
@@ -805,6 +820,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       .filter((c) => c.body.length > 0);
     if (chunks.length === 0) return null;
     const selected = selectWithinBudget(chunks, cfg.loreCharBudget);
+    if (lastLoreSelection) recordKeywordSelection(lastLoreSelection, selected);
     keywordVisualLore = selected.kept;
     return formatLoreBlock(selected);
   };
@@ -867,6 +883,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       return undefined;
     }
     timing.turnCount += 1;
+    lastLoreSelection = createLoreSelection(timing.turnCount);
     const scene = buildSceneBlock(ctx, sceneScanText);
     lastSceneBlock = scene;
     const index = formatRoleplayBlock(state, { maxChars: charBudget() });
@@ -897,7 +914,9 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         body: normalizeInjectedBody(substituteMacros(readEntryBody(state.cast, entry) ?? '', macroCtx())),
       }))
       .filter((chunk) => chunk.body.length > 0);
-    const { kept } = selectWithinBudget(chunks, loadRoleplayConfig(cwd, envCharBudget).loreCharBudget);
+    const selected = selectWithinBudget(chunks, loadRoleplayConfig(cwd, envCharBudget).loreCharBudget);
+    if (lastLoreSelection) recordDepthSelection(lastLoreSelection, selected);
+    const { kept } = selected;
     depthVisualLore = kept;
     return kept.map((chunk) => ({ name: chunk.entry.name, body: chunk.body, depth: chunk.entry.lore?.depth ?? 0 }));
   };
@@ -1789,7 +1808,8 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         // Roll only when the frozen boundary has advanced by at least `stride`
         // aged messages. Between rolls the condensed prefix + recap are frozen
         // (byte-identical), so the prompt-prefix cache is reused.
-        const rollFired = planRecap(natural, win.committedCutoff, strideValue());
+        // An armed `/roleplay recap force` rolls off-stride (see planRoll).
+        const { roll: rollFired } = planRoll(win, natural, strideValue());
         if (rollFired) {
           /** True once this roll actually started (sync) or launched (async) a recap. */
           let recapStarted = false;
@@ -1909,6 +1929,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
           // the in-flight one lands, instead of waiting a whole extra stride.
           // Holding is also cache-neutral (the frozen prefix does not move).
           if (!recapMode || recapStarted) win.committedCutoff = natural;
+          settleForcedRecap(win, recapStarted);
         }
 
         // Hard safety floor: guarantee the reduced prompt fits the session
@@ -2344,6 +2365,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     eventConsumed = false;
     pendingLore = null;
     pendingSceneFold = null;
+    lastLoreSelection = null;
     resetSceneFoldDelivery(timing);
     frozenMacroNow = null;
     pendingDepthScan = null;
@@ -2495,6 +2517,59 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     ];
     if (plan.warnings.length > 0) lines.push('', 'Warnings:', ...plan.warnings.map((w) => `  - ${w}`));
     return { ok: true, summary: lines.join('\n') };
+  };
+
+  // ── Card export (/roleplay export) ──────────────────────────────────
+  /**
+   * Export a character record plus every lore record of the active cast
+   * (base lore and the currently activated bundles; disabled entries ride
+   * along as `enabled: false`) as a SillyTavern Character Card V2 JSON.
+   * `rawArgs` is `[character] [path]`: a leading token that resolves to a
+   * character selects it (default: the persona's primary character, then
+   * the first character record); the remainder is the output path
+   * (default `<baseDir>/<slug>.card.json`). Never overwrites a file.
+   */
+  const exportCardFile = (
+    rawArgs: string,
+    baseDir: string,
+  ): { ok: true; summary: string } | { ok: false; error: string } => {
+    const trimmed = rawArgs.trim();
+    const first = trimmed.split(/\s+/)[0] ?? '';
+    let character = first ? resolveCharacter(state, first) : undefined;
+    let pathArg = trimmed;
+    if (character) {
+      pathArg = trimmed.slice(first.length).trim();
+    } else {
+      if (first && !/[./~\\]/.test(trimmed))
+        return { ok: false, error: `no character "${first}" in cast "${state.cast}"` };
+      const primary = primaryCharName();
+      character =
+        (primary ? resolveCharacter(state, primary) : undefined) ?? state.entries.find((e) => e.kind === 'character');
+    }
+    if (!character) return { ok: false, error: `cast "${state.cast}" has no character record to export` };
+    const path = pathArg ? resolveImportPath(pathArg, baseDir, homedir()) : join(baseDir, `${character.id}.card.json`);
+    if (existsSync(path)) return { ok: false, error: `${path} already exists; pick another path` };
+    const lore = state.entries
+      .filter((e) => e.kind === 'lore' && e.lore)
+      .map((e) => ({
+        name: e.name,
+        description: e.description,
+        body: readEntryBody(state.cast, e) ?? '',
+        lore: e.lore ?? emptyLoreMeta(),
+      }));
+    const card = recordsToCard(
+      { name: character.name, description: character.description, body: readEntryBody(state.cast, character) ?? '' },
+      lore,
+    );
+    try {
+      atomicWriteFile(path, `${JSON.stringify(card, null, 2)}\n`);
+    } catch (err) {
+      return { ok: false, error: `cannot write ${path}: ${err instanceof Error ? err.message : String(err)}` };
+    }
+    return {
+      ok: true,
+      summary: `Exported "${character.name}" with ${lore.length} lore entr(ies) from cast "${state.cast}" to ${path}`,
+    };
   };
 
   // ── Tool registration ───────────────────────────────────────────────
@@ -2703,7 +2778,11 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
 
   pi.registerCommand('roleplay', {
     description: 'Inspect or switch the active roleplay cast',
-    getArgumentCompletions: (prefix) => completeSubverbs(prefix, roleplaySubverbs(listCasts)),
+    getArgumentCompletions: (prefix) =>
+      completeSubverbs(
+        prefix,
+        roleplaySubverbs(listCasts, () => state.entries.filter((e) => e.kind === 'character').map((e) => e.id)),
+      ),
     handler: async (args, ctx) => {
       if (isHelpArg(args)) {
         ctx.ui.notify(ROLEPLAY_USAGE, 'info');
@@ -2727,6 +2806,113 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       if (verb === 'context' || verb === 'ctx' || verb === 'window') {
         const win = (ctx.model as { contextWindow?: number } | undefined)?.contextWindow;
         ctx.ui.notify(formatContextWindow(win), 'info');
+        return;
+      }
+      if (verb === 'lore') {
+        if (dormant) {
+          ctx.ui.notify(dormantNote, 'info');
+          return;
+        }
+        resyncIfChanged(ctx);
+        const names = new Map(state.entries.filter((e) => e.kind === 'lore').map((e) => [e.id, e.name]));
+        ctx.ui.notify(
+          formatLoreReadout({
+            lorebookEnabled,
+            snapshot: lastLoreSelection,
+            turn: timing.turnCount,
+            timingState: timing.timingState,
+            nameOf: (id) => names.get(id),
+            bundles: loreBundles,
+          }),
+          'info',
+        );
+        return;
+      }
+      if (verb === 'recap') {
+        if (dormant) {
+          ctx.ui.notify(dormantNote, 'info');
+          return;
+        }
+        resyncIfChanged(ctx);
+        const mode = (rest[0] ?? 'show').toLowerCase();
+        if (mode !== 'show' && mode !== 'force') {
+          ctx.ui.notify('Usage: /roleplay recap [show|force]', 'warning');
+          return;
+        }
+        const unavailable = recapUnavailableReason({
+          summarizeEnabled,
+          contextWindowEnabled,
+          summarizerReady: recapMode && (getSummarizer(ctx)?.isEnabled() ?? false),
+        });
+        if (mode === 'force') {
+          if (unavailable) {
+            ctx.ui.notify(`Cannot force a recap: recap mode is off (${unavailable}).`, 'warning');
+            return;
+          }
+          armForcedRecap(win);
+          ctx.ui.notify(
+            `Forced recap armed: the next context pass rolls the recap regardless of the stride${win.recapInFlight ? ' (an async roll is in flight; the force waits for it to land)' : ''}.`,
+            'info',
+          );
+          return;
+        }
+        let model: string | undefined;
+        try {
+          const m = resolveRecapModelInfo(ctx).model;
+          if (m?.id) model = m.provider ? `${m.provider}/${m.id}` : m.id;
+        } catch {
+          model = undefined;
+        }
+        const timelineOn = timelineEnabled();
+        ctx.ui.notify(
+          formatRecapReadout({
+            unavailable,
+            recapText: win.recapText,
+            recapCutoff: win.recapCutoff,
+            committedCutoff: win.committedCutoff,
+            natural: lastWindowSnapshot?.natural,
+            inFlight: win.recapInFlight,
+            forceArmed: win.forceRecap,
+            model,
+            timelineEnabled: timelineOn,
+            timelineBlock:
+              timelineOn && win.timelineText.trim()
+                ? renderTimelineBlock(win.timelineText, {
+                    maxChars: loadRoleplayConfig(cwd, envCharBudget).timelineMaxInjectChars,
+                  })
+                : null,
+          }),
+          'info',
+        );
+        return;
+      }
+      if (verb === 'relationships' || verb === 'rel') {
+        if (dormant) {
+          ctx.ui.notify(dormantNote, 'info');
+          return;
+        }
+        resyncIfChanged(ctx);
+        const cfg = loadRoleplayConfig(cwd, envCharBudget);
+        const rows = state.entries.flatMap((e) =>
+          e.kind === 'relationship' && e.relationship ? [{ id: e.id, name: e.name, meta: e.relationship }] : [],
+        );
+        ctx.ui.notify(
+          formatRelationshipsReadout(rows, new Date(), {
+            decayPerDay: cfg.relationshipDecayPerDay,
+            baseline: cfg.relationshipBaseline,
+          }),
+          'info',
+        );
+        return;
+      }
+      if (verb === 'export') {
+        if (dormant) {
+          ctx.ui.notify(dormantNote, 'warning');
+          return;
+        }
+        resyncIfChanged(ctx);
+        const result = exportCardFile(remainder, ctx.cwd);
+        ctx.ui.notify(result.ok ? result.summary : `roleplay export: ${result.error}`, result.ok ? 'info' : 'error');
         return;
       }
       if (verb === 'images') {

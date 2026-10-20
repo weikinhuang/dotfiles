@@ -2,10 +2,13 @@ import { describe, expect, it } from 'vitest';
 
 import { DEFAULT_CHARS_PER_TOKEN } from '../../../../../lib/node/pi/roleplay/context-window.ts';
 import {
+  armForcedRecap,
   createWindowState,
   invalidateRecap,
+  planRoll,
   resetWindowCoverage,
   resetWindowState,
+  settleForcedRecap,
   type WindowState,
 } from '../../../../../lib/node/pi/roleplay/window-state.ts';
 
@@ -23,6 +26,7 @@ function dirty(abort: AbortController): WindowState {
     charsPerToken: 3.5,
     lastSentEstChars: 1234,
     projectedFloorAnchor: 'anchor',
+    forceRecap: true,
   };
 }
 
@@ -41,6 +45,7 @@ describe('window state', () => {
       charsPerToken: DEFAULT_CHARS_PER_TOKEN,
       lastSentEstChars: 0,
       projectedFloorAnchor: undefined,
+      forceRecap: false,
     });
   });
 
@@ -81,5 +86,35 @@ describe('window state', () => {
     win.recapInFlight = true;
     expect(() => invalidateRecap(win)).not.toThrow();
     expect(win).toMatchObject({ recapGen: 2, recapInFlight: false, recapAbort: null });
+  });
+
+  it('planRoll follows the stride gate when no force is armed', () => {
+    const win = createWindowState();
+    expect(planRoll(win, 10, 4)).toEqual({ roll: true, forced: false });
+    win.committedCutoff = 8;
+    expect(planRoll(win, 10, 4)).toEqual({ roll: false, forced: false });
+  });
+
+  it('an armed force rolls off-stride until a recap starts', () => {
+    const win = createWindowState();
+    win.committedCutoff = 8;
+    win.recapCutoff = 4;
+    armForcedRecap(win);
+    expect(planRoll(win, 10, 4)).toEqual({ roll: true, forced: true });
+    // Blocked by an in-flight recap: stays armed for the next pass.
+    settleForcedRecap(win, false);
+    expect(win.forceRecap).toBe(true);
+    settleForcedRecap(win, true);
+    expect(win.forceRecap).toBe(false);
+    expect(planRoll(win, 10, 4)).toEqual({ roll: false, forced: false });
+  });
+
+  it('a force with nothing uncovered is dropped', () => {
+    const win = createWindowState();
+    win.recapCutoff = 10;
+    win.committedCutoff = 10;
+    armForcedRecap(win);
+    expect(planRoll(win, 10, 4)).toEqual({ roll: false, forced: false });
+    expect(win.forceRecap).toBe(false);
   });
 });
