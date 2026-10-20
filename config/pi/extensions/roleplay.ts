@@ -48,14 +48,7 @@
  */
 
 import { StringEnum, type Model } from '@earendil-works/pi-ai';
-import {
-  DefaultResourceLoader,
-  type ExtensionAPI,
-  type ExtensionContext,
-  getAgentDir,
-  parseFrontmatter,
-  SessionManager,
-} from '@earendil-works/pi-coding-agent';
+import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { Text } from '@earendil-works/pi-tui';
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -110,7 +103,12 @@ import { type MacroContext, seededRng, substituteMacros } from '../../../lib/nod
 import { composeSceneBlock, composeSceneFoldBlock, resolveCharacter } from '../../../lib/node/pi/roleplay/scene.ts';
 import { planCharacterFold, selectFoldDeliveries } from '../../../lib/node/pi/roleplay/scene-fold.ts';
 import { expandMatchedRecursive } from '../../../lib/node/pi/roleplay/recursion.ts';
-import { applyTiming, type TimingState } from '../../../lib/node/pi/roleplay/timing.ts';
+import { applyTiming } from '../../../lib/node/pi/roleplay/timing.ts';
+import {
+  createCastTimingState,
+  resetCastTiming,
+  resetSceneFoldDelivery,
+} from '../../../lib/node/pi/roleplay/cast-timing.ts';
 import {
   clampSummary,
   composeAutoSummaryRecord,
@@ -122,22 +120,22 @@ import {
 } from '../../../lib/node/pi/roleplay/summarize.ts';
 import {
   acceptRecap,
-  applyContextWindowAt,
-  applyLayeredWindow,
   boundRollSpanTo,
   computeCutoff,
   DEFAULT_CHARS_PER_TOKEN,
-  deriveKeepTurns,
   deriveMaxSpanChars,
   estimateChars,
-  freezeFloorCutoff,
-  injectRecap,
-  injectTimeline,
   planRecap,
   shouldForceRecap,
   updateCharsPerToken,
   type WindowOptions,
 } from '../../../lib/node/pi/roleplay/context-window.ts';
+import { applyWindowPass, planWindowFloor } from '../../../lib/node/pi/roleplay/window-pass.ts';
+import {
+  createWindowState,
+  resetWindowCoverage,
+  resetWindowState as resetWindowStateFields,
+} from '../../../lib/node/pi/roleplay/window-state.ts';
 import { parseModelSpec } from '../../../lib/node/pi/model-spec.ts';
 import {
   buildEventTask,
@@ -165,14 +163,8 @@ import {
 } from '../../../lib/node/pi/reminder-lifecycle.ts';
 import { ensureReminderIdentities } from '../../../lib/node/pi/reminder-identity.ts';
 import { limitReminderContext, reminderRequestChars } from '../../../lib/node/pi/reminder-budget.ts';
-import {
-  type AgentDef,
-  defaultAgentLayers,
-  loadAgents,
-  makeNodeReadLayer,
-} from '../../../lib/node/pi/subagent/loader.ts';
-import { createPersistedSubagentSessionManager } from '../../../lib/node/pi/subagent/session-dir.ts';
-import { createAgentGateFactory } from '../../../lib/node/pi/subagent/agent-gate.ts';
+import { type AgentDef, makeNodeReadLayer } from '../../../lib/node/pi/subagent/loader.ts';
+import { loadRoleplayAgent, runRoleplayChild } from '../../../lib/node/pi/ext/roleplay-child-session.ts';
 import { buildFactExtractionTask, parseFactCandidates } from '../../../lib/node/pi/roleplay/capture.ts';
 import {
   appendBeatBody,
@@ -193,15 +185,13 @@ import {
   slugifyName as memorySlugifyName,
   uniqueSlug as memoryUniqueSlug,
 } from '../../../lib/node/pi/memory-paths.ts';
-import { piCreateAgentSession } from '../../../lib/node/pi/ext/pi-session.ts';
-import { resolveChildModel, runOneShotAgent } from '../../../lib/node/pi/subagent/spawn.ts';
+import { resolveChildModel } from '../../../lib/node/pi/subagent/spawn.ts';
 import {
   appendTimelineCarryOver,
   archiveCarryOver,
   archiveFacts,
   atomicWriteFile,
   castDir,
-  entryFilePath,
   factFile,
   fileFor,
   listCasts,
@@ -220,28 +210,26 @@ import {
   chooseSlug,
   cloneState,
   emptyState,
-  emptyCharacterMeta,
   emptyLoreMeta,
-  emptyRelationshipMeta,
   formatRoleplayBlock,
   formatText,
-  isReservedSlug,
-  lastInteractionError,
   SECONDARY_MODES,
-  type CharacterMeta,
-  type LoreMeta,
-  type RelationshipMeta,
   type RoleplayEntry,
-  type RoleplayKind,
   type RoleplayState,
-  type SecondaryMode,
-  removeEntry,
   resolveEntry,
   serializeEntry,
   slugifyName,
   upsertEntry,
 } from '../../../lib/node/pi/roleplay/store.ts';
 import { ROLEPLAY_USAGE, roleplaySubverbs } from '../../../lib/node/pi/roleplay/usage.ts';
+import { type RoleplayToolParams } from '../../../lib/node/pi/roleplay/tool-params.ts';
+import {
+  type ActionPlan,
+  planRemove,
+  planSave,
+  planSearch,
+  planUpdate,
+} from '../../../lib/node/pi/roleplay/actions.ts';
 import { normalizeInjectedBody } from '../../../lib/node/pi/roleplay/text.ts';
 import {
   collectRoleMessageTexts,
@@ -343,28 +331,7 @@ const RoleplayParams = Type.Object({
   ),
 });
 
-interface RoleplayParamsT {
-  action: 'list' | 'read' | 'save' | 'update' | 'remove' | 'search';
-  kind?: RoleplayKind;
-  id?: string;
-  name?: string;
-  description?: string;
-  body?: string;
-  query?: string;
-  triggers?: string[];
-  secondaryKeys?: string[];
-  secondaryMode?: SecondaryMode;
-  constant?: boolean;
-  order?: number;
-  depth?: number;
-  recurse?: boolean;
-  aliases?: string[];
-  pinned?: boolean;
-  affinity?: number;
-  trust?: string;
-  lastInteraction?: string;
-  openThreads?: string[];
-}
+type RoleplayParamsT = RoleplayToolParams;
 
 interface RoleplayDetails {
   action: string;
@@ -430,16 +397,8 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   let syncedCast: string | null = null;
   /** Signature of the last warn-dropped scene-character set, to dedupe the notice. */
   let lastSceneMissingSig = '';
-  /** Monotonic per-turn counter driving lorebook timing (`delay` / `sticky` / `cooldown`). */
-  let turnCount = 0;
-  /** Per-entry lorebook timing state, keyed by entry id. Reset on cast switch. */
-  let timingState: Record<string, TimingState> = {};
-  /** Per-character scene-fold timing state (sticky/cooldown), keyed by character id. Reset on cast switch. */
-  let sceneTimingState: Record<string, TimingState> = {};
-  /** Narrative turn each name-triggered sheet was last delivered in a `roleplay-scene-fold` reminder. Reset with `sceneTimingState`. */
-  let sceneFoldDelivered = new Map<string, number>();
-  /** Name-triggered ids active on the previous narrative turn (re-entry detection). Reset with `sceneTimingState`. */
-  let sceneFoldPriorActive = new Set<string>();
+  /** Lorebook + scene-fold timing (turn counter, sticky/cooldown, fold delivery). Reset on cast switch. */
+  const timing = createCastTimingState();
   /**
    * Per-run slot for name-triggered character sheets, delivered as the
    * `<system-reminder id="roleplay-scene-fold">` block (same lifecycle as
@@ -495,29 +454,10 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
    */
   let loreEmptyCache: { cast: string; ids: Set<string> } | null = null;
   // ── Rolling context-window state (per process; reset on lifecycle) ──
-  /** Cumulative scene memory injected as a prefix (mirrors the `summary/auto` record). */
-  let recapText = '';
-  /** Cumulative append-log of dated story beats injected as a prefix (mirrors the `timeline/auto` record). */
-  let timelineText = '';
-  /** FROZEN condense boundary; messages[0..committedCutoff) are the aged prefix. Advances only on a roll. */
-  let committedCutoff = 0;
-  /** How much of the aged prefix the recap covers; messages[0..recapCutoff) are DROPPED in recap mode. */
-  let recapCutoff = 0;
-  /** FROZEN hard-safety floor drop boundary. Advances only on a roll (or a real overflow), never per-turn, so the drop / recap-injection anchor stays byte-stable between rolls and the prompt-prefix cache survives. */
-  let frozenFloorCutoff = 0;
-  /** One-shot hydrate of `recapText` from the durable record per (re)load. */
-  let recapHydrated = false;
-  /** Generation counter; invalidates an in-flight async recap after a reset / branch change. */
-  let recapGen = 0;
-  let recapInFlight = false;
-  let recapAbort: AbortController | null = null;
+  /** Recap / timeline text, frozen cutoffs, async-recap generation + calibration (see roleplay/window-state.ts). */
+  const win = createWindowState();
   /** Snapshot of the last context-window pass, for `/roleplay context`. Null until the first turn is processed. */
   let lastWindowSnapshot: ContextWindowReadoutSnapshot | null = null;
-  /** Calibrated chars-per-token (blended toward the last turn's reported usage). */
-  let charsPerToken = DEFAULT_CHARS_PER_TOKEN;
-  /** Estimated chars of the prompt we sent last turn, for usage calibration next turn. */
-  let lastSentEstChars = 0;
-  let projectedFloorAnchor: string | undefined;
   /** Lowercased fact names captured this process, to skip re-writing the same fact. */
   const capturedFacts = new Set<string>();
   /** Lazy `roleplay-fact-extractor` runner + one-shot init guard. */
@@ -530,25 +470,8 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     | null = null;
   let timelineExtractorInit = false;
   const resetWindowState = (): void => {
-    recapText = '';
-    timelineText = '';
-    committedCutoff = 0;
-    recapCutoff = 0;
-    frozenFloorCutoff = 0;
-    recapHydrated = false;
-    recapGen += 1;
-    recapInFlight = false;
-    lastSentEstChars = 0;
-    projectedFloorAnchor = undefined;
+    resetWindowStateFields(win);
     capturedFacts.clear();
-    if (recapAbort) {
-      try {
-        recapAbort.abort();
-      } catch {
-        /* ignore */
-      }
-      recapAbort = null;
-    }
   };
 
   /**
@@ -610,11 +533,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   /** Re-scan disk for `cast` (or go dormant when null) and publish the active-cast singleton. */
   const applyCast = (cast: string | null, ctx?: ExtensionContext): void => {
     // A cast switch resets lorebook timing (sticky windows / cooldowns / turn count).
-    turnCount = 0;
-    timingState = {};
-    sceneTimingState = {};
-    sceneFoldDelivered = new Map();
-    sceneFoldPriorActive = new Set();
+    resetCastTiming(timing);
     pendingSceneFold = null;
     keywordVisualLore = [];
     depthVisualLore = [];
@@ -712,54 +631,6 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
 
   const charBudget = (): number => loadRoleplayConfig(cwd, envCharBudget).charBudget;
 
-  /** Build lore metadata from tool params, layered over an optional base (for updates). */
-  const buildLoreMeta = (params: RoleplayParamsT, base?: LoreMeta): LoreMeta => {
-    const meta: LoreMeta = base
-      ? { ...base, triggers: [...base.triggers], secondaryKeys: [...base.secondaryKeys] }
-      : emptyLoreMeta();
-    const clean = (xs: string[]): string[] => xs.map((x) => x.trim()).filter((x) => x.length > 0);
-    if (params.triggers !== undefined) meta.triggers = clean(params.triggers);
-    if (params.secondaryKeys !== undefined) meta.secondaryKeys = clean(params.secondaryKeys);
-    if (params.secondaryMode !== undefined) meta.secondaryMode = params.secondaryMode;
-    if (params.constant !== undefined) meta.constant = params.constant;
-    if (params.order !== undefined) meta.order = Math.floor(params.order);
-    if (params.depth !== undefined) {
-      const depth = Math.floor(params.depth);
-      if (depth >= 0) meta.depth = depth;
-      else delete meta.depth;
-    }
-    if (params.recurse !== undefined) meta.recurse = params.recurse;
-    return meta;
-  };
-
-  /** Build character-fold metadata from tool params, layered over an optional base (for updates). */
-  const buildCharacterMeta = (params: RoleplayParamsT, base?: CharacterMeta): CharacterMeta => {
-    const meta: CharacterMeta = base
-      ? { ...base, aliases: [...base.aliases], triggers: [...base.triggers] }
-      : emptyCharacterMeta();
-    const clean = (xs: string[]): string[] => xs.map((x) => x.trim()).filter((x) => x.length > 0);
-    if (params.aliases !== undefined) meta.aliases = clean(params.aliases);
-    if (params.triggers !== undefined) meta.triggers = clean(params.triggers);
-    if (params.pinned !== undefined) meta.pinned = params.pinned;
-    if (params.order !== undefined) meta.order = Math.floor(params.order);
-    return meta;
-  };
-
-  /** Build relationship metadata from tool params, layered over an optional base (for updates). */
-  const buildRelationshipMeta = (params: RoleplayParamsT, base?: RelationshipMeta): RelationshipMeta => {
-    const meta: RelationshipMeta = base ? { ...base, openThreads: [...base.openThreads] } : emptyRelationshipMeta();
-    const clean = (xs: string[]): string[] => xs.map((x) => x.trim()).filter((x) => x.length > 0);
-    if (params.affinity !== undefined) meta.affinity = Math.min(100, Math.max(0, Math.floor(params.affinity)));
-    if (params.trust !== undefined) meta.trust = params.trust.trim();
-    if (params.lastInteraction !== undefined) {
-      const v = params.lastInteraction.trim();
-      if (v.length > 0) meta.lastInteraction = v;
-      else delete meta.lastInteraction;
-    }
-    if (params.openThreads !== undefined) meta.openThreads = clean(params.openThreads);
-    return meta;
-  };
-
   /**
    * Fold the scene's character sheets into a `## Roleplay scene` block,
    * above the lightweight cast index. Three fold sources, in precedence
@@ -796,11 +667,11 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     const foldToReminder = cfg.sceneFoldDelivery === 'reminder' && remindersEnabled;
     const foldPlan = planCharacterFold(state.entries, {
       scanText,
-      turn: turnCount,
-      priorTiming: sceneTimingState,
+      turn: timing.turnCount,
+      priorTiming: timing.sceneTimingState,
       rng: Math.random,
     });
-    sceneTimingState = foldPlan.nextTiming;
+    timing.sceneTimingState = foldPlan.nextTiming;
     const byId = new Map(state.entries.map((e) => [e.id, e]));
     const nameOf = (id: string): string | undefined => byId.get(id)?.name;
     const pinnedSet = new Set(foldPlan.pinnedIds);
@@ -838,22 +709,22 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       const active = triggeredIds.filter((id) => !headIds.has(id));
       const deliver = selectFoldDeliveries({
         activeIds: active,
-        priorActiveIds: sceneFoldPriorActive,
-        lastDelivered: sceneFoldDelivered,
-        turn: turnCount,
+        priorActiveIds: timing.sceneFoldPriorActive,
+        lastDelivered: timing.sceneFoldDelivered,
+        turn: timing.turnCount,
         refreshTurns: cfg.sceneFoldRefreshTurns,
       });
-      sceneFoldPriorActive = new Set(active);
+      timing.sceneFoldPriorActive = new Set(active);
       if (deliver.length > 0) {
         const fold = composeSceneFoldBlock(
           state,
           (entry) => substituteMacros(readEntryBody(state.cast, entry) ?? '', macroCtx(entry.name)),
           { characters: deliver, maxChars: cfg.charBudget },
         );
-        if (fold.block) pendingSceneFold = { body: fold.block, ids: fold.keptIds, turn: turnCount };
+        if (fold.block) pendingSceneFold = { body: fold.block, ids: fold.keptIds, turn: timing.turnCount };
       }
     } else {
-      sceneFoldPriorActive = new Set();
+      timing.sceneFoldPriorActive = new Set();
       headTriggered = triggeredIds.map(nameOf).filter((n): n is string => Boolean(n));
     }
 
@@ -921,11 +792,11 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     });
     const timed = applyTiming(
       lore.map((e) => ({ id: e.id, meta: e.lore ?? emptyLoreMeta(), matched: matchedIds.has(e.id) })),
-      turnCount,
-      timingState,
+      timing.turnCount,
+      timing.timingState,
       Math.random,
     );
-    timingState = timed.nextState;
+    timing.timingState = timed.nextState;
     const firedSet = new Set(timed.fired);
     const fired = lore.filter((e) => firedSet.has(e.id));
     if (fired.length === 0) return null;
@@ -995,7 +866,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       keywordVisualLore = [];
       return undefined;
     }
-    turnCount += 1;
+    timing.turnCount += 1;
     const scene = buildSceneBlock(ctx, sceneScanText);
     lastSceneBlock = scene;
     const index = formatRoleplayBlock(state, { maxChars: charBudget() });
@@ -1078,21 +949,15 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   let summarizer: Summarizer<Model<any>> | null = null;
   let summarizerInit = false;
 
-  /** Persisted child-session manager, falling back to in-memory when the parent is untracked (`--no-session`). */
-  const summarizerSessionManager = (ctx: ExtensionContext, childCwd: string): SessionManager => {
-    try {
-      return createPersistedSubagentSessionManager<SessionManager>({
-        parentSessionManager: ctx.sessionManager,
-        extensionLabel: 'roleplay-summarize',
-        cwd: childCwd,
-        SessionManager,
-      });
-    } catch {
-      // Non-load-bearing: an untracked parent session must not block the
-      // side-write. We lose the child transcript, not the summary.
-      return SessionManager.inMemory(childCwd);
-    }
-  };
+  /** Resolve a roleplay child agent by name from the default agent layers. */
+  const loadAgent = (name: string): AgentDef | null =>
+    loadRoleplayAgent({
+      name,
+      extensionDir: extDir,
+      cwd,
+      knownToolNames: new Set(pi.getAllTools().map((t) => t.name)),
+      fs: readLayer,
+    });
 
   /** Build the summarizer once (settings + agent resolution), then reuse it. */
   const getSummarizer = (ctx: ExtensionContext): Summarizer<Model<any>> | null => {
@@ -1100,62 +965,21 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     summarizerInit = true;
     try {
       const settings = resolveSummarizeSettings({ cwd });
-      let agent: AgentDef | null = null;
-      try {
-        const layers = defaultAgentLayers({ extensionDir: extDir, cwd });
-        const load = loadAgents({
-          layers,
-          knownToolNames: new Set(pi.getAllTools().map((t) => t.name)),
-          fs: readLayer,
-          parseFrontmatter,
-        });
-        agent = load.agents.get('roleplay-summarizer') ?? null;
-      } catch {
-        agent = null;
-      }
       summarizer = createSummarizer<Model<any>>({
         settings,
-        summarizerAgent: agent,
+        summarizerAgent: loadAgent('roleplay-summarizer'),
         maxOutputChars: loadRoleplayConfig(cwd, envCharBudget).summarizeMaxChars,
-        runOneShot: async (args) => {
-          // Pin the summarizer's neutral sampler (frontmatter `requestOptions`)
-          // onto the child's provider request. runOneShotAgent loads the child
-          // with noExtensions, so the only way the recap sampler is applied is
-          // an inline gate factory here - the persona's before_provider_request
-          // never fires in the child (no leak), so this is the pin, not a fight
-          // against the persona merge.
-          const gateFactory = args.agent.requestOptions
-            ? createAgentGateFactory({
-                config: {
-                  name: args.agent.name,
-                  bashAllow: [],
-                  bashDeny: [],
-                  resolvedWriteRoots: [],
-                  requestOptions: args.agent.requestOptions,
-                },
-                enforceWriteRoots: false,
-                resolveAbsolute: (_cwd, p) => p,
-              })
-            : null;
-          const result = await runOneShotAgent({
-            deps: { createAgentSession: piCreateAgentSession, DefaultResourceLoader, SessionManager, getAgentDir },
-            cwd: args.cwd,
-            agent: args.agent,
-            model: args.model,
-            task: args.task,
-            modelRegistry: args.modelRegistry,
-            agentDir: getAgentDir(),
-            sessionManager: summarizerSessionManager(ctx, args.cwd),
-            ...(gateFactory ? { extensionFactories: [gateFactory as never] } : {}),
-            ...(args.signal ? { signal: args.signal } : {}),
-            ...(args.timeoutMs !== undefined ? { timeoutMs: args.timeoutMs } : {}),
-          });
-          return {
-            finalText: result.finalText,
-            stopReason: result.stopReason,
-            ...(result.errorMessage !== undefined ? { errorMessage: result.errorMessage } : {}),
-          };
-        },
+        // Pin the summarizer's neutral sampler (frontmatter `requestOptions`)
+        // onto the child's provider request: the child loads with
+        // noExtensions, so the persona's before_provider_request never fires
+        // there (no leak) and the inline gate is the pin.
+        runOneShot: (args) =>
+          runRoleplayChild({
+            ...args,
+            extensionLabel: 'roleplay-summarize',
+            parentSessionManager: ctx.sessionManager,
+            pinRequestOptions: true,
+          }),
         log: (level, message) => {
           try {
             ctx.ui.notify(`roleplay summarize: ${message}`, level === 'warn' ? 'warning' : 'info');
@@ -1265,7 +1089,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     const maxSpanChars = deriveMaxSpanChars({
       contextWindowTokens: info.model?.contextWindow,
       priorRecapChars: priorLen,
-      charsPerToken,
+      charsPerToken: win.charsPerToken,
     });
     const plan = planSummarization(span, { minMessages: cfg.summarizeMinMessages, maxSpanChars });
     if (!plan) return { next: null, raw: null, applied: false, spanLen: 0, priorLen, startedAt };
@@ -1343,13 +1167,13 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         applied: o.result.applied,
         forced: o.forced ?? false,
         candidateChars: o.result.next?.length ?? 0,
-        recapChars: recapText.length,
+        recapChars: win.recapText.length,
         // The actual recap text, so drift is inspectable from the audit log
         // itself (its stated purpose) without opening `summary/auto.md`.
         // `candidate` is this roll's raw generation; `recap` is the effective
         // recap now in force (prior one held when a generation is rejected).
         candidate: o.result.next ?? null,
-        recap: recapText,
+        recap: win.recapText,
       });
     } catch {
       /* audit write is best-effort */
@@ -1367,20 +1191,8 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   const buildExtractorRunner = (
     agentName: string,
   ): ((ctx: ExtensionContext, task: string, signal?: AbortSignal) => Promise<string | null>) | null => {
-    let agent: AgentDef | null = null;
-    try {
-      const layers = defaultAgentLayers({ extensionDir: extDir, cwd });
-      const load = loadAgents({
-        layers,
-        knownToolNames: new Set(pi.getAllTools().map((t) => t.name)),
-        fs: readLayer,
-        parseFrontmatter,
-      });
-      agent = load.agents.get(agentName) ?? null;
-    } catch {
-      agent = null;
-    }
-    if (!agent) return null;
+    const theAgent = loadAgent(agentName);
+    if (!theAgent) return null;
     const settings = (() => {
       try {
         return resolveSummarizeSettings({ cwd });
@@ -1388,7 +1200,6 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         return null;
       }
     })();
-    const theAgent = agent;
     return async (rctx, task, signal) => {
       const resolution = resolveChildModel({
         override: settings?.summarizeModel,
@@ -1397,30 +1208,16 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         modelRegistry: rctx.modelRegistry as never,
       });
       if (!resolution.ok) return null;
-      const gateFactory = theAgent.requestOptions
-        ? createAgentGateFactory({
-            config: {
-              name: theAgent.name,
-              bashAllow: [],
-              bashDeny: [],
-              resolvedWriteRoots: [],
-              requestOptions: theAgent.requestOptions,
-            },
-            enforceWriteRoots: false,
-            resolveAbsolute: (_cwd, p) => p,
-          })
-        : null;
       try {
-        const result = await runOneShotAgent({
-          deps: { createAgentSession: piCreateAgentSession, DefaultResourceLoader, SessionManager, getAgentDir },
+        const result = await runRoleplayChild({
+          extensionLabel: 'roleplay-summarize',
+          parentSessionManager: rctx.sessionManager,
           cwd,
           agent: theAgent,
           model: resolution.model,
           task,
           modelRegistry: rctx.modelRegistry as never,
-          agentDir: getAgentDir(),
-          sessionManager: summarizerSessionManager(rctx, cwd),
-          ...(gateFactory ? { extensionFactories: [gateFactory as never] } : {}),
+          pinRequestOptions: true,
           // The caller's explicit signal (the recap's AbortController on the
           // async path, the turn signal on the sync path), never the turn's
           // `rctx.signal` implicitly: a background capture must be cancellable
@@ -1644,9 +1441,9 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       /* carry-over append best-effort */
     }
     // Keep the injected timeline current in-memory too (de-duped against it).
-    const freshMem = dedupeNewBeats(lines, timelineText);
+    const freshMem = dedupeNewBeats(lines, win.timelineText);
     if (freshMem.length > 0) {
-      timelineText = capBeatLog(appendBeatBody(timelineText, freshMem), cfg.timelineMemoryMaxChars);
+      win.timelineText = capBeatLog(appendBeatBody(win.timelineText, freshMem), cfg.timelineMemoryMaxChars);
     }
     return freshMem;
   };
@@ -1706,7 +1503,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       const info = resolveRecapModelInfo(ctx);
       const maxSpanChars = deriveMaxSpanChars({
         contextWindowTokens: info.model?.contextWindow,
-        charsPerToken,
+        charsPerToken: win.charsPerToken,
       });
       const plan = planSummarization(span, { minMessages: cfg.summarizeMinMessages, maxSpanChars });
       if (!plan) {
@@ -1793,7 +1590,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       const info = resolveRecapModelInfo(ctx);
       const maxSpanChars = deriveMaxSpanChars({
         contextWindowTokens: info.model?.contextWindow,
-        charsPerToken,
+        charsPerToken: win.charsPerToken,
       });
       const plan = planSummarization(span, { minMessages: cfg.summarizeMinMessages, maxSpanChars });
       if (!plan) {
@@ -1906,14 +1703,14 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         const opts = windowOptions();
         const natural = computeCutoff(messages, opts.keepTurns);
         // Fresh / shorter conversation (new run, branch switch, resume): drop stale state.
-        if (natural < committedCutoff) resetWindowState();
+        if (natural < win.committedCutoff) resetWindowState();
 
         // Calibrate chars/token against the PREVIOUS turn's reported usage
         // (ground truth) so the span-budget math is measured, not guessed.
         try {
           const usage = ctx.getContextUsage?.();
-          if (usage && typeof usage.tokens === 'number' && usage.tokens > 0 && lastSentEstChars > 0) {
-            charsPerToken = updateCharsPerToken(charsPerToken, lastSentEstChars, usage.tokens);
+          if (usage && typeof usage.tokens === 'number' && usage.tokens > 0 && win.lastSentEstChars > 0) {
+            win.charsPerToken = updateCharsPerToken(win.charsPerToken, win.lastSentEstChars, usage.tokens);
           }
         } catch {
           /* usage is best-effort */
@@ -1922,8 +1719,8 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         // Lazily hydrate the recap once per (re)load, so a resume continues
         // the memory instead of rebuilding it (branch first, then the
         // per-cast carry-over seed; see the ladder below).
-        if (!recapHydrated) {
-          recapHydrated = true;
+        if (!win.recapHydrated) {
+          win.recapHydrated = true;
           if (recapMode) {
             const sid = currentSessionId(ctx);
             // 1. PRIMARY: recover this branch's recap from the SESSION LOG.
@@ -1936,9 +1733,9 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
             //    of guessing. A resume (branch continuity) -> NO fact reseed.
             const branchRecap = hydrateRecapFromBranch(ctx, natural);
             if (branchRecap) {
-              recapText = branchRecap.recap;
-              recapCutoff = branchRecap.coveredTo;
-              committedCutoff = branchRecap.coveredTo;
+              win.recapText = branchRecap.recap;
+              win.recapCutoff = branchRecap.coveredTo;
+              win.committedCutoff = branchRecap.coveredTo;
               // Timeline: prefer this branch's cumulative timeline (same
               // active-path guarantee); fall back to the per-cast carry-over
               // log when the branch carries no timeline entry.
@@ -1948,7 +1745,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
                 readEntryBody(state.cast, { id: 'auto', kind: 'timeline', name: '', description: '' }) ??
                 '';
               if (priorTimeline.trim()) {
-                timelineText = capBeatLog(
+                win.timelineText = capBeatLog(
                   priorTimeline.trim(),
                   loadRoleplayConfig(cwd, envCharBudget).timelineMemoryMaxChars,
                 );
@@ -1970,12 +1767,12 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
               //    non-resume, so the one-shot facts seed (B2) may run.
               const priorEntry = state.entries.find((e) => e.kind === 'summary' && e.id === 'auto');
               const prior = priorEntry ? (readEntryBody(state.cast, priorEntry) ?? '') : '';
-              if (prior.trim()) recapText = prior.trim();
+              if (prior.trim()) win.recapText = prior.trim();
               // Seed the timeline from the per-cast carry-over log (C5).
               const priorTimeline =
                 readEntryBody(state.cast, { id: 'auto', kind: 'timeline', name: '', description: '' }) ?? '';
               if (priorTimeline.trim()) {
-                timelineText = capBeatLog(
+                win.timelineText = capBeatLog(
                   priorTimeline.trim(),
                   loadRoleplayConfig(cwd, envCharBudget).timelineMemoryMaxChars,
                 );
@@ -1992,7 +1789,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         // Roll only when the frozen boundary has advanced by at least `stride`
         // aged messages. Between rolls the condensed prefix + recap are frozen
         // (byte-identical), so the prompt-prefix cache is reused.
-        const rollFired = planRecap(natural, committedCutoff, strideValue());
+        const rollFired = planRecap(natural, win.committedCutoff, strideValue());
         if (rollFired) {
           /** True once this roll actually started (sync) or launched (async) a recap. */
           let recapStarted = false;
@@ -2003,7 +1800,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
             // Snapshot the session id at roll-plan time (decision a): the async
             // path must not read it inside its `.then` (the manager may be gone).
             const sid = currentSessionId(ctx);
-            const spanFrom = recapCutoff;
+            const spanFrom = win.recapCutoff;
             // Cap how far one roll advances coverage so the summarizer only ever
             // merges a digestible increment onto the prior recap (an unbounded
             // spanTo=natural made a stalled recap re-summarize a growing span,
@@ -2011,8 +1808,8 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
             // 190 turns in the field). The lag circuit-breaker below guarantees
             // coverage can never wedge permanently even if an increment is still
             // rejected.
-            const spanTo = boundRollSpanTo(messages, recapCutoff, natural, rollCfg.recapMaxAdvance);
-            const lag = natural - recapCutoff;
+            const spanTo = boundRollSpanTo(messages, win.recapCutoff, natural, rollCfg.recapMaxAdvance);
+            const lag = natural - win.recapCutoff;
             const lagCeiling = rollCfg.recapLagCeiling;
             const span = messages.slice(spanFrom, spanTo).map(toSummarizable);
             if (wantAsync) {
@@ -2021,14 +1818,14 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
               // the result lands, so nothing is lost; the drop boundary just
               // advances a turn or two later. gen-guarded against a
               // reset / branch change clobbering the current recap after the fact.
-              if (!recapInFlight) {
-                recapInFlight = true;
+              if (!win.recapInFlight) {
+                win.recapInFlight = true;
                 recapStarted = true;
-                const gen = recapGen;
-                const isCurrent = (): boolean => gen === recapGen;
-                const prior = recapText;
+                const gen = win.recapGen;
+                const isCurrent = (): boolean => gen === win.recapGen;
+                const prior = win.recapText;
                 const abort = new AbortController();
-                recapAbort = abort;
+                win.recapAbort = abort;
                 void doRecap(ctx, span, prior, info, abort.signal)
                   .then(async (result) => {
                     if (!isCurrent()) return; // stale (reset / branch change): discard
@@ -2045,8 +1842,8 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
                     const forced = !result.applied && shouldForceRecap({ candidate: salvaged, lag, lagCeiling });
                     const commit = result.applied ? result.next : forced ? salvaged : null;
                     if (commit) {
-                      recapText = commit;
-                      recapCutoff = spanTo;
+                      win.recapText = commit;
+                      win.recapCutoff = spanTo;
                       writeRecapRecord(commit, sid);
                     }
                     writeRecapAudit({ result, model: info.model, spanFrom, spanTo, mode: 'async', forced });
@@ -2072,9 +1869,9 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
                     /* keep prior recap + floor; retried on the next roll */
                   })
                   .finally(() => {
-                    if (gen === recapGen) {
-                      recapInFlight = false;
-                      recapAbort = null;
+                    if (gen === win.recapGen) {
+                      win.recapInFlight = false;
+                      win.recapAbort = null;
                     }
                   });
               }
@@ -2082,17 +1879,17 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
               // Blocking (inherited / same endpoint): one llama.cpp instance
               // cannot serve the recap and the main turn concurrently.
               recapStarted = true;
-              const gen = recapGen;
-              const result = await doRecap(ctx, span, recapText, info, ctx.signal);
+              const gen = win.recapGen;
+              const result = await doRecap(ctx, span, win.recapText, info, ctx.signal);
               const salvaged = result.applied ? result.next : clampSummary(result.raw ?? '', rollCfg.summarizeMaxChars);
               const forced = !result.applied && shouldForceRecap({ candidate: salvaged, lag, lagCeiling });
               const commit = result.applied ? result.next : forced ? salvaged : null;
               if (commit) {
-                recapText = commit;
-                recapCutoff = spanTo;
+                win.recapText = commit;
+                win.recapCutoff = spanTo;
                 writeRecapRecord(commit, sid);
                 await captureFacts(ctx, span, sid, ctx.signal);
-                await captureTimeline(ctx, span, sid, ctx.signal, () => gen === recapGen);
+                await captureTimeline(ctx, span, sid, ctx.signal, () => gen === win.recapGen);
               }
               writeRecapAudit({ result, model: info.model, spanFrom, spanTo, mode: 'sync', forced });
             }
@@ -2111,7 +1908,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
           // boundary keeps planRecap firing so the backlog starts as soon as
           // the in-flight one lands, instead of waiting a whole extra stride.
           // Holding is also cache-neutral (the frozen prefix does not move).
-          if (!recapMode || recapStarted) committedCutoff = natural;
+          if (!recapMode || recapStarted) win.committedCutoff = natural;
         }
 
         // Hard safety floor: guarantee the reduced prompt fits the session
@@ -2126,102 +1923,57 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         // still runs beats a hard 400. In healthy operation floorCutoff is 0
         // (everything fits) or <= recapCutoff (the recap already dropped enough),
         // so dropCutoff == recapCutoff and there is no behavior change.
+        // Freeze arithmetic + overflow valve live in `planWindowFloor`
+        // (roleplay/window-pass.ts). Reserve against what is ACTUALLY
+        // injected, not the raw cumulative stores: `recapText` is bounded by
+        // `summarizeMaxChars`, but the timeline is injected through
+        // `renderTimelineBlock` capped at `timelineMaxInjectChars`, while
+        // `timelineText` is the many-KB cumulative append-log.
         let floorCutoff = 0;
         const windowTokens = (ctx.model as { contextWindow?: number } | undefined)?.contextWindow;
         if (typeof windowTokens === 'number' && windowTokens > 0) {
-          const cpt = charsPerToken > 0 ? charsPerToken : DEFAULT_CHARS_PER_TOKEN;
           const sysChars = (typeof ctx.getSystemPrompt === 'function' ? ctx.getSystemPrompt() : '')?.length ?? 0;
-          // Reserve against what is ACTUALLY injected, not the raw cumulative
-          // stores. `recapText` is bounded by `summarizeMaxChars`, so count it
-          // in full; the timeline, however, is injected through
-          // `renderTimelineBlock` capped at `timelineMaxInjectChars` (~1200),
-          // while `timelineText` is the many-KB cumulative append-log. Counting
-          // the raw log would make the floor believe injection is far more
-          // expensive than it is, shrink `convBudget`, and drop more verbatim
-          // tail than necessary - worst exactly when the timeline is most active.
-          const timelineInjectChars = timelineText
-            ? (renderTimelineBlock(timelineText, {
+          const timelineInjectChars = win.timelineText
+            ? (renderTimelineBlock(win.timelineText, {
                 maxChars: loadRoleplayConfig(cwd, envCharBudget).timelineMaxInjectChars,
               })?.length ?? 0)
             : 0;
-          const injectChars = recapText.length + timelineInjectChars;
-          // Reserve for the model's own output plus injection/formatting slack.
-          const RESERVE_TOKENS = 3072;
-          const convBudget = windowTokens - Math.round((sysChars + injectChars) / cpt) - RESERVE_TOKENS;
-          const fitTurns = convBudget > 0 ? deriveKeepTurns(messages, convBudget, cpt, 1, 100000) : 1;
-          const rawFloor = computeCutoff(messages, fitTurns);
-          // The raw fit floor creeps forward a message or two EVERY turn (the fit
-          // turn-count is ~constant but its mapped index grows with the
-          // transcript), which would move the drop / recap-injection anchor every
-          // turn and reprocess the kept-window suffix. Freeze it between rolls
-          // (same invariant recapCutoff/committedCutoff obey); only re-cut on a
-          // roll, or when HOLDING the frozen floor would actually overflow.
-          //
-          // The overflow valve uses a LOOSER limit than the fit target on
-          // purpose: `deriveKeepTurns` packs turns right up to `convBudget`, so a
-          // valve keyed on `convBudget` would trip after a single turn's growth
-          // and re-cut every turn - defeating the freeze exactly when the floor
-          // is active. Let the held prompt grow into the output reserve between
-          // rolls; only force a re-cut when it would eat past a minimum output
-          // margin (the true window-overflow danger). The gap RESERVE_TOKENS -
-          // MIN_OUTPUT_TOKENS is the between-roll headroom, sized to absorb a
-          // roll stride's worth of growth.
-          const MIN_OUTPUT_TOKENS = 1024;
-          const overflowLimit = windowTokens - Math.round((sysChars + injectChars) / cpt) - MIN_OUTPUT_TOKENS;
-          // Estimate from where the drop actually holds: the larger of the
-          // frozen floor and the recap drop boundary (a recap that already
-          // drops more than the floor shrinks the held suffix).
-          const heldStart = Math.max(frozenFloorCutoff, recapCutoff);
-          const heldConvTokens = heldStart > 0 ? estimateChars(messages.slice(heldStart)) / cpt : Infinity;
-          const overflow = overflowLimit > 0 && heldConvTokens > overflowLimit;
-          // Freeze the floor: recompute only on the overflow valve, never per
-          // turn. NB do NOT key this on `rollFired` - a session draining a recap
-          // backlog rolls every turn, which would recompute (and wiggle) the
-          // floor every turn and defeat the freeze. The valve alone advances it
-          // when holding would overflow; otherwise the drop boundary is stable.
-          frozenFloorCutoff = freezeFloorCutoff({ frozen: frozenFloorCutoff, rawFloor, overflow });
-          floorCutoff = frozenFloorCutoff;
+          const floor = planWindowFloor({
+            messages,
+            windowTokens,
+            sysChars,
+            injectChars: win.recapText.length + timelineInjectChars,
+            charsPerToken: win.charsPerToken,
+            frozenFloorCutoff: win.frozenFloorCutoff,
+            recapCutoff: win.recapCutoff,
+          });
+          // NB never keyed on `rollFired`: a session draining a recap backlog
+          // rolls every turn, which would wiggle the floor and defeat the freeze.
+          win.frozenFloorCutoff = floor.frozenFloorCutoff;
+          floorCutoff = floor.floorCutoff;
         }
-        const dropCutoff = Math.max(recapCutoff, floorCutoff);
+        const dropCutoff = Math.max(win.recapCutoff, floorCutoff);
 
-        // Apply the window: layered drop+condense+inject (recap mode) or the
-        // condense-only floor (recap off / summarize disabled).
-        if (recapMode) {
-          const layered = applyLayeredWindow(messages, dropCutoff, Math.max(dropCutoff, committedCutoff), opts);
-          if (layered.dropped > 0 || layered.condensed > 0) {
-            messages = layered.messages;
-            changed = true;
-          }
-          // Only inject a recap that has real content: a blank / whitespace-only
-          // `summary/auto` must not splice an empty recap block (nor flip
-          // `changed`). injectRecap double-guards, but gate here so a blank
-          // recap is a true no-op.
-          if (recapText.trim()) {
-            messages = injectRecap(messages, recapText);
-            changed = true;
-          }
-          if (timelineText.trim()) {
-            const block = renderTimelineBlock(timelineText, {
-              maxChars: loadRoleplayConfig(cwd, envCharBudget).timelineMaxInjectChars,
-            });
-            if (block) {
-              messages = injectTimeline(messages, block);
-              changed = true;
-            }
-          }
-        } else if (floorCutoff > 0) {
-          // Non-recap mode but over the window budget: hard-drop oldest turns.
-          const layered = applyLayeredWindow(messages, floorCutoff, committedCutoff, opts);
-          if (layered.dropped > 0 || layered.condensed > 0) {
-            messages = layered.messages;
-            changed = true;
-          }
-        } else {
-          const floor = applyContextWindowAt(messages, committedCutoff, opts);
-          if (floor.condensed > 0) {
-            messages = floor.messages;
-            changed = true;
-          }
+        // Apply the window: layered drop+condense+inject (recap mode), the
+        // hard-drop floor (recap off, over budget), or condense-only.
+        const pass = applyWindowPass({
+          messages,
+          recapMode,
+          dropCutoff,
+          floorCutoff,
+          committedCutoff: win.committedCutoff,
+          recapText: win.recapText,
+          timelineBlock:
+            recapMode && win.timelineText.trim()
+              ? renderTimelineBlock(win.timelineText, {
+                  maxChars: loadRoleplayConfig(cwd, envCharBudget).timelineMaxInjectChars,
+                })
+              : null,
+          opts,
+        });
+        if (pass.changed) {
+          messages = pass.messages;
+          changed = true;
         }
 
         // Opt-in per-turn composition audit (custom log entry, never sent to
@@ -2231,18 +1983,18 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
             const sysChars = (typeof ctx.getSystemPrompt === 'function' ? ctx.getSystemPrompt() : '')?.length ?? 0;
             const fullChars = estimateChars(event.messages as unknown as readonly Record<string, unknown>[]);
             const sentChars = estimateChars(messages);
-            const cpt = charsPerToken > 0 ? charsPerToken : DEFAULT_CHARS_PER_TOKEN;
+            const cpt = win.charsPerToken > 0 ? win.charsPerToken : DEFAULT_CHARS_PER_TOKEN;
             pi.appendEntry('roleplay-context-window-debug', {
               ts: Date.now(),
               messagesIn: event.messages.length,
               messagesOut: messages.length,
               natural,
-              committedCutoff,
-              recapCutoff,
+              committedCutoff: win.committedCutoff,
+              recapCutoff: win.recapCutoff,
               floorCutoff,
               dropCutoff,
               recapMode,
-              recapChars: recapText.length,
+              recapChars: win.recapText.length,
               charsPerToken: Math.round(cpt * 100) / 100,
               estSystemTokens: Math.round(sysChars / cpt),
               estFullPromptTokens: Math.round((sysChars + fullChars) / cpt),
@@ -2257,34 +2009,34 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         // Track what we sent so next turn can calibrate against its usage, and
         // snapshot the window state for the `/roleplay context` readout.
         try {
-          const cpt = charsPerToken > 0 ? charsPerToken : DEFAULT_CHARS_PER_TOKEN;
+          const cpt = win.charsPerToken > 0 ? win.charsPerToken : DEFAULT_CHARS_PER_TOKEN;
           const sysChars = (typeof ctx.getSystemPrompt === 'function' ? ctx.getSystemPrompt() : '')?.length ?? 0;
           const sentChars = estimateChars(messages);
           const fullChars = estimateChars(event.messages as unknown as readonly Record<string, unknown>[]);
-          lastSentEstChars = sysChars + sentChars;
+          win.lastSentEstChars = sysChars + sentChars;
           const prev = lastWindowSnapshot;
           lastWindowSnapshot = {
             ts: Date.now(),
             messagesIn: event.messages.length,
             messagesOut: messages.length,
             natural,
-            committedCutoff,
-            recapCutoff,
+            committedCutoff: win.committedCutoff,
+            recapCutoff: win.recapCutoff,
             floorCutoff,
             dropCutoff,
-            frozenFloorCutoff,
-            recapChars: recapText.length,
-            recapInFlight,
+            frozenFloorCutoff: win.frozenFloorCutoff,
+            recapChars: win.recapText.length,
+            recapInFlight: win.recapInFlight,
             estSystemTokens: Math.round(sysChars / cpt),
             estFullPromptTokens: Math.round((sysChars + fullChars) / cpt),
             estSentPromptTokens: Math.round((sysChars + sentChars) / cpt),
             estSavedTokens: Math.round((fullChars - sentChars) / cpt),
             charsPerToken: Math.round(cpt * 100) / 100,
             dropMoved: prev ? dropCutoff !== prev.dropCutoff : false,
-            recapChanged: prev ? recapText.length !== prev.recapChars : false,
+            recapChanged: prev ? win.recapText.length !== prev.recapChars : false,
           };
         } catch {
-          lastSentEstChars = 0;
+          win.lastSentEstChars = 0;
         }
       }
 
@@ -2314,7 +2066,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
           if (sceneFold) {
             reminders.push({ id: 'roleplay-scene-fold', body: sceneFold.body });
             // Only sheets that actually reached this run's snapshot count as delivered.
-            for (const id of sceneFold.ids) sceneFoldDelivered.set(id, sceneFold.turn);
+            for (const id of sceneFold.ids) timing.sceneFoldDelivered.set(id, sceneFold.turn);
           }
           if (lorebookEnabled) reminders.push({ id: 'roleplay-lore', body: pendingLore });
           if (repetitionEnabled) reminders.push({ id: 'roleplay-repetition', body: buildRepetitionNudge(messages) });
@@ -2350,19 +2102,19 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         messages: request.messages,
         preview: request.preview,
         origin: request.origin,
-        floorAnchor: projectedFloorAnchor,
+        floorAnchor: win.projectedFloorAnchor,
         windowTokens,
-        charsPerToken,
+        charsPerToken: win.charsPerToken,
       });
       request.result = result;
-      if (result.fits) projectedFloorAnchor = result.floorAnchor;
+      if (result.fits) win.projectedFloorAnchor = result.floorAnchor;
     }),
     pi.events.on(REMINDER_PROJECTED, (data) => {
       if (activeCast() === null) return;
       const request = data as ReminderProjectedRequest;
-      lastSentEstChars = reminderRequestChars(request.messages);
+      win.lastSentEstChars = reminderRequestChars(request.messages);
       if (lastWindowSnapshot) {
-        const sent = Math.round(lastSentEstChars / charsPerToken);
+        const sent = Math.round(win.lastSentEstChars / win.charsPerToken);
         lastWindowSnapshot = {
           ...lastWindowSnapshot,
           messagesOut: request.messages.length,
@@ -2400,7 +2152,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         // (`summary/auto.md`, shared across same-cast sessions) is only a
         // fallback when this process holds no recap (e.g. the context window
         // is off, or nothing has hydrated / rolled yet).
-        let prior = recapText.trim();
+        let prior = win.recapText.trim();
         if (!prior) {
           const priorEntry = state.entries.find((e) => e.kind === 'summary' && e.id === 'auto');
           prior = priorEntry ? (readEntryBody(state.cast, priorEntry) ?? '').trim() : '';
@@ -2409,7 +2161,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         const maxSpanChars = deriveMaxSpanChars({
           contextWindowTokens: info.model?.contextWindow,
           priorRecapChars: prior.length,
-          charsPerToken,
+          charsPerToken: win.charsPerToken,
         });
         const messages = (event.preparation?.messagesToSummarize ?? []).map(toSummarizable);
         const plan = planSummarization(messages, { minMessages: cfg.summarizeMinMessages, maxSpanChars });
@@ -2425,7 +2177,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         );
         // Collapse guard: never let a degenerate recap clobber a longer prior.
         if (recap === null || !acceptRecap(prior, recap)) return undefined;
-        recapText = recap;
+        win.recapText = recap;
         // Refresh the per-cast carry-over seed, and keep the in-memory index
         // aware of it WITHOUT applyCast (which would reset lorebook timing as
         // a side effect).
@@ -2472,22 +2224,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   // reset coverage to 0 and invalidate any in-flight async recap (its
   // `spanTo` indexes the old array). Normal rolls re-anchor coverage.
   if (contextWindowEnabled) {
-    pi.on('session_compact', () => {
-      recapGen += 1;
-      recapInFlight = false;
-      if (recapAbort) {
-        try {
-          recapAbort.abort();
-        } catch {
-          /* ignore */
-        }
-        recapAbort = null;
-      }
-      recapCutoff = 0;
-      committedCutoff = 0;
-      frozenFloorCutoff = 0;
-      lastSentEstChars = 0;
-    });
+    pi.on('session_compact', () => resetWindowCoverage(win));
   }
 
   // ── Scene events (/roleplay event) ──────────────────────────────────
@@ -2518,60 +2255,22 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   let eventGen: EventGenerator<Model<any>> | null = null;
   let eventGenInit = false;
 
-  const eventSessionManager = (ctx: ExtensionContext, childCwd: string): SessionManager => {
-    try {
-      return createPersistedSubagentSessionManager<SessionManager>({
-        parentSessionManager: ctx.sessionManager,
-        extensionLabel: 'roleplay-event',
-        cwd: childCwd,
-        SessionManager,
-      });
-    } catch {
-      return SessionManager.inMemory(childCwd);
-    }
-  };
-
   const getEventGenerator = (ctx: ExtensionContext): EventGenerator<Model<any>> | null => {
     if (eventGenInit) return eventGen;
     eventGenInit = true;
     try {
       const settings = resolveEventSettings({ cwd });
-      let agent: AgentDef | null = null;
-      try {
-        const layers = defaultAgentLayers({ extensionDir: extDir, cwd });
-        const load = loadAgents({
-          layers,
-          knownToolNames: new Set(pi.getAllTools().map((t) => t.name)),
-          fs: readLayer,
-          parseFrontmatter,
-        });
-        agent = load.agents.get('roleplay-event') ?? null;
-      } catch {
-        agent = null;
-      }
       eventGen = createEventGenerator<Model<any>>({
         settings,
-        eventAgent: agent,
+        eventAgent: loadAgent('roleplay-event'),
         maxOutputChars: loadRoleplayConfig(cwd, envCharBudget).eventMaxChars,
-        runOneShot: async (args) => {
-          const result = await runOneShotAgent({
-            deps: { createAgentSession: piCreateAgentSession, DefaultResourceLoader, SessionManager, getAgentDir },
-            cwd: args.cwd,
-            agent: args.agent,
-            model: args.model,
-            task: args.task,
-            modelRegistry: args.modelRegistry,
-            agentDir: getAgentDir(),
-            sessionManager: eventSessionManager(ctx, args.cwd),
-            ...(args.signal ? { signal: args.signal } : {}),
-            ...(args.timeoutMs !== undefined ? { timeoutMs: args.timeoutMs } : {}),
-          });
-          return {
-            finalText: result.finalText,
-            stopReason: result.stopReason,
-            ...(result.errorMessage !== undefined ? { errorMessage: result.errorMessage } : {}),
-          };
-        },
+        runOneShot: (args) =>
+          runRoleplayChild({
+            ...args,
+            extensionLabel: 'roleplay-event',
+            parentSessionManager: ctx.sessionManager,
+            pinRequestOptions: false,
+          }),
         log: (level, message) => {
           try {
             ctx.ui.notify(`roleplay event: ${message}`, level === 'warn' ? 'warning' : 'info');
@@ -2645,8 +2344,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     eventConsumed = false;
     pendingLore = null;
     pendingSceneFold = null;
-    sceneFoldDelivered = new Map();
-    sceneFoldPriorActive = new Set();
+    resetSceneFoldDelivery(timing);
     frozenMacroNow = null;
     pendingDepthScan = null;
     pendingEventForRun = null;
@@ -2702,201 +2400,28 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     loreEmptyCache = null;
   };
 
-  const actSave = (params: RoleplayParamsT): ActionOut => {
-    const kind: RoleplayKind = params.kind ?? 'character';
-    if (!params.name || params.name.trim().length === 0) return fail('save', '`name` is required for `save`');
-    const description = (params.description ?? '').trim();
-    if (description.length === 0) return fail('save', '`description` is required for `save` (one-line index hook)');
-    const body = (params.body ?? '').trim();
-    if (body.length === 0) return fail('save', '`body` is required for `save`');
-
-    const lastInteractionErr = lastInteractionError(params.lastInteraction);
-    if (lastInteractionErr) return fail('save', lastInteractionErr);
-
-    const slug = chooseSlug(state.entries, params.name);
-    if (isReservedSlug(kind, slug)) {
-      return fail('save', `slug "${slug}" is reserved for the ${kind} carry-over record; choose a different \`name\``);
-    }
-    const lore = kind === 'lore' ? buildLoreMeta(params) : undefined;
-    const character = kind === 'character' ? buildCharacterMeta(params) : undefined;
-    const relationship = kind === 'relationship' ? buildRelationshipMeta(params) : undefined;
-    atomicWriteFile(
-      fileFor(state.cast, kind, slug),
-      serializeEntry({ name: params.name.trim(), description, kind, body, lore, character, relationship }),
-    );
-    const entry: RoleplayEntry = {
-      id: slug,
-      kind,
-      name: params.name.trim(),
-      description,
-      ...(lore ? { lore } : {}),
-      ...(character ? { character } : {}),
-      ...(relationship ? { relationship } : {}),
-    };
-    state = { cast: state.cast, entries: upsertEntry(state.entries, entry) };
+  /** Perform a planned mutation: writes first, then removes, then commit + persist the index. */
+  const applyPlan = (action: string, plan: ActionPlan): ActionOut => {
+    if (!plan.ok) return fail(action, plan.error);
+    for (const w of plan.writes) atomicWriteFile(w.path, w.content);
+    for (const path of plan.removes) removeFileIfExists(path);
+    state = plan.state;
     persist();
-    return {
-      content: `Saved [${state.cast}/${kind}] ${slug} - ${entry.name}\n\n${formatText(state)}`,
-      details: { action: 'save', state: cloneState(state), entry },
-    };
+    return { content: plan.content, details: { action, state: cloneState(state), entry: plan.entry } };
   };
 
-  const actUpdate = (params: RoleplayParamsT): ActionOut => {
-    const resolved = resolveEntry(state, params);
-    if ('error' in resolved) return fail('update', resolved.error);
-    const loreParamGiven =
-      params.triggers !== undefined ||
-      params.secondaryKeys !== undefined ||
-      params.secondaryMode !== undefined ||
-      params.constant !== undefined ||
-      params.order !== undefined ||
-      params.depth !== undefined ||
-      params.recurse !== undefined;
-    const loreOnly = resolved.kind === 'lore' && loreParamGiven;
-    const characterParamGiven =
-      params.aliases !== undefined ||
-      params.pinned !== undefined ||
-      params.triggers !== undefined ||
-      params.order !== undefined;
-    const characterOnly = resolved.kind === 'character' && characterParamGiven;
-    const relationshipParamGiven =
-      params.affinity !== undefined ||
-      params.trust !== undefined ||
-      params.lastInteraction !== undefined ||
-      params.openThreads !== undefined;
-    const relationshipOnly = resolved.kind === 'relationship' && relationshipParamGiven;
-    if (
-      params.name === undefined &&
-      params.description === undefined &&
-      params.body === undefined &&
-      !loreOnly &&
-      !characterOnly &&
-      !relationshipOnly
-    ) {
-      return fail(
-        'update',
-        '`update` requires at least one of `name`, `description`, `body` (or kind-specific fields for a character/lore/relationship entry)',
-      );
-    }
-    const nextName = params.name !== undefined ? params.name.trim() : resolved.name;
-    if (nextName.length === 0) return fail('update', '`name` may not be empty');
-    const lastInteractionErr = lastInteractionError(params.lastInteraction);
-    if (lastInteractionErr) return fail('update', lastInteractionErr);
-    const nextDescription = params.description !== undefined ? params.description.trim() : resolved.description;
+  const readBody = (entry: RoleplayEntry): string | null => readEntryBody(state.cast, entry);
 
-    let nextBody: string;
-    if (params.body !== undefined) {
-      nextBody = params.body.trim();
-      if (nextBody.length === 0) return fail('update', '`body` may not be empty - use `remove` to delete the entry');
-    } else {
-      const existing = readEntryBody(state.cast, resolved);
-      if (existing === null)
-        return fail('update', `cannot preserve body: "${resolved.id}" not readable - pass \`body\` explicitly`);
-      nextBody = existing.trim();
-      if (nextBody.length === 0)
-        return fail('update', `existing body for "${resolved.id}" is empty - pass \`body\` explicitly`);
-    }
+  const actSave = (params: RoleplayParamsT): ActionOut => applyPlan('save', planSave(state, params));
 
-    const renamed = params.name !== undefined && slugifyName(params.name) !== resolved.id;
-    let entries = state.entries;
-    let nextId = resolved.id;
-    if (renamed) {
-      entries = removeEntry(entries, resolved.kind, resolved.id);
-      nextId = chooseSlug(entries, params.name!);
-      if (isReservedSlug(resolved.kind, nextId)) {
-        return fail(
-          'update',
-          `slug "${nextId}" is reserved for the ${resolved.kind} carry-over record; choose a different \`name\``,
-        );
-      }
-    }
-    const lore = resolved.kind === 'lore' ? buildLoreMeta(params, resolved.lore ?? emptyLoreMeta()) : undefined;
-    const character =
-      resolved.kind === 'character'
-        ? buildCharacterMeta(params, resolved.character ?? emptyCharacterMeta())
-        : undefined;
-    const relationship =
-      resolved.kind === 'relationship'
-        ? buildRelationshipMeta(params, resolved.relationship ?? emptyRelationshipMeta())
-        : undefined;
-    // Bundle lore stays in its bundle dir (`lore/<bundle>/<id>.md`); a
-    // rename only changes the stem. Write the new file BEFORE removing the
-    // old one so a failed write never loses the record.
-    atomicWriteFile(
-      entryFilePath(state.cast, { ...resolved, id: nextId }),
-      serializeEntry({
-        name: nextName,
-        description: nextDescription,
-        kind: resolved.kind,
-        body: nextBody,
-        lore,
-        character,
-        relationship,
-        extra: resolved.extra,
-      }),
-    );
-    if (renamed) {
-      const oldPath = entryFilePath(state.cast, resolved);
-      // chooseSlug can hand back the old stem (e.g. `foo-2` renamed to `Foo`
-      // while `foo` exists); never delete the file just written.
-      if (oldPath !== entryFilePath(state.cast, { ...resolved, id: nextId })) removeFileIfExists(oldPath);
-    }
-    const entry: RoleplayEntry = {
-      id: nextId,
-      kind: resolved.kind,
-      name: nextName,
-      description: nextDescription,
-      ...(lore ? { lore } : {}),
-      ...(character ? { character } : {}),
-      ...(relationship ? { relationship } : {}),
-      ...(resolved.extra ? { extra: resolved.extra } : {}),
-      ...(resolved.bundle ? { bundle: resolved.bundle } : {}),
-    };
-    state = { cast: state.cast, entries: upsertEntry(entries, entry) };
-    persist();
-    return {
-      content: `Updated [${state.cast}/${entry.kind}] ${entry.id} - ${entry.name}\n\n${formatText(state)}`,
-      details: { action: 'update', state: cloneState(state), entry },
-    };
-  };
+  const actUpdate = (params: RoleplayParamsT): ActionOut => applyPlan('update', planUpdate(state, params, readBody));
 
-  const actRemove = (params: RoleplayParamsT): ActionOut => {
-    const resolved = resolveEntry(state, params);
-    if ('error' in resolved) return fail('remove', resolved.error);
-    removeFileIfExists(entryFilePath(state.cast, resolved));
-    state = { cast: state.cast, entries: removeEntry(state.entries, resolved.kind, resolved.id) };
-    persist();
-    return {
-      content: `Removed [${state.cast}/${resolved.kind}] ${resolved.id}\n\n${formatText(state)}`,
-      details: { action: 'remove', state: cloneState(state), entry: resolved },
-    };
-  };
+  const actRemove = (params: RoleplayParamsT): ActionOut => applyPlan('remove', planRemove(state, params));
 
   const actSearch = (params: RoleplayParamsT): ActionOut => {
-    const q = (params.query ?? '').trim();
-    if (q.length === 0) return fail('search', '`query` is required for `search`');
-    const needle = q.toLowerCase();
-    const matches: RoleplayEntry[] = [];
-    for (const e of state.entries) {
-      const hay = [e.name, e.description, e.id].join(' ').toLowerCase();
-      if (hay.includes(needle)) {
-        matches.push(e);
-        continue;
-      }
-      const body = readEntryBody(state.cast, e);
-      if (body?.toLowerCase().includes(needle)) matches.push(e);
-    }
-    if (matches.length === 0) {
-      return {
-        content: `No entries in cast "${state.cast}" match "${q}".`,
-        details: { action: 'search', state: cloneState(state), matches: [] },
-      };
-    }
-    const lines = matches.map((e) => `  [${e.kind}] ${e.id} - ${e.name}: ${e.description}`);
-    return {
-      content: `Matches for "${q}" (${matches.length}):\n${lines.join('\n')}`,
-      details: { action: 'search', state: cloneState(state), matches },
-    };
+    const plan = planSearch(state, params, readBody);
+    if (!plan.ok) return fail('search', plan.error);
+    return { content: plan.content, details: { action: 'search', state: cloneState(state), matches: plan.matches } };
   };
 
   // ── Card import (/roleplay import) ──────────────────────────────────
