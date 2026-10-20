@@ -13,6 +13,9 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
+import { SandboxRuntimeConfigSchema } from '@anthropic-ai/sandbox-runtime';
+
+import { validateRuntimeConfig } from '../../../../../lib/node/pi/sandbox/asrt-manager.ts';
 import { translateToASRT } from '../../../../../lib/node/pi/sandbox/config-translate.ts';
 import { emptySandboxConfig, type SandboxConfig } from '../../../../../lib/node/pi/sandbox/config-schema.ts';
 import {
@@ -35,6 +38,9 @@ afterEach(() => {
 
 const baseSandbox = (): SandboxConfig => emptySandboxConfig();
 const basePolicy = (): FilesystemPolicy => emptyPolicy();
+/** Flags / credentials added after these fixtures were written. */
+const LATER_FLAGS = { allowNestedUserNamespaces: false, protectSandboxRuntime: true } as const;
+const NO_CREDENTIALS = (): SandboxConfig['credentials'] => ({ denyEnv: [] });
 
 describe('translateToASRT - macOS mode', () => {
   test('always auto-adds ~/.pi to allowWrite', () => {
@@ -175,7 +181,9 @@ describe('translateToASRT - macOS mode', () => {
         weakerNetworkIsolation: true,
         allowLocalBinding: true,
         linuxRuleDepth: 3,
+        ...LATER_FLAGS,
       },
+      credentials: NO_CREDENTIALS(),
       gitExcludeStubs: true,
     };
     const { config, lossyNotes } = translateToASRT({
@@ -204,7 +212,9 @@ describe('translateToASRT - macOS mode', () => {
         weakerNetworkIsolation: false,
         allowLocalBinding: true,
         linuxRuleDepth: 3,
+        ...LATER_FLAGS,
       },
+      credentials: NO_CREDENTIALS(),
       gitExcludeStubs: true,
     };
     const { config, lossyNotes } = translateToASRT({
@@ -228,7 +238,14 @@ describe('translateToASRT - macOS mode', () => {
     const sandbox: SandboxConfig = {
       network: { allow: ['github.com'], deny: [], allowLocalhost: true },
       unixSockets: { allow: [], allowAll: false },
-      flags: { weakerNestedSandbox: false, weakerNetworkIsolation: false, allowLocalBinding: false, linuxRuleDepth: 3 },
+      flags: {
+        weakerNestedSandbox: false,
+        weakerNetworkIsolation: false,
+        allowLocalBinding: false,
+        linuxRuleDepth: 3,
+        ...LATER_FLAGS,
+      },
+      credentials: NO_CREDENTIALS(),
       gitExcludeStubs: true,
     };
     const { config, lossyNotes } = translateToASRT({
@@ -240,7 +257,7 @@ describe('translateToASRT - macOS mode', () => {
     });
     // Loopback hosts appended; remote allow-list (github.com) retained =>
     // filtering still on (allowedDomains is a finite list, not absent).
-    expect(config.network.allowedDomains).toEqual(['github.com', 'localhost', '127.0.0.1', '::1']);
+    expect(config.network.allowedDomains).toEqual(['github.com', 'localhost', '127.0.0.1', '[::1]']);
     expect(lossyNotes.find((n) => n.includes('network.allowLocalhost=true'))).toBeDefined();
   });
 
@@ -248,18 +265,32 @@ describe('translateToASRT - macOS mode', () => {
     const sandbox: SandboxConfig = {
       network: { allow: ['127.0.0.1'], deny: [], allowLocalhost: true },
       unixSockets: { allow: [], allowAll: false },
-      flags: { weakerNestedSandbox: false, weakerNetworkIsolation: false, allowLocalBinding: false, linuxRuleDepth: 3 },
+      flags: {
+        weakerNestedSandbox: false,
+        weakerNetworkIsolation: false,
+        allowLocalBinding: false,
+        linuxRuleDepth: 3,
+        ...LATER_FLAGS,
+      },
+      credentials: NO_CREDENTIALS(),
       gitExcludeStubs: true,
     };
     const { config } = translateToASRT({ policy: basePolicy(), sandbox, cwd, homeDir: HOME, mode: 'darwin' });
-    expect(config.network.allowedDomains).toEqual(['127.0.0.1', 'localhost', '::1']);
+    expect(config.network.allowedDomains).toEqual(['127.0.0.1', 'localhost', '[::1]']);
   });
 
   test('network.allowLocalhost is a no-op under unrestricted (no allowedDomains at all)', () => {
     const sandbox: SandboxConfig = {
       network: { allow: [], deny: [], unrestricted: true, allowLocalhost: true },
       unixSockets: { allow: [], allowAll: false },
-      flags: { weakerNestedSandbox: false, weakerNetworkIsolation: false, allowLocalBinding: false, linuxRuleDepth: 3 },
+      flags: {
+        weakerNestedSandbox: false,
+        weakerNetworkIsolation: false,
+        allowLocalBinding: false,
+        linuxRuleDepth: 3,
+        ...LATER_FLAGS,
+      },
+      credentials: NO_CREDENTIALS(),
       gitExcludeStubs: true,
     };
     const { config, lossyNotes } = translateToASRT({
@@ -567,5 +598,116 @@ describe('translateToASRT - Linux mode', () => {
     });
     expect(config.filesystem.denyWrite).not.toContain('/repo/src/.env.fixture');
     expect(config.filesystem.denyWrite).toContain('/repo/src/.env.real');
+  });
+});
+
+describe('translateToASRT - ASRT 0.0.81 features', () => {
+  const linuxCompiled = (readPaths: string[], writePaths: string[] = []): CompiledPolicyReport => ({
+    read: { paths: readPaths, inertBasenames: [], inertSegments: [], inertPaths: [] },
+    write: { paths: writePaths, inertBasenames: [], inertSegments: [], inertPaths: [] },
+  });
+
+  test('allowLocalhost ports scope the loopback allow-list entries', () => {
+    const sandbox = baseSandbox();
+    sandbox.network.allow = ['github.com'];
+    sandbox.network.allowLocalhost = true;
+    sandbox.network.localhostPorts = [8188];
+    const { config, lossyNotes } = translateToASRT({
+      policy: basePolicy(),
+      sandbox,
+      cwd,
+      homeDir: HOME,
+      mode: 'darwin',
+    });
+    expect(config.network.allowedDomains).toEqual(['github.com', 'localhost:8188', '127.0.0.1:8188', '[::1]:8188']);
+    expect(lossyNotes.find((n) => n.includes('ports 8188 only'))).toBeDefined();
+  });
+
+  test('Linux compiled paths with glob characters are marked literal; plain paths stay strings', () => {
+    const { config } = translateToASRT({
+      policy: basePolicy(),
+      sandbox: baseSandbox(),
+      cwd,
+      homeDir: HOME,
+      mode: 'linux',
+      compiled: linuxCompiled(['/repo/app/[slug]/.env', '/repo/.env'], ['/repo/a*b/.envrc']),
+    });
+    expect(config.filesystem.denyRead).toEqual([{ path: '/repo/app/[slug]/.env', literal: true }, '/repo/.env']);
+    expect(config.filesystem.denyWrite).toEqual([{ path: '/repo/a*b/.envrc', literal: true }]);
+  });
+
+  test('macOS: resolved paths are literal when needed, basename globs stay patterns', () => {
+    const policy = mergePolicies({
+      read: { deny: { paths: ['/data/[wip] app/secrets'], basenames: ['*.pem'] } },
+    });
+    const { config } = translateToASRT({ policy, sandbox: baseSandbox(), cwd, homeDir: HOME, mode: 'darwin' });
+    expect(config.filesystem.denyRead).toEqual([{ path: '/data/[wip] app/secrets', literal: true }, '**/*.pem']);
+  });
+
+  test('protectPaths are appended to denyWrite on both platforms', () => {
+    for (const mode of ['darwin', 'linux'] as const) {
+      const { config } = translateToASRT({
+        policy: basePolicy(),
+        sandbox: baseSandbox(),
+        cwd,
+        homeDir: HOME,
+        mode,
+        compiled: linuxCompiled([]),
+        protectPaths: ['/repo/node_modules/@anthropic-ai/sandbox-runtime'],
+      });
+      expect(config.filesystem.denyWrite).toContain('/repo/node_modules/@anthropic-ai/sandbox-runtime');
+    }
+  });
+
+  test('credentials.denyEnv becomes credentials.envVars with mode deny', () => {
+    const sandbox = baseSandbox();
+    sandbox.credentials.denyEnv = ['OPENAI_API_KEY', 'GH_TOKEN'];
+    const { config } = translateToASRT({ policy: basePolicy(), sandbox, cwd, homeDir: HOME, mode: 'darwin' });
+    expect(config.credentials).toEqual({
+      envVars: [
+        { name: 'OPENAI_API_KEY', mode: 'deny' },
+        { name: 'GH_TOKEN', mode: 'deny' },
+      ],
+    });
+    expect(
+      translateToASRT({ policy: basePolicy(), sandbox: baseSandbox(), cwd, mode: 'darwin' }).config.credentials,
+    ).toBeUndefined();
+  });
+
+  test('flags.allowNestedUserNamespaces maps to the top-level ASRT option', () => {
+    const sandbox = baseSandbox();
+    expect(
+      translateToASRT({ policy: basePolicy(), sandbox, cwd, mode: 'darwin' }).config.allowNestedUserNamespaces,
+    ).toBeUndefined();
+    sandbox.flags.allowNestedUserNamespaces = true;
+    expect(
+      translateToASRT({ policy: basePolicy(), sandbox, cwd, mode: 'darwin' }).config.allowNestedUserNamespaces,
+    ).toBe(true);
+  });
+
+  test('the translated config validates against the installed ASRT schema', () => {
+    const policy = mergePolicies({
+      read: { deny: { paths: ['~/.ssh', '/data/[wip]/x'], basenames: ['.env', '*.pem'], segments: ['secrets'] } },
+      write: { allow: { paths: ['.', '/tmp'] }, deny: { segments: ['.git/hooks'] } },
+    });
+    const sandbox = baseSandbox();
+    sandbox.network.allow = ['github.com', '*.npmjs.org'];
+    sandbox.network.deny = ['evil.example.com'];
+    sandbox.network.allowLocalhost = true;
+    sandbox.network.localhostPorts = [8188];
+    sandbox.credentials.denyEnv = ['OPENAI_API_KEY'];
+    sandbox.flags.allowNestedUserNamespaces = true;
+    for (const mode of ['darwin', 'linux'] as const) {
+      const { config } = translateToASRT({
+        policy,
+        sandbox,
+        cwd,
+        homeDir: HOME,
+        mode,
+        compiled: linuxCompiled([`${cwd}/.env`, `${cwd}/app/[slug]/.env`], [`${cwd}/.git/hooks`]),
+        protectPaths: ['/opt/asrt'],
+      });
+      expect(validateRuntimeConfig(SandboxRuntimeConfigSchema, config)).toEqual([]);
+    }
   });
 });

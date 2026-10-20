@@ -210,5 +210,13 @@ describe('buildSandboxStatusReport', () => {
     );
     expect(buildSandboxStatusReport({ ...base, proxyPorts: { http: 8080 } })).toContain('Proxy ports: http=8080');
     expect(buildSandboxStatusReport({ ...base, proxyPorts: { http: 8080 } })).not.toContain('socks=');
+
+    // allowLocalhost scoped to ports names them.
+    expect(
+      buildSandboxStatusReport({
+        ...base,
+        network: { allow: [], deny: [], allowLocalhost: true, localhostPorts: [8188, 3000] },
+      }),
+    ).toContain('  allowLocalhost: true [ports 8188, 3000] (loopback routed through the proxy');
   });
 });

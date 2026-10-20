@@ -85,7 +85,11 @@ function sortedReplacer(_key: string, value: unknown): unknown {
  * Exported so tests (and `/sandbox` rendering) can pre-compute the hash
  * and assert no-op publishes don't bump the version slot's `cas`.
  */
-export function hashSandboxConfig(input: { filesystem: FilesystemPolicy; sandbox: SandboxConfig }): string {
+export function hashSandboxConfig(input: {
+  filesystem: FilesystemPolicy;
+  sandbox: SandboxConfig;
+  runtime?: unknown;
+}): string {
   return sha256Hex(JSON.stringify(input, sortedReplacer));
 }
 
@@ -93,6 +97,14 @@ export interface PublishActiveSandboxInput {
   filesystem: FilesystemPolicy;
   sandbox: SandboxConfig;
   platform: SandboxPlatformKind;
+  /** The translated runtime config actually handed to ASRT (compiled
+   *  Linux literal paths, cwd-resolved rules, protected-runtime denies).
+   *  Folded into the hash so a change that only shows up after
+   *  translation - a new `.env` found by the Linux ripgrep compile, a
+   *  different cwd - still reports `changed: true` and reaches ASRT's
+   *  `updateConfig()`. Hashing only the policy files would leave the
+   *  live deny list stale until a config file changed. */
+  runtime?: unknown;
 }
 
 export interface PublishActiveSandboxResult {
@@ -117,7 +129,7 @@ export function publishActiveSandbox(
   now: number = Date.now(),
 ): PublishActiveSandboxResult {
   const slot = getSlot();
-  const hash = hashSandboxConfig({ filesystem: input.filesystem, sandbox: input.sandbox });
+  const hash = hashSandboxConfig({ filesystem: input.filesystem, sandbox: input.sandbox, runtime: input.runtime });
   const previous = slot.active;
   const changed = !previous || previous.configHash !== hash;
   const next: ActiveSandboxSnapshot = Object.freeze({

@@ -9,7 +9,9 @@ import { afterEach, describe, expect, test } from 'vitest';
 import {
   installSandboxWrapper,
   isSandboxWrapperInstalled,
+  releaseSandboxWrap,
   requestSandboxWrap,
+  type SandboxWrapHandle,
   uninstallSandboxWrapper,
 } from '../../../../../lib/node/pi/sandbox/wrapper-slot.ts';
 
@@ -68,5 +70,61 @@ describe('wrapper-slot', () => {
     installSandboxWrapper(() => Promise.resolve({ command: 'X', wrapped: true }));
     const g = globalThis as unknown as Record<symbol, unknown>;
     expect(g[slotKey]).toBeDefined();
+  });
+});
+
+describe('releaseSandboxWrap', () => {
+  test('forwards wrapped handles to the installed release function', () => {
+    const released: SandboxWrapHandle[] = [];
+    installSandboxWrapper(
+      (command) => Promise.resolve({ command, wrapped: true }),
+      (h) => released.push(h),
+    );
+    releaseSandboxWrap({ wrapped: true, commandId: 'pi-1', createdStubs: ['/p/.bashrc'] });
+    expect(released).toEqual([{ wrapped: true, commandId: 'pi-1', createdStubs: ['/p/.bashrc'] }]);
+  });
+
+  test('ignores unwrapped results and handles without a commandId', () => {
+    const released: SandboxWrapHandle[] = [];
+    installSandboxWrapper(
+      (command) => Promise.resolve({ command, wrapped: false }),
+      (h) => released.push(h),
+    );
+    releaseSandboxWrap({ wrapped: false, commandId: 'pi-1' });
+    releaseSandboxWrap({ wrapped: true });
+    expect(released).toEqual([]);
+  });
+
+  test('is a no-op with no wrapper installed, and never throws', () => {
+    expect(() => releaseSandboxWrap({ commandId: 'pi-1' })).not.toThrow();
+    installSandboxWrapper(
+      (command) => Promise.resolve({ command, wrapped: true }),
+      () => {
+        throw new Error('boom');
+      },
+    );
+    expect(() => releaseSandboxWrap({ commandId: 'pi-1' })).not.toThrow();
+  });
+
+  test('uninstall drops the release function too', () => {
+    const released: SandboxWrapHandle[] = [];
+    installSandboxWrapper(
+      (command) => Promise.resolve({ command, wrapped: true }),
+      (h) => released.push(h),
+    );
+    uninstallSandboxWrapper();
+    releaseSandboxWrap({ commandId: 'pi-1' });
+    expect(released).toEqual([]);
+  });
+
+  test('re-installing without a release function clears the previous one', () => {
+    const released: SandboxWrapHandle[] = [];
+    installSandboxWrapper(
+      (command) => Promise.resolve({ command, wrapped: true }),
+      (h) => released.push(h),
+    );
+    installSandboxWrapper((command) => Promise.resolve({ command, wrapped: true }));
+    releaseSandboxWrap({ commandId: 'pi-1' });
+    expect(released).toEqual([]);
   });
 });

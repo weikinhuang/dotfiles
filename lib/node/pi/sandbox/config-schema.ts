@@ -51,8 +51,17 @@ export interface SandboxNetworkConfig {
    *  clients that ignore proxy env (`psql`, `redis-cli`, `mysql`, bare
    *  `nc`) are NOT covered - those still need `unrestricted`. No-op
    *  when `unrestricted` is set (host network already shared). Off by
-   *  default. */
+   *  default.
+   *
+   *  In `sandbox.json` this may also be an array of port numbers
+   *  (`[8188, 3000]`), which turns the feature on but scopes the
+   *  loopback allow-list entries to those ports (ASRT's `host:port`
+   *  domain syntax) - see {@link localhostPorts}. */
   allowLocalhost?: boolean;
+  /** Ports the `allowLocalhost` loopback allow-list is scoped to. Empty
+   *  (the default) = every loopback port. Populated when `sandbox.json`
+   *  sets `network.allowLocalhost` to an array of ports. */
+  localhostPorts?: number[];
 }
 
 export interface SandboxUnixSocketsConfig {
@@ -80,12 +89,36 @@ export interface SandboxFlags {
   /** Default 3 (per plan section 6). Tuneable for deep monorepos.
    *  Bounded between 1 and 10 by {@link clampLinuxRuleDepth}. */
   linuxRuleDepth: number;
+  /** ASRT `allowNestedUserNamespaces` (Linux, ASRT >= 0.0.80). By
+   *  default a sandboxed command can no longer create its own user or
+   *  mount namespace, which breaks tools that sandbox themselves that
+   *  way: Chromium / Electron / Playwright's namespace sandbox, rootless
+   *  podman / buildah, a nested bubblewrap, `unshare -r`, and a nested
+   *  pi whose own sandbox extension wraps bash. Off by default. */
+  allowNestedUserNamespaces: boolean;
+  /** Add the installed `@anthropic-ai/sandbox-runtime` package
+   *  directory to the kernel write-deny list, so a sandboxed command
+   *  cannot rewrite the sandbox's own code or its Linux seccomp helper
+   *  (which every later wrap executes) when the package lives under a
+   *  write-allowed root (e.g. working inside the dotfiles repo that
+   *  installs it). On by default. Turn off only to run `npm install`
+   *  for that package from inside the sandbox. */
+  protectSandboxRuntime: boolean;
+}
+
+export interface SandboxCredentialsConfig {
+  /** Environment variable names removed from every sandboxed command's
+   *  environment (ASRT `credentials.envVars` with `mode: "deny"`).
+   *  Exact names only (`[A-Za-z_][A-Za-z0-9_]*`). Use for API keys pi
+   *  itself needs but sandboxed bash should never see. */
+  denyEnv: string[];
 }
 
 export interface SandboxConfig {
   network: SandboxNetworkConfig;
   unixSockets: SandboxUnixSocketsConfig;
   flags: SandboxFlags;
+  credentials: SandboxCredentialsConfig;
   /** When true (default), the extension maintains a marked block in
    *  the repo's `<git-common-dir>/info/exclude` that hides the
    *  transient dangerous-file stubs from `git status` (added on
@@ -145,6 +178,11 @@ export const DEFAULT_SANDBOX_CONFIG: Readonly<SandboxConfig> = Object.freeze({
     weakerNetworkIsolation: false,
     allowLocalBinding: false,
     linuxRuleDepth: LINUX_RULE_DEPTH_DEFAULT,
+    allowNestedUserNamespaces: false,
+    protectSandboxRuntime: true,
+  },
+  credentials: {
+    denyEnv: [] as string[],
   },
   gitExcludeStubs: true,
 });
@@ -155,14 +193,17 @@ export const DEFAULT_SANDBOX_CONFIG: Readonly<SandboxConfig> = Object.freeze({
 
 export function emptySandboxConfig(): SandboxConfig {
   return {
-    network: { allow: [], deny: [], unrestricted: false, allowLocalhost: false },
+    network: { allow: [], deny: [], unrestricted: false, allowLocalhost: false, localhostPorts: [] },
     unixSockets: { allow: [], allowAll: false },
     flags: {
       weakerNestedSandbox: false,
       weakerNetworkIsolation: false,
       allowLocalBinding: false,
       linuxRuleDepth: LINUX_RULE_DEPTH_DEFAULT,
+      allowNestedUserNamespaces: false,
+      protectSandboxRuntime: true,
     },
+    credentials: { denyEnv: [] },
     gitExcludeStubs: true,
   };
 }
@@ -185,6 +226,11 @@ export interface PartialSandboxConfig {
     weakerNetworkIsolation?: unknown;
     allowLocalBinding?: unknown;
     linuxRuleDepth?: unknown;
+    allowNestedUserNamespaces?: unknown;
+    protectSandboxRuntime?: unknown;
+  };
+  credentials?: {
+    denyEnv?: unknown;
   };
   gitExcludeStubs?: unknown;
 }
@@ -227,6 +273,40 @@ function setBoolean(
   return value;
 }
 
+/** ASRT's env-var name rule (`credentials.envVars[].name`). */
+const ENV_VAR_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+function isPort(v: unknown): v is number {
+  return typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= 65535;
+}
+
+/** `network.allowLocalhost` accepts a boolean or an array of ports.
+ *  Returns the next `{ on, ports }` (last-wins), warning on bad shapes. */
+function setAllowLocalhost(
+  value: unknown,
+  current: { on: boolean; ports: number[] },
+  source: string,
+  warnings: SandboxConfigWarning[],
+): { on: boolean; ports: number[] } {
+  if (value === undefined) return current;
+  if (typeof value === 'boolean') return { on: value, ports: [] };
+  if (Array.isArray(value)) {
+    const ports: number[] = [];
+    (value as unknown[]).forEach((p, i) => {
+      if (isPort(p)) ports.push(p);
+      else warnings.push({ source, reason: `\`network.allowLocalhost[${i}]\` is not a port number 1-65535 (dropped)` });
+    });
+    // An array whose entries were all invalid must not silently widen to "every port".
+    if (ports.length === 0) return { on: false, ports: [] };
+    return { on: true, ports: [...new Set(ports)] };
+  }
+  warnings.push({
+    source,
+    reason: '`network.allowLocalhost` must be a boolean or an array of port numbers (kept previous value)',
+  });
+  return current;
+}
+
 /**
  * Merge a stack of partial sandbox configs onto the shipped defaults.
  * Arrays are additive within a category; booleans are last-wins; the
@@ -241,9 +321,11 @@ export function mergeSandboxConfigs(layers: { source: string; partial: PartialSa
   out.network.deny.push(...DEFAULT_SANDBOX_CONFIG.network.deny);
   out.network.unrestricted = DEFAULT_SANDBOX_CONFIG.network.unrestricted === true;
   out.network.allowLocalhost = DEFAULT_SANDBOX_CONFIG.network.allowLocalhost === true;
+  out.network.localhostPorts = [];
   out.unixSockets.allow.push(...DEFAULT_SANDBOX_CONFIG.unixSockets.allow);
   out.unixSockets.allowAll = DEFAULT_SANDBOX_CONFIG.unixSockets.allowAll;
   out.flags = { ...DEFAULT_SANDBOX_CONFIG.flags };
+  out.credentials = { denyEnv: [...DEFAULT_SANDBOX_CONFIG.credentials.denyEnv] };
   out.gitExcludeStubs = DEFAULT_SANDBOX_CONFIG.gitExcludeStubs;
 
   const warnings: SandboxConfigWarning[] = [];
@@ -259,13 +341,14 @@ export function mergeSandboxConfigs(layers: { source: string; partial: PartialSa
         'network.unrestricted',
         warnings,
       );
-      out.network.allowLocalhost = setBoolean(
+      const localhost = setAllowLocalhost(
         partial.network.allowLocalhost,
-        out.network.allowLocalhost === true,
+        { on: out.network.allowLocalhost === true, ports: out.network.localhostPorts ?? [] },
         source,
-        'network.allowLocalhost',
         warnings,
       );
+      out.network.allowLocalhost = localhost.on;
+      out.network.localhostPorts = localhost.ports;
     }
     if (partial.unixSockets) {
       pushStrings(out.unixSockets.allow, partial.unixSockets.allow, source, 'unixSockets.allow', warnings);
@@ -308,6 +391,34 @@ export function mergeSandboxConfigs(layers: { source: string; partial: PartialSa
         } else {
           out.flags.linuxRuleDepth = clampLinuxRuleDepth(partial.flags.linuxRuleDepth);
         }
+      }
+      out.flags.allowNestedUserNamespaces = setBoolean(
+        partial.flags.allowNestedUserNamespaces,
+        out.flags.allowNestedUserNamespaces,
+        source,
+        'flags.allowNestedUserNamespaces',
+        warnings,
+      );
+      out.flags.protectSandboxRuntime = setBoolean(
+        partial.flags.protectSandboxRuntime,
+        out.flags.protectSandboxRuntime,
+        source,
+        'flags.protectSandboxRuntime',
+        warnings,
+      );
+    }
+    if (partial.credentials) {
+      const names: string[] = [];
+      pushStrings(names, partial.credentials.denyEnv, source, 'credentials.denyEnv', warnings);
+      for (const name of names) {
+        if (!ENV_VAR_NAME_RE.test(name)) {
+          warnings.push({
+            source,
+            reason: `\`credentials.denyEnv\` entry "${name}" is not a valid env var name (dropped)`,
+          });
+          continue;
+        }
+        if (!out.credentials.denyEnv.includes(name)) out.credentials.denyEnv.push(name);
       }
     }
     out.gitExcludeStubs = setBoolean(partial.gitExcludeStubs, out.gitExcludeStubs, source, 'gitExcludeStubs', warnings);

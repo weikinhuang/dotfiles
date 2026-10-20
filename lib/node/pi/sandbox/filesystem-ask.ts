@@ -36,11 +36,50 @@
  */
 
 import { homedir } from 'node:os';
+import { basename, resolve } from 'node:path';
 
 import { getInteractiveActiveUI, type UIBridge } from '../active-ui.ts';
+import { classifyWrite, pathContainsSegment } from '../filesystem-policy/classify.ts';
+import type { FilesystemPolicy } from '../filesystem-policy/schema.ts';
 import { collapseWhitespace, truncate } from '../shared.ts';
 
+import { ASRT_DANGEROUS_DIRECTORIES, ASRT_DANGEROUS_FILES } from './dangerous-file-stubs.ts';
 import { greatestCommonParent } from './fs-failures.ts';
+
+/** Path segments ASRT always write-denies besides its dangerous
+ *  directories (`linux-sandbox-utils.ts` / the macOS profile). */
+const ASRT_GIT_DENY_SEGMENTS: readonly string[] = ['.git/hooks', '.git/config'];
+
+/**
+ * Explain why a write to `absPath` can NOT be fixed by widening
+ * `write.allow.paths` - so the fs-ask dialog never offers (and never
+ * persists) a grant that the kernel would still refuse. Returns
+ * `undefined` when an allow grant would help.
+ *
+ *   - ASRT's built-in write denies (`.bashrc`, `.gitconfig`, `.mcp.json`,
+ *     `.vscode/`, `.idea/`, `.claude/commands/`, `.git/hooks/`,
+ *     `.git/config`, ...) apply whatever the config says. ASRT compares
+ *     case-insensitively, so this does too.
+ *   - A `write.deny` / `read.deny` match from filesystem.json is a kernel
+ *     `denyWrite`, which takes precedence over `allowWrite` on macOS and
+ *     (ASRT >= 0.0.80) on Linux; `write.allow.paths` never carves back.
+ */
+export function explainUngrantableWrite(absPath: string, cwd: string, policy: FilesystemPolicy): string | undefined {
+  const abs = resolve(cwd, absPath);
+  const lower = abs.toLowerCase();
+  const base = basename(lower);
+  if (ASRT_DANGEROUS_FILES.includes(base)) {
+    return `${basename(abs)} is on the sandbox's built-in write-deny list`;
+  }
+  for (const seg of [...ASRT_DANGEROUS_DIRECTORIES, ...ASRT_GIT_DENY_SEGMENTS]) {
+    if (pathContainsSegment(lower, seg)) return `paths under ${seg} are on the sandbox's built-in write-deny list`;
+  }
+  const match = classifyWrite(abs, cwd, policy);
+  if (match && match.reason !== 'outside-allowed-write') {
+    return `it matches a filesystem.json deny rule (${match.detail})`;
+  }
+  return undefined;
+}
 
 export type FsAskOutcome =
   | { kind: 'allow'; scope: 'session' | 'project' | 'user'; allowedPath: string; savedPath?: string }

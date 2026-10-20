@@ -107,7 +107,7 @@ import {
   contextRemindersEnabled,
   type ReminderMessage,
 } from '../../../lib/node/pi/context-reminder.ts';
-import { requestSandboxWrap } from '../../../lib/node/pi/sandbox/wrapper-slot.ts';
+import { releaseSandboxWrap, requestSandboxWrap } from '../../../lib/node/pi/sandbox/wrapper-slot.ts';
 import {
   bgBashStreamCursor,
   bgBashStreamDropped,
@@ -614,11 +614,24 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
     env?: Record<string, string>;
     interactiveStdin?: boolean;
     nudge?: boolean;
+    /** Called exactly once when the job is done (exit, spawn error, or
+     *  failed spawn). Used to release the sandbox wrap. */
+    onFinished?: () => void;
   }): JobSummary => {
     const id = allocateJobId(state);
     const startedAt = Date.now();
     const dir = ensureLogDir();
     const logFile = join(dir, `${id}.log`);
+    let finished = false;
+    const finish = (): void => {
+      if (finished) return;
+      finished = true;
+      try {
+        args.onFinished?.();
+      } catch {
+        /* never let a release hook break job bookkeeping */
+      }
+    };
 
     const stdout = new RingBuffer({ maxBytes: config.maxBufferBytes });
     const stderr = new RingBuffer({ maxBytes: config.maxBufferBytes });
@@ -686,6 +699,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
     state = upsertJob(state, summary);
 
     if (!child || spawnError) {
+      finish();
       // Wait for the log stream to flush before resolving `exited`. The
       // stream has nothing queued (we never wrote to it), but `.end()` is
       // async and resolving `exited` before 'finish' fires leaves the
@@ -746,6 +760,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
     });
 
     child.on('error', (err) => {
+      finish();
       const cur = live.get(id);
       if (!cur) return;
       cur.summary = { ...cur.summary, status: 'error', error: err.message, endedAt: Date.now() };
@@ -762,6 +777,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
     });
 
     child.on('exit', (code, sig) => {
+      finish();
       const endedAt = Date.now();
       // Flush the final chunks out of the decoders in case they buffered
       // a mid-codepoint tail.
@@ -853,6 +869,9 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
       env: params.env,
       interactiveStdin: params.interactiveStdin === true,
       nudge: (params.nudge ?? config.nudge) === true,
+      // Balance the sandbox wrap (ASRT per-command cleanup + stub
+      // refcount) once the wrapped job is gone.
+      onFinished: wrap.wrapped ? () => releaseSandboxWrap(wrap) : undefined,
     });
     persist();
     updateStatusline();

@@ -38,7 +38,7 @@ import { expandTilde } from '../path-expand.ts';
 import type { FilesystemPolicy, FilesystemRules } from '../filesystem-policy/schema.ts';
 
 import type { SandboxConfig } from './config-schema.ts';
-import { LOOPBACK_PROXY_ALLOW } from './localhost-proxy.ts';
+import { loopbackAllowEntries } from './localhost-proxy.ts';
 import type { CompiledPolicyReport } from './linux-rules-compile.ts';
 
 export interface TranslateToASRTOptions {
@@ -56,6 +56,26 @@ export interface TranslateToASRTOptions {
   mode: 'darwin' | 'linux';
   /** Pre-computed compiled rules. REQUIRED for `mode === 'linux'`. */
   compiled?: CompiledPolicyReport;
+  /** Absolute paths always added to the kernel write-deny list (the
+   *  installed sandbox-runtime package when
+   *  `flags.protectSandboxRuntime` is on). Resolved by the extension
+   *  shell; the translator only appends them. */
+  protectPaths?: readonly string[];
+}
+
+/** One entry of ASRT's filesystem path lists (ASRT >= 0.0.79). */
+export type AsrtPathEntry = string | { path: string; literal: true };
+
+/** Characters ASRT may read as glob syntax (or, off Windows, as an
+ *  escape). A path we resolved ourselves is a NAME, never a pattern. */
+const GLOB_CHARS_RE = /[*?[\]\\]/;
+
+/** Mark a path we resolved ourselves (a `paths` rule, a ripgrep match)
+ *  as literal when it contains characters ASRT would otherwise read as
+ *  a pattern - e.g. a Next.js `app/[slug]/.env`. Plain paths stay
+ *  strings so the config stays readable in `/sandbox` and logs. */
+export function literalPathEntry(p: string): AsrtPathEntry {
+  return GLOB_CHARS_RE.test(p) ? { path: p, literal: true } : p;
 }
 
 export interface TranslateToASRTResult {
@@ -94,17 +114,19 @@ function segmentToTreeGlob(segment: string): string {
 }
 
 /** macOS path list for a rule set: paths + basename globs + segment
- *  globs. */
-function macosRuleStrings(rules: FilesystemRules, cwd: string, home: string): string[] {
-  const out: string[] = [];
-  for (const p of rules.paths) out.push(resolveRulePath(p, cwd, home));
+ *  globs. Resolved `paths` are names (marked literal when needed);
+ *  basename / segment rules are deliberately patterns. */
+function macosRuleStrings(rules: FilesystemRules, cwd: string, home: string): AsrtPathEntry[] {
+  const out: AsrtPathEntry[] = [];
+  for (const p of rules.paths) out.push(literalPathEntry(resolveRulePath(p, cwd, home)));
   for (const b of rules.basenames) out.push(basenameGlobToTreeGlob(b));
   for (const s of rules.segments) out.push(segmentToTreeGlob(s));
   return out;
 }
 
 /** Linux path list - delegates to the compiled paths supplied by the
- *  caller. The caller MUST pass `compiled` for `mode === 'linux'`. */
+ *  caller. The caller MUST pass `compiled` for `mode === 'linux'`.
+ *  Every compiled path is a concrete name found on disk. */
 function linuxRuleStrings(compiled: CompiledPolicyReport, kind: 'read' | 'write'): string[] {
   return compiled[kind].paths;
 }
@@ -263,20 +285,22 @@ export function translateToASRT(options: TranslateToASRTOptions): TranslateToASR
   lossyNotes.push(...shadowedDenyNotes(shadowed, mode));
   const writeDenyForKernel = stripShadowedFromWriteDeny(policy.write.deny, shadowed);
 
-  let denyRead: string[];
-  let allowRead: string[] | undefined;
-  let denyWrite: string[];
+  let denyRead: AsrtPathEntry[];
+  let allowRead: AsrtPathEntry[] | undefined;
+  let denyWrite: AsrtPathEntry[];
 
   if (mode === 'linux') {
     // Narrow `compiled` once; the early-throw above guarantees presence
     // here. Single `!` keeps oxlint's non-nullable-type-assertion-style
     // happy without spraying bangs across the rest of this branch.
     const compiled = options.compiled!;
-    denyRead = linuxRuleStrings(compiled, 'read');
+    denyRead = linuxRuleStrings(compiled, 'read').map(literalPathEntry);
     // compileLinuxPolicy doesn't preserve provenance from input rule to
     // output literal path, so we filter the compiled deny list here
     // using the lexical shadow report.
-    denyWrite = linuxRuleStrings(compiled, 'write').filter((p) => !compiledPathIsShadowed(p, shadowed));
+    denyWrite = linuxRuleStrings(compiled, 'write')
+      .filter((p) => !compiledPathIsShadowed(p, shadowed))
+      .map(literalPathEntry);
     // No `allowRead` compile pass on Linux - the in-process gate still
     // honors `read.allow.*`, but bwrap's deny path is a flat list. We
     // surface the divergence as a lossy note when a non-empty allow
@@ -410,7 +434,9 @@ export function translateToASRT(options: TranslateToASRTOptions): TranslateToASR
           // separately so loopback HTTP/SOCKS traffic actually routes
           // through the proxy). De-duped against user entries.
           ...(sandbox.network.allowLocalhost
-            ? LOOPBACK_PROXY_ALLOW.filter((h) => sandbox.network.allow.includes(h) === false)
+            ? loopbackAllowEntries(sandbox.network.localhostPorts).filter(
+                (h) => sandbox.network.allow.includes(h) === false,
+              )
             : []),
         ],
         deniedDomains: [...sandbox.network.deny],
@@ -424,10 +450,24 @@ export function translateToASRT(options: TranslateToASRTOptions): TranslateToASR
       'network.unrestricted=true: kernel network isolation is OFF. Sandboxed bash shares the host network (localhost / Docker published ports reachable), and the network allow/deny lists are NOT enforced - every outbound destination is permitted.',
     );
   } else if (sandbox.network.allowLocalhost) {
+    const ports = sandbox.network.localhostPorts ?? [];
+    const scope = ports.length > 0 ? `ports ${ports.join(', ')} only` : 'every port';
     lossyNotes.push(
-      'network.allowLocalhost=true: localhost / 127.0.0.1 / ::1 are allow-listed and loopback traffic is routed through the sandbox proxy, so host loopback services (Docker published ports, dev servers) are reachable WHILE remote domain filtering stays on. HTTP(S)/SOCKS-aware clients only (curl, wget, pip, npm); raw-TCP clients (psql, redis-cli, mysql, bare nc) still need network.unrestricted.',
+      `network.allowLocalhost=true: localhost / 127.0.0.1 / ::1 are allow-listed (${scope}) and loopback traffic is routed through the sandbox proxy, so host loopback services (Docker published ports, dev servers) are reachable WHILE remote domain filtering stays on. HTTP(S)/SOCKS-aware clients only (curl, wget, pip, npm); raw-TCP clients (psql, redis-cli, mysql, bare nc) still need network.unrestricted.`,
     );
   }
+
+  // ── protected runtime ────────────────────────────────────────────
+  // The installed sandbox-runtime package: kernel write-deny on both
+  // platforms. ASRT >= 0.0.80 gives denyWrite precedence over allowWrite
+  // on Linux too, so this holds even when the package sits under a
+  // write-allowed root.
+  for (const p of options.protectPaths ?? []) {
+    denyWrite.push(literalPathEntry(p));
+  }
+
+  // ── credentials ──────────────────────────────────────────────────
+  const denyEnv = sandbox.credentials.denyEnv;
 
   // ── assemble ─────────────────────────────────────────────────────
   const config: SandboxRuntimeConfig = {
@@ -435,11 +475,15 @@ export function translateToASRT(options: TranslateToASRTOptions): TranslateToASR
     filesystem: {
       denyRead,
       ...(allowRead ? { allowRead } : {}),
-      allowWrite: [...allowWrite].sort(),
+      allowWrite: [...allowWrite].sort().map(literalPathEntry),
       denyWrite,
     },
+    ...(denyEnv.length > 0
+      ? { credentials: { envVars: denyEnv.map((name) => ({ name, mode: 'deny' as const })) } }
+      : {}),
     ...(sandbox.flags.weakerNestedSandbox ? { enableWeakerNestedSandbox: true } : {}),
     ...(sandbox.flags.weakerNetworkIsolation ? { enableWeakerNetworkIsolation: true } : {}),
+    ...(sandbox.flags.allowNestedUserNamespaces ? { allowNestedUserNamespaces: true } : {}),
   };
 
   return { config, lossyNotes };

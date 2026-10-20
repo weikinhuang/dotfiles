@@ -85,6 +85,7 @@
  * shared).
  */
 
+import { randomUUID } from 'node:crypto';
 import { dirname, join } from 'node:path';
 
 import { type ExtensionAPI, type ExtensionContext, type ToolResultEvent } from '@earendil-works/pi-coding-agent';
@@ -99,7 +100,7 @@ import {
   listDangerousStubPaths,
   sweepOrphanDangerousStubs,
 } from '../../../lib/node/pi/sandbox/dangerous-file-stubs.ts';
-import { buildFilesystemAskDialog } from '../../../lib/node/pi/sandbox/filesystem-ask.ts';
+import { buildFilesystemAskDialog, explainUngrantableWrite } from '../../../lib/node/pi/sandbox/filesystem-ask.ts';
 import {
   SANDBOX_ALLOW_USAGE,
   SANDBOX_ALLOW_WRITE_USAGE,
@@ -113,7 +114,7 @@ import {
 import { parseFsFailures } from '../../../lib/node/pi/sandbox/fs-failures.ts';
 import { gitTrackedSubset, resolveGitExcludeFile } from '../../../lib/node/pi/sandbox/git-tracked.ts';
 import { computeExcludableStubs, spliceManagedBlock } from '../../../lib/node/pi/sandbox/git-exclude-block.ts';
-import { buildNetworkAskCallback } from '../../../lib/node/pi/sandbox/network-ask.ts';
+import { buildNetworkAskCallback, type NetworkAskAnswer } from '../../../lib/node/pi/sandbox/network-ask.ts';
 import { annotateBashResult, prependBashHint } from '../../../lib/node/pi/sandbox/result-annotate.ts';
 import { buildSandboxStatusReport } from '../../../lib/node/pi/sandbox/status-report.ts';
 import { detectLoopbackFailure } from '../../../lib/node/pi/sandbox/loopback-hint.ts';
@@ -136,7 +137,13 @@ import {
   clearActiveSandbox,
   publishActiveSandbox,
 } from '../../../lib/node/pi/sandbox/active.ts';
-import { type AsrtSandboxManager, loadAsrtModule } from '../../../lib/node/pi/sandbox/asrt-manager.ts';
+import {
+  type AsrtModule,
+  type AsrtSandboxManager,
+  loadAsrtModule,
+  resolveAsrtPackageRoot,
+  validateRuntimeConfig,
+} from '../../../lib/node/pi/sandbox/asrt-manager.ts';
 import { ensureAsrtTmpdir } from '../../../lib/node/pi/sandbox/asrt-tmpdir.ts';
 import { loadSandboxConfig } from '../../../lib/node/pi/sandbox/config-load.ts';
 import { translateToASRT } from '../../../lib/node/pi/sandbox/config-translate.ts';
@@ -158,16 +165,27 @@ import {
 } from '../../../lib/node/pi/sandbox/violations-log.ts';
 import {
   hasOriginalStash,
-  readCreatedStubs,
-  stashCreatedStubs,
+  readCommandId,
+  stashCommandId,
   stashOriginalCommand,
   stripMarkerFromUserInput,
 } from '../../../lib/node/pi/sandbox/markers.ts';
 import { extractBashStderr, resolveSandboxedCommand } from '../../../lib/node/pi/sandbox/tool-result.ts';
-import { decStubRefs, incStubRefs } from '../../../lib/node/pi/sandbox/stub-refcount.ts';
+import {
+  createWrapLedger,
+  drainWrapLedger,
+  recordWrap,
+  releaseWrap,
+  type WrapLedger,
+} from '../../../lib/node/pi/sandbox/wrap-ledger.ts';
+import { createViolationFeed, hostOfHostPort, violationToRecord } from '../../../lib/node/pi/sandbox/violation-feed.ts';
+import { chainSignalListeners, snapshotSignalListeners } from '../../../lib/node/pi/sandbox/signal-chain.ts';
 import {
   installSandboxWrapper,
+  releaseSandboxWrap,
+  requestSandboxWrap,
   type SandboxWrapFn,
+  type SandboxWrapHandle,
   type SandboxWrapResult,
   uninstallSandboxWrapper,
 } from '../../../lib/node/pi/sandbox/wrapper-slot.ts';
@@ -235,12 +253,23 @@ function sandboxEnvOverlay(): {
   PI_SANDBOX_NESTED?: string;
   PI_SANDBOX_WEAKER_NET?: string;
   PI_SANDBOX_EXTRA_ALLOW_DOMAIN?: string;
+  PI_SANDBOX_NETWORK_UNRESTRICTED?: string;
+  PI_SANDBOX_ALLOW_LOCALHOST?: string;
 } {
   return {
     PI_SANDBOX_NESTED: process.env.PI_SANDBOX_NESTED,
     PI_SANDBOX_WEAKER_NET: process.env.PI_SANDBOX_WEAKER_NET,
     PI_SANDBOX_EXTRA_ALLOW_DOMAIN: process.env.PI_SANDBOX_EXTRA_ALLOW_DOMAIN,
+    PI_SANDBOX_NETWORK_UNRESTRICTED: process.env.PI_SANDBOX_NETWORK_UNRESTRICTED,
+    PI_SANDBOX_ALLOW_LOCALHOST: process.env.PI_SANDBOX_ALLOW_LOCALHOST,
   };
+}
+
+/** Installed sandbox-runtime package dir, resolved once per load. */
+let asrtPackageRoot: string | null | undefined;
+function sandboxRuntimeRoot(): string | undefined {
+  if (asrtPackageRoot === undefined) asrtPackageRoot = resolveAsrtPackageRoot() ?? null;
+  return asrtPackageRoot ?? undefined;
 }
 
 interface ResolvedAll {
@@ -283,12 +312,14 @@ function resolveAll(
   }
 
   const mode: 'darwin' | 'linux' = platform.kind === 'linux' ? 'linux' : 'darwin';
+  const runtimeRoot = sandboxResult.config.flags.protectSandboxRuntime ? sandboxRuntimeRoot() : undefined;
   const { config: asrtConfig, lossyNotes } = translateToASRT({
     policy: fs.policy,
     sandbox: sandboxResult.config,
     cwd,
     mode,
     compiled,
+    protectPaths: runtimeRoot ? [runtimeRoot] : [],
   });
 
   return {
@@ -311,6 +342,10 @@ interface RuntimeState {
   platform: SandboxPlatformInfo;
   /** Live SandboxManager, lazily initialized on first bash call. */
   manager?: AsrtSandboxManager;
+  /** Latest session ctx (from session_start / the bash hook) so slot
+   *  consumers (bg_bash, subagent bash) can lazy-init + reconfigure the
+   *  manager too. Dropped on shutdown. */
+  sessionCtx?: ExtensionContext;
   /** True after `manager.initialize()` returned successfully. */
   initialized: boolean;
   /** Session-only bypass toggled by `/sandbox-disable`. */
@@ -349,15 +384,27 @@ interface RuntimeState {
   /** Cwd captured during config resolution; the ask-callback uses it
    *  to decide project vs user scope for `Always allow` choices. */
   lastCwd?: string;
-  /** Refcount keyed by absolute path of every dangerous-file stub
-   *  currently relied on by an in-flight `wrapWithSandbox`. Each
-   *  `tool_call` (per command) increments by one for every stub the
-   *  wrapper touched; the matching `tool_result` decrements. The
-   *  cleanup helper unlinks paths whose count drops to zero, so two
-   *  bg-bash commands that overlap on the same stubs only have them
-   *  removed when the LAST in-flight reference releases. Cleared on
-   *  `session_shutdown`. See `lib/node/pi/sandbox/stub-refcount.ts`. */
-  stubRefcount: Map<string, number>;
+  /** In-flight wraps (by ASRT `commandId`) + the dangerous-file stub
+   *  refcount. Every successful wrap is recorded; the matching release
+   *  (bash `tool_result`, bg-bash job exit, subagent `tool_result`)
+   *  calls ASRT's `cleanupAfterCommand()` exactly once and unlinks the
+   *  stubs whose count dropped to zero. Unwrapped commands never touch
+   *  it, so they can't drop ASRT's active-sandbox count while another
+   *  sandbox still relies on its mount points. Drained on
+   *  `session_shutdown`. See `lib/node/pi/sandbox/wrap-ledger.ts`. */
+  ledger: WrapLedger;
+  /** The loaded ASRT module (set by {@link ensureManager}); used for
+   *  schema validation in {@link reconfigure}. */
+  asrt?: AsrtModule;
+  /** Unsubscribe handle for the ASRT violation-store feed. */
+  violationUnsubscribe?: () => void;
+  /** Issues from validating the translated config against ASRT's own
+   *  schema, plus `updateConfig` failures. Rendered by `/sandbox`. */
+  configIssues: string[];
+  /** Warnings / errors from ASRT's `checkDependencies()`. */
+  dependencyNotes: string[];
+  /** Notify-once tracker for {@link configIssues}. */
+  configIssueWarnings: ReturnType<typeof createNotifyOnce>;
   /** Cwd whose `dangerousProtected` Set was last computed. Used to
    *  invalidate the cache when the user runs `cd` mid-session. */
   dangerousProtectedCwd?: string;
@@ -387,7 +434,10 @@ function newState(platform: SandboxPlatformInfo): RuntimeState {
     wrapsErrored: 0,
     sessionAllowedDomains: new Set(),
     sessionWriteAllow: new Set(),
-    stubRefcount: new Map(),
+    ledger: createWrapLedger(),
+    configIssues: [],
+    dependencyNotes: [],
+    configIssueWarnings: createNotifyOnce({ tag: 'sandbox' }),
     dangerousProtected: new Set(),
   };
 }
@@ -411,12 +461,22 @@ function refreshDangerousProtected(state: RuntimeState, cwd: string): void {
   state.dangerousProtectedCwd = cwd;
 }
 
+/** Dangerous-file stubs are a bubblewrap mount-point race workaround:
+ *  only Linux creates host-side mount points for absent deny paths.
+ *  sandbox-exec (macOS) denies by pattern, so no stubs and no
+ *  git-exclude block there. (The orphan sweep still runs everywhere to
+ *  clear stubs older versions created on macOS.) */
+function stubsApply(state: RuntimeState): boolean {
+  return state.platform.kind === 'linux';
+}
+
 /** True when the git-exclude-stub feature is active: the resolved
  *  `sandbox.json` knob is on AND the hard env off-switch is not set.
  *  The env disable wins over the config file (aspect-level disable
  *  convention), so a stray `PI_SANDBOX_DISABLE_GIT_EXCLUDE=1` always
  *  turns it off. */
 function gitExcludeEnabled(state: RuntimeState): boolean {
+  if (!stubsApply(state)) return false;
   if (envTruthy(process.env.PI_SANDBOX_DISABLE_GIT_EXCLUDE)) return false;
   return state.lastResolved?.sandboxResult.config.gitExcludeStubs ?? true;
 }
@@ -541,7 +601,8 @@ function withSafeConfigWrite(ctx: ExtensionContext, action: () => void): boolean
 function buildAskCallback(
   state: RuntimeState,
   triggerReconfigure: () => Promise<void>,
-): (params: { host: string; port: number | undefined }) => Promise<boolean> {
+  supportsDenyReason: boolean,
+): (params: { host: string; port: number | undefined }) => Promise<NetworkAskAnswer> {
   return buildNetworkAskCallback({
     sessionAllowedDomains: state.sessionAllowedDomains,
     triggerReconfigure,
@@ -555,7 +616,21 @@ function buildAskCallback(
       return USER_SANDBOX_PATH;
     },
     envNetworkDefault,
+    supportsDenyReason,
   });
+}
+
+/** Validate the translated config against ASRT's schema (the library
+ *  itself does not) and surface new issues once. */
+function checkRuntimeConfig(state: RuntimeState, asrtConfig: unknown, ctx?: ExtensionContext): void {
+  const issues = validateRuntimeConfig(state.asrt?.SandboxRuntimeConfigSchema, asrtConfig);
+  state.configIssues = issues;
+  if (ctx && issues.length > 0) {
+    state.configIssueWarnings.surface(
+      ctx.ui.notify.bind(ctx.ui),
+      issues.map((reason) => ({ source: 'runtime config', reason })),
+    );
+  }
 }
 
 /**
@@ -583,10 +658,27 @@ async function reconfigure(state: RuntimeState, cwd: string, ctx?: ExtensionCont
       filesystem: resolved.fsPolicy,
       sandbox: resolved.sandboxResult.config,
       platform: state.platform.kind,
+      // Hash what ASRT actually receives, so a change that only appears
+      // after translation (a new secret file found by the Linux compile,
+      // a different cwd) still reaches updateConfig().
+      runtime: resolved.asrtConfig,
     });
 
     if (state.manager && state.initialized && publish.changed) {
-      state.manager.updateConfig(resolved.asrtConfig);
+      checkRuntimeConfig(state, resolved.asrtConfig, ctx);
+      try {
+        state.manager.updateConfig(resolved.asrtConfig);
+      } catch (e) {
+        // ASRT keeps the previous config in effect when updateConfig
+        // throws (e.g. a malformed address range). Record it instead of
+        // letting the throw escape the tool_call hook, which would make
+        // pi block every bash call.
+        const msg = `updateConfig failed (previous config still in effect): ${e instanceof Error ? e.message : String(e)}`;
+        state.configIssues = [...state.configIssues, msg];
+        if (ctx) {
+          state.configIssueWarnings.surface(ctx.ui.notify.bind(ctx.ui), [{ source: 'runtime config', reason: msg }]);
+        }
+      }
     }
 
     state.lastResolved = resolved;
@@ -595,6 +687,50 @@ async function reconfigure(state: RuntimeState, cwd: string, ctx?: ExtensionCont
   } finally {
     done();
   }
+}
+
+/** Run ASRT's dependency probe once per init and surface its notes.
+ *  The "installed where a sandboxed command can write it" warning is
+ *  dropped when `flags.protectSandboxRuntime` already put the package
+ *  on the kernel write-deny list (ASRT's probe only looks at the write
+ *  roots, not at denies beneath them). */
+function surfaceDependencyNotes(state: RuntimeState, resolved: ResolvedAll, ctx: ExtensionContext): void {
+  const manager = state.manager;
+  if (!manager?.checkDependencies) return;
+  let result: { errors: string[]; warnings: string[] };
+  try {
+    result = manager.checkDependencies();
+  } catch {
+    return;
+  }
+  const protectedRuntime =
+    resolved.sandboxResult.config.flags.protectSandboxRuntime && sandboxRuntimeRoot() !== undefined;
+  const warnings = result.warnings.filter((w) => !(protectedRuntime && w.includes('sandbox-runtime is installed in')));
+  state.dependencyNotes = [...result.errors.map((e) => `error: ${e}`), ...warnings.map((w) => `warning: ${w}`)];
+  if (state.dependencyNotes.length > 0) {
+    ctx.ui.notify(`sandbox: dependency check:\n  ${state.dependencyNotes.join('\n  ')}`, 'warning');
+  }
+}
+
+/** Mirror ASRT's violation store (proxy denials, with host + command
+ *  attribution) into the JSONL audit log. Idempotent. */
+function subscribeViolationFeed(state: RuntimeState): void {
+  if (state.violationUnsubscribe || !state.manager) return;
+  const store = state.manager.getSandboxViolationStore();
+  if (typeof store.subscribe !== 'function') return;
+  const feed = createViolationFeed(
+    (event) => {
+      const record = violationToRecord(event, { cwd: state.lastCwd ?? process.cwd() });
+      if (!record) return;
+      try {
+        appendViolation(USER_VIOLATIONS_LOG, record);
+      } catch {
+        // Best-effort logging.
+      }
+    },
+    { skipBacklog: true },
+  );
+  state.violationUnsubscribe = store.subscribe(feed);
 }
 
 /**
@@ -610,18 +746,34 @@ async function ensureManager(state: RuntimeState, cwd: string, ctx: ExtensionCon
 
   try {
     const asrt = await loadAsrtModule();
+    state.asrt = asrt;
     const resolved = state.lastResolved ?? (await reconfigure(state, cwd, ctx));
     if (!asrt.SandboxManager.isSupportedPlatform()) {
       state.reason = 'ASRT reports platform unsupported';
       publishStatusline(state);
       return false;
     }
-    const askCallback = buildAskCallback(state, async () => {
-      await reconfigure(state, state.lastCwd ?? cwd, ctx);
-    });
-    await asrt.SandboxManager.initialize(resolved.asrtConfig, askCallback, false);
+    const askCallback = buildAskCallback(
+      state,
+      async () => {
+        await reconfigure(state, state.lastCwd ?? cwd, ctx);
+      },
+      asrt.SandboxManager.askCallbackDenyReason === true,
+    );
+    checkRuntimeConfig(state, resolved.asrtConfig, ctx);
+    const sigintBefore = snapshotSignalListeners(process, 'SIGINT');
+    try {
+      await asrt.SandboxManager.initialize(resolved.asrtConfig, askCallback, false);
+    } finally {
+      // ASRT's own SIGINT cleanup listener never re-raises, so without
+      // this the first Ctrl-C on `pi -p` tears the sandbox down and pi
+      // keeps running. Chain it: run ASRT's cleanup, then re-deliver.
+      chainSignalListeners(process, 'SIGINT', sigintBefore);
+    }
     state.manager = asrt.SandboxManager;
     state.initialized = true;
+    surfaceDependencyNotes(state, resolved, ctx);
+    subscribeViolationFeed(state);
     publishStatusline(state);
     return true;
   } catch (e) {
@@ -637,6 +789,19 @@ async function ensureManager(state: RuntimeState, cwd: string, ctx: ExtensionCon
     publishStatusline(state);
     return false;
   }
+}
+
+/** Release one wrap: ASRT's per-command cleanup + stub refcount. Only
+ *  acts for a wrap recorded in the ledger, and only once. */
+function releaseWrapHandle(state: RuntimeState, handle: SandboxWrapHandle): void {
+  const outcome = releaseWrap(state.ledger, handle.commandId);
+  if (!outcome.released) return;
+  try {
+    state.manager?.cleanupAfterCommand?.();
+  } catch {
+    // Best-effort.
+  }
+  if (outcome.stubsToRemove.length > 0) cleanupDangerousFileStubs(outcome.stubsToRemove);
 }
 
 /** Resolve which mode the bash hook should take for `command`.
@@ -669,7 +834,7 @@ function planFor(state: RuntimeState): WrapPlan {
 async function performWrap(
   command: string,
   state: RuntimeState,
-  _ctx: { hasUI: boolean; cwd: string },
+  ctx: { hasUI: boolean; cwd: string; signal?: AbortSignal },
 ): Promise<SandboxWrapResult> {
   state.wrapsAttempted++;
   const plan = planFor(state);
@@ -692,6 +857,7 @@ async function performWrap(
     }
     return { command, wrapped: false, action: fallback === 'warn' ? 'warn' : 'identity', reason };
   }
+  let created: string[] = [];
   try {
     await activeReconfigure();
     // Pre-create ASRT's sandbox TMPDIR on the host. ASRT sets
@@ -701,17 +867,20 @@ async function performWrap(
     // bound and any sandboxed `mktemp`/temp-file write fails with
     // `No such file or directory` (see asrt-tmpdir.ts). Idempotent.
     ensureAsrtTmpdir();
-    // Pre-create empty stubs for ASRT's DANGEROUS_FILES so concurrent
-    // bwrap setups don't race on the mount-point `O_CREAT|O_WRONLY`
-    // against a 0444 stub (see dangerous-file-stubs.ts module docs).
-    // The `isProtected` hook also lets the helper adopt orphan stubs
-    // a prior session leaked via SIGKILL, while leaving git-tracked
-    // 0-byte files (a freshly-cloned `.npmrc`, etc.) alone.
-    refreshDangerousProtected(state, process.cwd());
-    const created = createDangerousFileStubs(process.cwd(), {
-      isProtected: (p) => state.dangerousProtected.has(p),
-    });
-    incStubRefs(state.stubRefcount, created);
+    // Linux only: pre-create empty stubs for ASRT's DANGEROUS_FILES so
+    // concurrent bwrap setups don't race on the mount-point
+    // `O_CREAT|O_WRONLY` against a 0444 stub (see dangerous-file-stubs.ts
+    // module docs). sandbox-exec on macOS denies by pattern and never
+    // creates mount points, so the stubs would only be noise there.
+    // The `isProtected` hook also lets the helper adopt orphan stubs a
+    // prior session leaked via SIGKILL, while leaving git-tracked 0-byte
+    // files (a freshly-cloned `.npmrc`, etc.) alone.
+    if (stubsApply(state)) {
+      refreshDangerousProtected(state, process.cwd());
+      created = createDangerousFileStubs(process.cwd(), {
+        isProtected: (p) => state.dangerousProtected.has(p),
+      });
+    }
     // Under network.allowLocalhost, rewrite the command's NO_PROXY so
     // loopback HTTP(S)/SOCKS routes through ASRT's proxy (which dials
     // the host loopback). No-op when unrestricted (host net already
@@ -719,14 +888,28 @@ async function performWrap(
     // by the caller; only the executed string carries the prefix.
     const net = state.lastResolved?.sandboxResult.config.network;
     const toWrap = net?.allowLocalhost && net.unrestricted !== true ? prependLocalhostProxyEnv(command) : command;
-    const wrapped = await state.manager.wrapWithSandbox(toWrap);
+    // Unguessable per-wrap id: ASRT attributes violations to it (so
+    // annotateStderrWithSandboxFailures matches even though the wrapped
+    // string carries the NO_PROXY prefix) and the ledger releases
+    // exactly this wrap later.
+    const commandId = `pi-${randomUUID()}`;
+    const wrapped = await state.manager.wrapWithSandbox(toWrap, undefined, undefined, ctx.signal, {
+      commandId,
+      commandText: command,
+    });
+    recordWrap(state.ledger, commandId, created);
     logE2bigWrap(
       { wrapsAttempted: state.wrapsAttempted, lastResolvedAsrtConfig: state.lastResolved?.asrtConfig },
       command,
       wrapped,
     );
-    return { command: wrapped, wrapped: true, createdStubs: created };
+    return { command: wrapped, wrapped: true, createdStubs: created, commandId };
   } catch (e) {
+    // ASRT undoes its own active-sandbox count when a wrap throws; we
+    // only have to drop stubs this attempt created that no in-flight
+    // wrap holds.
+    const orphaned = created.filter((p) => !state.ledger.stubRefs.has(p));
+    if (orphaned.length > 0) cleanupDangerousFileStubs(orphaned);
     state.wrapsErrored++;
     state.lastWrapError = e instanceof Error ? e.message : String(e);
     const fallback = envFallback();
@@ -772,17 +955,25 @@ export function sandboxFactoryHookOnly(pi: ExtensionAPI): void {
     const safe = stripMarkerFromUserInput(original);
     // Children share the parent's wrapper-slot. If empty, identity-
     // wrap (no-op) - matches the parent's degraded-fallback behavior.
-    const slot = await import('../../../lib/node/pi/sandbox/wrapper-slot.ts');
-    const result = await slot.requestSandboxWrap(safe, { hasUI: ctx.hasUI, cwd: ctx.cwd });
+    const result = await requestSandboxWrap(safe, { hasUI: ctx.hasUI, cwd: ctx.cwd, signal: ctx.signal });
     if (result.wrapped) {
       stashOriginalCommand(event.input, original);
-      stashCreatedStubs(event.input, result.createdStubs ?? []);
+      stashCommandId(event.input, result.commandId);
       (event.input as { command: string }).command = result.command;
       return undefined;
     }
     if (result.action === 'block') {
       return { block: true, reason: result.reason ?? 'sandbox refused to wrap the command' };
     }
+    return undefined;
+  });
+  // Release the wrap once the subagent's bash call returns (the parent's
+  // tool_result hook never sees subagent tool calls). Unknown / unwrapped
+  // ids are ignored by the release function.
+  pi.on('tool_result', (event) => {
+    if (event.toolName !== 'bash') return undefined;
+    const commandId = readCommandId(event.input);
+    if (commandId) releaseSandboxWrap({ commandId });
     return undefined;
   });
 }
@@ -820,39 +1011,61 @@ export default function sandbox(pi: ExtensionAPI): void {
   // subagent hook-only factory above. The slot is `globalThis`-
   // anchored so the parent's installed function reaches every jiti'd
   // module copy.
-  const slotFn: SandboxWrapFn = async (command, ctx) => performWrap(command, state, ctx);
-  installSandboxWrapper(slotFn);
+  // Slot consumers (bg_bash, subagent bash) get the same per-call
+  // reconfigure + lazy init as the foreground bash hook; otherwise a
+  // bg_bash job started before any foreground bash finds the manager
+  // uninitialized and falls back to PI_SANDBOX_DEFAULT (warn = run
+  // unwrapped).
+  const slotFn: SandboxWrapFn = async (command, ctx) => {
+    const extCtx = state.sessionCtx;
+    if (extCtx) {
+      await reconfigure(state, ctx.cwd, extCtx);
+      await ensureManager(state, ctx.cwd, extCtx);
+    }
+    return performWrap(command, state, ctx);
+  };
+  installSandboxWrapper(slotFn, (handle) => {
+    releaseWrapHandle(state, handle);
+  });
 
-  // Process-level cleanup hooks (plan section 9.8): if pi crashes
-  // hard or the user SIGINTs, ASRT's proxy ports + sockets need to be
-  // released. session_shutdown also fires for clean exits. We deregister
-  // these on `cleanup()` so `/reload` doesn't accumulate listeners.
+  // Teardown. `session_shutdown` covers /reload and every clean exit -
+  // pi turns SIGTERM / SIGHUP into a graceful shutdown that emits it.
+  // The `exit` listener is only a synchronous safety net (stubs, the
+  // git-exclude block) for a hard `process.exit()`. Deliberately NO
+  // SIGINT / SIGTERM listeners: installing one removes Node's default
+  // terminate-on-signal, so Ctrl-C under `pi -p` would tear the sandbox
+  // down (uninstalling the wrapper slot, so bg_bash / subagent bash run
+  // unwrapped) while pi kept running. ASRT's own SIGINT listener has
+  // the same flaw; `ensureManager` chains it via `signal-chain.ts`.
   const cleanup = (): void => {
     if (state.manager && state.initialized) {
       // Fire-and-forget; we're shutting down.
       void state.manager.reset();
     }
+    try {
+      state.violationUnsubscribe?.();
+    } catch {
+      // ignore
+    }
+    state.violationUnsubscribe = undefined;
+    state.sessionCtx = undefined;
     state.initialized = false;
     state.manager = undefined;
     state.sessionAllowedDomains.clear();
     state.sessionWriteAllow.clear();
-    cleanupDangerousFileStubs(state.stubRefcount.keys());
-    state.stubRefcount.clear();
+    cleanupDangerousFileStubs(drainWrapLedger(state.ledger));
     stripGitExcludeStubs(state);
     clearActiveSandbox();
     clearActiveUI();
     uninstallSandboxWrapper();
     setSandboxState({ mode: 'off' });
     process.off('exit', cleanup);
-    process.off('SIGTERM', cleanup);
-    process.off('SIGINT', cleanup);
   };
   process.on('exit', cleanup);
-  process.on('SIGTERM', cleanup);
-  process.on('SIGINT', cleanup);
 
   // Surface deps / platform notifications once at startup.
   pi.on('session_start', async (_event, ctx) => {
+    state.sessionCtx = ctx;
     publishActiveUI({
       hasUI: ctx.hasUI,
       select: ctx.ui.select.bind(ctx.ui),
@@ -892,7 +1105,9 @@ export default function sandbox(pi: ExtensionAPI): void {
     // that exited too hard for the cleanup handler to fire (SIGKILL,
     // OOM, WSL VM kill, parent shell crash). Skips git-tracked
     // 0-byte files / empty dirs via the same `isProtected` hook used
-    // by `createDangerousFileStubs`. No-op on a clean cwd.
+    // by `createDangerousFileStubs`. No-op on a clean cwd. Runs on every
+    // platform: stubs are only created on Linux now, but earlier
+    // versions of this extension created them on macOS too.
     refreshDangerousProtected(state, ctx.cwd);
     const swept = sweepOrphanDangerousStubs(ctx.cwd, {
       isProtected: (p) => state.dangerousProtected.has(p),
@@ -923,6 +1138,7 @@ export default function sandbox(pi: ExtensionAPI): void {
   // the unwrapped value for transcript / `/bash-history` consumers.
   pi.on('tool_call', async (event, ctx) => {
     if (event.toolName !== 'bash') return undefined;
+    state.sessionCtx = ctx;
     publishActiveUI({
       hasUI: ctx.hasUI,
       select: ctx.ui.select.bind(ctx.ui),
@@ -950,6 +1166,9 @@ export default function sandbox(pi: ExtensionAPI): void {
       // running it. Only meaningful when init actually succeeded.
       try {
         const wrapped = await state.manager.wrapWithSandbox(safe);
+        // The command runs unwrapped, so balance ASRT's per-wrap
+        // bookkeeping right away.
+        state.manager.cleanupAfterCommand?.();
         ctx.ui.notify(`sandbox dry-run wrap:\n  ${wrapped}`, 'info');
       } catch {
         // ignore
@@ -957,10 +1176,10 @@ export default function sandbox(pi: ExtensionAPI): void {
       return undefined;
     }
 
-    const result = await performWrap(safe, state, { hasUI: ctx.hasUI, cwd: ctx.cwd });
+    const result = await performWrap(safe, state, { hasUI: ctx.hasUI, cwd: ctx.cwd, signal: ctx.signal });
     if (result.wrapped) {
       stashOriginalCommand(event.input, original);
-      stashCreatedStubs(event.input, result.createdStubs ?? []);
+      stashCommandId(event.input, result.commandId);
       (event.input as { command: string }).command = result.command;
       return undefined;
     }
@@ -982,30 +1201,21 @@ export default function sandbox(pi: ExtensionAPI): void {
   // ─────────────────────────────────────────────────────────────────
   pi.on('tool_result', async (event, ctx) => {
     if (event.toolName !== 'bash') return undefined;
+    // Only commands this extension actually wrapped carry a commandId.
+    // Unwrapped ones (bypass, warn fallback, dry run, sandbox off) get
+    // no release and no sandbox annotation: releasing them would drop
+    // ASRT's active-sandbox count under a still-running wrap (bg-bash,
+    // parallel calls) and let it delete mount points that sandbox's
+    // deny rules depend on.
+    const commandId = readCommandId(event.input);
+    if (!commandId) return undefined;
+    // Per-command release: ASRT's `cleanupAfterCommand()` (decrements
+    // its active-sandbox count; at zero removes the empty mount-point
+    // files bwrap created for absent deny paths) plus the dangerous-file
+    // stub refcount (unlinks stubs no other in-flight wrap holds).
+    // Idempotent per commandId - see `wrap-ledger.ts`.
+    releaseWrapHandle(state, { commandId });
     if (!state.manager || !state.initialized) return undefined;
-    // Per-command ASRT cleanup. Decrements ASRT's `activeSandboxCount`
-    // (incremented by the matching `wrapWithSandbox` in tool_call) and
-    // unlinks the empty mount-point files bwrap created on the host
-    // for non-existent deny paths. Skipping it leaks `/tmp/claude-empty-*`
-    // dirs and the active-count gauge over a long session. Safe to
-    // call on every platform - documented as no-op on macOS.
-    state.manager.cleanupAfterCommand?.();
-
-    // Per-command dangerous-file-stub cleanup. The matching tool_call
-    // hook stashed the per-wrap stub list on `event.input` and bumped
-    // each path's refcount in `state.stubRefcount`; here we decrement
-    // and unlink the ones that hit zero. Skipping this leaves the
-    // stubs sitting in cwd until session_shutdown - the user sees
-    // `.bashrc`, `.gitconfig`, `bunfig.toml`, etc. as untracked files
-    // for the duration of the session even though every bash command
-    // has long since exited. Bg-bash makes the refcount load-bearing:
-    // two concurrent commands touching the same stubs only release
-    // them when the second `tool_result` fires.
-    const wrapStubs = readCreatedStubs(event.input);
-    if (wrapStubs.length > 0) {
-      const toRemove = decStubRefs(state.stubRefcount, wrapStubs);
-      if (toRemove.length > 0) cleanupDangerousFileStubs(toRemove);
-    }
     const command = resolveSandboxedCommand(event.input);
 
     // pi's bash tool returns content as `[{ type: 'text', text: ... }]`
@@ -1023,13 +1233,40 @@ export default function sandbox(pi: ExtensionAPI): void {
 
     // Reactive filesystem-ask: parse the bash stderr ourselves so we
     // can surface a "user just granted access, retry next turn?"
-    // dialog. ASRT has no filesystem ask-callback, and its log
-    // monitor (which populates the violation store) is macOS-only
-    // and we don't enable it - so direct stderr parsing is the only
-    // signal we have on either platform. See
+    // dialog. ASRT has no filesystem ask-callback and we don't run its
+    // violation monitor (the Linux one is pinned to the config at
+    // initialize() time and would misreport after a session grant), so
+    // direct stderr parsing is the signal on both platforms. See
     // `lib/node/pi/sandbox/fs-failures.ts`.
-    const parsed = parseFsFailures(stderr);
-    if (parsed.writePaths.length > 0 && ctx.hasUI) {
+    // A command that exited 0 is not reported as a sandbox failure: its
+    // output may merely *mention* EPERM next to a path (grep / rg over
+    // docs or logs), which must not fabricate a write-allow offer.
+    const parsed = evt.isError === false ? { writePaths: [], readPaths: [] } : parseFsFailures(stderr);
+    // Never offer (or persist) a grant the kernel would still refuse:
+    // ASRT's built-in write denies and filesystem.json deny rules win
+    // over write.allow.paths on both platforms.
+    const fsPolicy = state.lastResolved?.fsPolicy;
+    const ungrantable = new Map<string, string>();
+    for (const p of parsed.writePaths) {
+      const why = fsPolicy ? explainUngrantableWrite(p, ctx.cwd, fsPolicy) : undefined;
+      if (why) ungrantable.set(p, why);
+    }
+    const grantable = parsed.writePaths.filter((p) => !ungrantable.has(p));
+    if (ungrantable.size > 0 && grantable.length === 0) {
+      const tag = '⚠️  sandbox blocked this write, and it cannot be allowed from pi:';
+      const hint = [...ungrantable]
+        .map(([p, why]) => `${p}: ${why}`)
+        .concat('', 'Write somewhere else (e.g. $TMPDIR or a project path), or ask the user to change the policy.')
+        .join('\n');
+      const newContent = prependBashHint(evt.content, hint, tag);
+      if (newContent) {
+        return {
+          content: newContent as ToolResultEvent['content'],
+          ...preserveStructuredContent(event),
+        };
+      }
+    }
+    if (grantable.length > 0 && ctx.hasUI) {
       const ask = buildFilesystemAskDialog({
         sessionWriteAllow: state.sessionWriteAllow,
         triggerReconfigure: async () => {
@@ -1046,7 +1283,7 @@ export default function sandbox(pi: ExtensionAPI): void {
         },
         cwd: ctx.cwd,
       });
-      const outcome = await ask({ paths: parsed.writePaths, command });
+      const outcome = await ask({ paths: grantable, command });
 
       if (outcome.kind === 'allow') {
         const tag = '⚠️  sandbox blocked this write, but the user just granted access:';
@@ -1135,7 +1372,10 @@ export default function sandbox(pi: ExtensionAPI): void {
 
     let annotated: string;
     try {
-      annotated = state.manager.annotateStderrWithSandboxFailures(command, stderr);
+      // Look violations up by the per-wrap commandId: ASRT stored them
+      // under that key, and the wrapped string (NO_PROXY prefix,
+      // stripped marker) differs from the transcript command.
+      annotated = state.manager.annotateStderrWithSandboxFailures(commandId, stderr);
     } catch {
       return undefined;
     }
@@ -1144,19 +1384,22 @@ export default function sandbox(pi: ExtensionAPI): void {
       return undefined;
     }
 
-    // Best-effort: append a JSONL audit row.
-    const record: SandboxViolationRecord = {
-      ts: new Date().toISOString(),
-      kind: splice.kind,
-      action: 'deny',
-      command,
-      cwd: ctx.cwd,
-      note: splice.hint.split('\n').slice(0, 4).join(' / '),
-    };
-    try {
-      appendViolation(USER_VIOLATIONS_LOG, record);
-    } catch {
-      // Best-effort logging; never let the audit log break the hook.
+    // Best-effort: append a JSONL audit row. Network denials are
+    // already logged (with host) by the violation-store feed.
+    if (splice.kind !== 'net') {
+      const record: SandboxViolationRecord = {
+        ts: new Date().toISOString(),
+        kind: splice.kind,
+        action: 'deny',
+        command,
+        cwd: ctx.cwd,
+        note: splice.hint.split('\n').slice(0, 4).join(' / '),
+      };
+      try {
+        appendViolation(USER_VIOLATIONS_LOG, record);
+      } catch {
+        // Best-effort logging; never let the audit log break the hook.
+      }
     }
 
     return {
@@ -1217,7 +1460,11 @@ export default function sandbox(pi: ExtensionAPI): void {
           readDenyPaths: resolved.fsPolicy.read.deny.paths,
         },
         compiled: resolved.compiled,
-        lossyNotes: resolved.lossyNotes,
+        lossyNotes: [
+          ...resolved.lossyNotes,
+          ...state.configIssues.map((i) => `runtime config: ${i}`),
+          ...state.dependencyNotes.map((n) => `dependency check: ${n}`),
+        ],
         recentViolations: readViolations(USER_VIOLATIONS_LOG, { limit: 10 }),
       });
       ctx.ui.notify(report, 'info');
@@ -1230,7 +1477,7 @@ export default function sandbox(pi: ExtensionAPI): void {
   const recentBlockedDomains = (): string[] => {
     const seen = new Set<string>();
     for (const r of readViolations(USER_VIOLATIONS_LOG, { kind: 'net', limit: 50 })) {
-      const host = r.host?.split(':')[0]?.trim();
+      const host = r.host ? hostOfHostPort(r.host) : undefined;
       if (host) seen.add(host);
     }
     return [...seen];

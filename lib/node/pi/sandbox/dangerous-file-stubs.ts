@@ -30,7 +30,7 @@
  * The mandatory file / directory lists are VENDORED from ASRT below
  * rather than imported, so this stays a pure module (no third-party
  * runtime import outside `ext/`, per lib/node/pi/AGENTS.md). Drift is
- * guarded by `dangerous-file-stubs-asrt-sync.spec.ts`, which imports
+ * guarded by `dangerous-file-stubs.spec.ts`, which imports
  * ASRT directly (tests may import anything) and fails if the runtime's
  * lists diverge from the vendored copies here.
  *
@@ -48,8 +48,8 @@ import { resolve, sep } from 'node:path';
 /**
  * Vendored copy of ASRT's `DANGEROUS_FILES`
  * (`@anthropic-ai/sandbox-runtime/dist/sandbox/sandbox-utils.js`). Kept
- * in sync by `dangerous-file-stubs-asrt-sync.spec.ts`. */
-const ASRT_DANGEROUS_FILES: readonly string[] = [
+ * in sync by `dangerous-file-stubs.spec.ts`. */
+export const ASRT_DANGEROUS_FILES: readonly string[] = [
   '.gitconfig',
   '.gitmodules',
   '.bashrc',
@@ -65,8 +65,8 @@ const ASRT_DANGEROUS_FILES: readonly string[] = [
  * Vendored copy of ASRT's `getDangerousDirectories()` return value
  * (`.git` is intentionally excluded by ASRT - it stays writable and
  * specific paths inside it are denied instead). Kept in sync by
- * `dangerous-file-stubs-asrt-sync.spec.ts`. */
-const ASRT_DANGEROUS_DIRECTORIES: readonly string[] = ['.vscode', '.idea', '.claude/commands', '.claude/agents'];
+ * `dangerous-file-stubs.spec.ts`. */
+export const ASRT_DANGEROUS_DIRECTORIES: readonly string[] = ['.vscode', '.idea', '.claude/commands', '.claude/agents'];
 
 /** Per-call hook used to protect user-authored files / directories
  *  from adoption + cleanup. Return `true` to skip a path. The default
@@ -247,7 +247,7 @@ export function cleanupDangerousFileStubs(created: Iterable<string>): string[] {
 
 /**
  * Sweep `cwd` for leaked dangerous-file stubs from a prior pi session
- * that exited too hard for `process.on('exit' | SIGTERM | SIGINT)`
+ * that exited too hard for the `exit` / `session_shutdown` cleanup
  * to fire (SIGKILL, OOM, WSL VM kill, parent shell crash). Adopts any
  * 0-byte stub file or empty stub directory not flagged by
  * `opts.isProtected` and removes it via `cleanupDangerousFileStubs`,

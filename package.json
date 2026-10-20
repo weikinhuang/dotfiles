@@ -18,7 +18,7 @@
     "tsc": "tsc --noEmit"
   },
   "devDependencies": {
-    "@anthropic-ai/sandbox-runtime": "^0.0.78",
+    "@anthropic-ai/sandbox-runtime": "^0.0.81",
     "@earendil-works/pi-ai": "^1.2.0",
     "@earendil-works/pi-coding-agent": "^1.2.0",
     "@earendil-works/pi-tui": "^1.2.0",

@@ -26,15 +26,16 @@
 // (`.gitconfig`, `.gitmodules`, `.bashrc`, `.bash_profile`, `.zshrc`,
 // `.zprofile`, `.profile`, `.ripgreprc`, `.mcp.json`) and the
 // directories from `getDangerousDirectories` (`.vscode`, `.idea`,
-// `.claude/commands`, `.claude/agents`). The pi extension pre-creates
-// empty stubs for these and for Claude Code's wider workspace pre-
-// touch set (`.npmrc`, `.yarnrc*`, `bunfig.toml`, `package.json`,
-// lockfiles) before every `wrapWithSandbox` to avoid a known bwrap
-// mount-point race on concurrent bash tool calls. See
-// `lib/node/pi/sandbox/dangerous-file-stubs.ts`. On Linux these stubs
-// are transient host-side bwrap mount points that would otherwise show
-// up as untracked files in `git status`; the `gitExcludeStubs` knob
-// (below, default true) hides them via `<git-common-dir>/info/exclude`.
+// `.claude/commands`, `.claude/agents`). On Linux the pi extension
+// pre-creates empty stubs for these and for Claude Code's wider
+// workspace pre-touch set (`.npmrc`, `.yarnrc*`, `bunfig.toml`,
+// `package.json`, lockfiles) before every `wrapWithSandbox` to avoid a
+// known bwrap mount-point race on concurrent bash tool calls. See
+// `lib/node/pi/sandbox/dangerous-file-stubs.ts`. macOS needs no stubs
+// (sandbox-exec matches by path). The Linux stubs are transient
+// host-side bwrap mount points that would otherwise show up as
+// untracked files in `git status`; the `gitExcludeStubs` knob (below,
+// default true) hides them via `<git-common-dir>/info/exclude`.
 {
   "network": {
     // Domain ALLOW-list. Empty = deny all. Sandboxed bash that hits a
@@ -50,7 +51,7 @@
     //     "registry.npmjs.org",
     //     "pypi.org",
     //     "files.pythonhosted.org",
-    //     "127.0.0.1",             // localhost LLM (ollama, llama.cpp)
+    //     "api.example.com:8443",  // `:port` limits an entry to one port
     //     "*.cloudfront.net"       // BROAD - many CDN domains share this
     //   ]
     "allow": [],
@@ -60,9 +61,12 @@
     "deny": []
 
     // KEEP-FILTERING way to reach host localhost services. When true,
-    // `localhost` / `127.0.0.1` / `::1` are allow-listed and the wrapped
+    // `localhost` / `127.0.0.1` / `[::1]` are allow-listed and the wrapped
     // command's NO_PROXY is rewritten so loopback HTTP(S)/SOCKS traffic
     // routes through the sandbox proxy (which dials the host loopback).
+    // Pass a port list instead of `true` (e.g. `[8188, 3000]`) to open
+    // only those loopback ports - preferred, since `true` exposes every
+    // unauthenticated local service (Docker API, dev servers, ...).
     // Result: Docker published ports, a dev server, or a local LLM/API
     // on 127.0.0.1 become reachable WHILE every other domain is still
     // gated by `allow` / `deny` above. Prefer this over `unrestricted`.
@@ -88,7 +92,8 @@
     // `allow` does NOT make host loopback reachable; only turning
     // isolation off does. Prefer the narrower workarounds first:
     // `docker exec <container> ...`, or start + curl the service in ONE
-    // bash command (shared namespace). Surface via
+    // bash command (shared namespace), or `allowLocalhost` above for
+    // proxy-aware clients. Surface via
     // PI_SANDBOX_NETWORK_UNRESTRICTED=1 instead of editing the file for
     // a one-off session. Off by default.
     // "unrestricted": false
@@ -122,6 +127,20 @@
     // Required when pi runs inside Docker / nested containers.
     // Surface via PI_SANDBOX_NESTED=1 instead of editing the file.
     "weakerNestedSandbox": false,
+
+    // Linux-only: let sandboxed commands create nested user namespaces.
+    // Off by default since ASRT 0.0.80, which breaks Chromium /
+    // Playwright sandboxes, podman, nested bwrap, and a nested `pi`
+    // whose own sandbox needs bwrap. Turn on per-project when needed.
+    "allowNestedUserNamespaces": false,
+
+    // Write-deny the installed @anthropic-ai/sandbox-runtime package so
+    // a sandboxed command can't tamper with the code (and the Linux
+    // seccomp helper binary run on every wrap) that enforces the
+    // sandbox. Matters when the package lives under a writable root,
+    // e.g. pi working in the repo that installed it. Side effect: an
+    // `npm install` that rewrites that package fails inside the sandbox.
+    "protectSandboxRuntime": true,
 
     // macOS-only escape for Go programs that need TLS verification
     // (gh, gcloud, terraform, kubectl). Surface via
@@ -159,5 +178,16 @@
   // Default true - the extra untracked files confuse weaker models.
   // Set false to leave the exclude file untouched; the env override
   // PI_SANDBOX_DISABLE_GIT_EXCLUDE=1 is a hard off-switch on top.
-  "gitExcludeStubs": true
+  "gitExcludeStubs": true,
+
+  "credentials": {
+    // Environment variables to strip from every sandboxed command
+    // (ASRT `credentials.envVars` with `mode: "deny"`). Sandboxed bash
+    // otherwise inherits pi's whole environment, API keys included, and
+    // any allow-listed host is enough to exfiltrate them. Exact names
+    // only (no globs). Lists merge across user + project files.
+    //
+    //   "denyEnv": ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "PI_COMFYUI_AUTH"]
+    "denyEnv": []
+  }
 }

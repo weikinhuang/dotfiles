@@ -3,7 +3,9 @@
  *
  * `@anthropic-ai/sandbox-runtime` lets us register a callback that
  * fires whenever sandboxed bash hits a non-allowlisted domain. The
- * callback returns `Promise<boolean>` (true = allow, false = deny).
+ * callback resolves to `true` (allow), `false` (deny), or - on ASRT >=
+ * 0.0.80 - `{ allow: false, reason }`, whose reason the sandboxed client
+ * reads as the status phrase of its refused CONNECT.
  *
  * This module builds the six-option dialog described in plan section
  * 7 (mirroring `bash-permissions.ts`'s shape) and routes it through
@@ -23,8 +25,10 @@
  *                                       <piAgentDir>/sandbox.json;
  *                                       omitted when no sensible parent)
  *   5. Deny
- *   6. Deny with feedback…              (captures text via ui.input
- *                                       and surfaces it as a notify)
+ *   6. Deny with feedback…              (captures text via ui.input,
+ *                                       surfaces it as a notify, and
+ *                                       returns it as the deny reason
+ *                                       so the model sees it)
  *
  * Non-UI fallback: when no parent UI has published itself (`pi -p`
  * mode, no extension active yet), the callback falls through to
@@ -50,7 +54,17 @@ export interface NetworkAskDeps {
   /** Read PI_SANDBOX_NETWORK_DEFAULT - extension-shell wraps the
    *  env-var parse so this module stays env-free. */
   envNetworkDefault: () => 'allow' | 'deny';
+  /** True when the live ASRT accepts `{ allow: false, reason }` from the
+   *  ask callback (`SandboxManager.askCallbackDenyReason`, ASRT >=
+   *  0.0.80). The reason then reaches the sandboxed client as the 403
+   *  status phrase of its refused CONNECT, so the model sees WHY. Older
+   *  releases read any truthy answer as an allow, so without this flag
+   *  denials stay a plain `false`. */
+  supportsDenyReason?: boolean;
 }
+
+/** What the callback resolves to: ASRT's `SandboxAskCallback` answer. */
+export type NetworkAskAnswer = boolean | { allow: false; reason: string };
 
 /**
  * Compute the parent-of-domain glob (`*.<parent>`), or undefined
@@ -112,7 +126,18 @@ export function buildNetworkAskPrompt(
   };
 }
 
-async function runDialog(ui: UIBridge, host: string, labelTarget: string, deps: NetworkAskDeps): Promise<boolean> {
+/** A denial: `{ allow: false, reason }` when supported, else `false`. */
+function deny(deps: NetworkAskDeps, reason: string | undefined): NetworkAskAnswer {
+  const trimmed = reason?.replace(/\s+/g, ' ').trim();
+  return deps.supportsDenyReason && trimmed ? { allow: false, reason: trimmed } : false;
+}
+
+async function runDialog(
+  ui: UIBridge,
+  host: string,
+  labelTarget: string,
+  deps: NetworkAskDeps,
+): Promise<NetworkAskAnswer> {
   const prompt = buildNetworkAskPrompt(host, labelTarget);
   const choice = await ui.select(prompt.title, prompt.options);
 
@@ -121,7 +146,7 @@ async function runDialog(ui: UIBridge, host: string, labelTarget: string, deps: 
     const feedback = await ui.input('Tell the assistant why:', 'e.g. use the staging mirror instead');
     const trimmed = feedback?.trim();
     if (trimmed) ui.notify(`sandbox: blocked ${labelTarget} - ${trimmed}`, 'warning');
-    return false;
+    return deny(deps, trimmed ? `user denied: ${trimmed}` : undefined);
   }
   if (choice === prompt.labels.allowOnce) return true;
   if (choice === prompt.labels.allowSession) {
@@ -158,15 +183,23 @@ async function runDialog(ui: UIBridge, host: string, labelTarget: string, deps: 
 }
 
 /**
- * Build the SandboxAskCallback (ASRT's `Promise<boolean>` shape).
+ * Build the SandboxAskCallback (ASRT's `Promise<boolean | { allow:
+ * false, reason }>` shape).
  *
  * Test-friendly: callers inject their UI via the active-ui slot
  * (`publishActiveUI`) and inject persistence behavior via `deps`.
  * The callback itself reads `getInteractiveActiveUI()` so subagent
  * sessions that share the parent's `globalThis` also get the
  * parent's UI surface for free.
+ *
+ * Concurrent asks for the same host share one dialog: ASRT calls the
+ * callback once per refused connection, so a command that opens
+ * several connections at once (`npm install`, a parallel downloader)
+ * would otherwise stack identical prompts. Every waiter gets the same
+ * answer; "Allow once" therefore covers the burst that triggered it.
  */
-export function buildNetworkAskCallback(deps: NetworkAskDeps): (params: AskParams) => Promise<boolean> {
+export function buildNetworkAskCallback(deps: NetworkAskDeps): (params: AskParams) => Promise<NetworkAskAnswer> {
+  const inflight = new Map<string, Promise<NetworkAskAnswer>>();
   return async (params) => {
     const host = params.host;
     const labelTarget = params.port !== undefined ? `${host}:${params.port}` : host;
@@ -174,8 +207,21 @@ export function buildNetworkAskCallback(deps: NetworkAskDeps): (params: AskParam
     if (deps.sessionAllowedDomains.has(host)) return true;
 
     const ui = getInteractiveActiveUI();
-    if (!ui) return deps.envNetworkDefault() === 'allow';
+    if (!ui) {
+      if (deps.envNetworkDefault() === 'allow') return true;
+      return deny(
+        deps,
+        `${host} is not on the sandbox allow list and pi has no interactive UI to ask ` +
+          '(PI_SANDBOX_NETWORK_DEFAULT=deny); add it to network.allow in sandbox.json',
+      );
+    }
 
-    return runDialog(ui, host, labelTarget, deps);
+    const pending = inflight.get(host);
+    if (pending) return pending;
+    const answer = runDialog(ui, host, labelTarget, deps).finally(() => {
+      inflight.delete(host);
+    });
+    inflight.set(host, answer);
+    return answer;
   };
 }

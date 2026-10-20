@@ -159,3 +159,24 @@ describe('activeReconfigure mutex', () => {
     expect(__getInflightForTest()).toBeUndefined();
   });
 });
+
+describe('publishActiveSandbox - runtime config is part of the hash', () => {
+  test('same policy + new translated runtime config reports changed', () => {
+    publishActiveSandbox({ ...baseInput(), runtime: { filesystem: { denyRead: ['/repo/.env'] } } }, 1000);
+    const same = publishActiveSandbox({ ...baseInput(), runtime: { filesystem: { denyRead: ['/repo/.env'] } } }, 2000);
+    expect(same.changed).toBe(false);
+    // A new secret file found by the Linux compile changes only the
+    // translated config - that must still reach updateConfig().
+    const next = publishActiveSandbox(
+      { ...baseInput(), runtime: { filesystem: { denyRead: ['/repo/.env', '/repo/sub/.env'] } } },
+      3000,
+    );
+    expect(next.changed).toBe(true);
+  });
+
+  test('omitting runtime keeps the policy-only hash', () => {
+    expect(hashSandboxConfig({ filesystem: emptyPolicy(), sandbox: emptySandboxConfig() })).toBe(
+      hashSandboxConfig({ filesystem: emptyPolicy(), sandbox: emptySandboxConfig(), runtime: undefined }),
+    );
+  });
+});

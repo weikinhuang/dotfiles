@@ -11,10 +11,12 @@ import {
   buildIdentityWrap,
   hasOriginalStash,
   readCreatedStubs,
+  readCommandId,
   readOriginalStash,
   SANDBOX_MARKER,
   SANDBOX_ORIGINAL_SYMBOL,
   SANDBOX_STUBS_SYMBOL,
+  stashCommandId,
   stashCreatedStubs,
   stashOriginalCommand,
   stripMarkerFromUserInput,
@@ -181,5 +183,23 @@ describe('stashCreatedStubs / readCreatedStubs', () => {
     expect(() => stashCreatedStubs(undefined, ['/a'])).not.toThrow();
     expect(() => stashCreatedStubs(null, ['/a'])).not.toThrow();
     expect(() => stashCreatedStubs('a-string', ['/a'])).not.toThrow();
+  });
+});
+
+describe('commandId stash', () => {
+  test('round-trips and stays out of JSON', () => {
+    const input: Record<string, unknown> = { command: 'ls' };
+    stashCommandId(input, 'pi-123');
+    expect(readCommandId(input)).toBe('pi-123');
+    expect(JSON.stringify(input)).toBe('{"command":"ls"}');
+  });
+
+  test('absent / empty / non-object inputs read as undefined', () => {
+    const input = { command: 'ls' };
+    stashCommandId(input, undefined);
+    stashCommandId(input, '');
+    expect(readCommandId(input)).toBeUndefined();
+    expect(readCommandId(null)).toBeUndefined();
+    expect(() => stashCommandId('str', 'x')).not.toThrow();
   });
 });

@@ -33,6 +33,11 @@ export const SANDBOX_ORIGINAL_SYMBOL = Symbol.for('@dotfiles/pi/sandbox/original
  *  stash above. */
 export const SANDBOX_STUBS_SYMBOL = Symbol.for('@dotfiles/pi/sandbox/createdStubs');
 
+/** Symbol-keyed property where sandbox.ts stashes the per-wrap ASRT
+ *  `commandId` on `event.input`, so the matching `tool_result` hook can
+ *  release exactly that wrap and look up its violations. */
+export const SANDBOX_COMMAND_ID_SYMBOL = Symbol.for('@dotfiles/pi/sandbox/commandId');
+
 /** True when `command` already starts with the sandbox re-entry
  *  marker. Tested against the leading non-whitespace prefix so a user-
  *  prefixed `   __PI_SANDBOX_WRAPPED=1 ...` is also detected. */
@@ -148,4 +153,21 @@ export function readCreatedStubs(input: unknown): readonly string[] {
   if (!Array.isArray(v)) return [];
   // Defensive: every entry must be a string, otherwise drop it.
   return v.filter((x): x is string => typeof x === 'string');
+}
+
+/** Stash the per-wrap ASRT `commandId` on `input` (non-enumerable). */
+export function stashCommandId(input: unknown, commandId: string | undefined): void {
+  if (input === null || typeof input !== 'object' || !commandId) return;
+  Object.defineProperty(input, SANDBOX_COMMAND_ID_SYMBOL, {
+    value: commandId,
+    enumerable: false,
+    configurable: true,
+  });
+}
+
+/** Read the `commandId` stashed by {@link stashCommandId}, if any. */
+export function readCommandId(input: unknown): string | undefined {
+  if (input === null || typeof input !== 'object') return undefined;
+  const v = (input as Record<symbol, unknown>)[SANDBOX_COMMAND_ID_SYMBOL];
+  return typeof v === 'string' ? v : undefined;
 }

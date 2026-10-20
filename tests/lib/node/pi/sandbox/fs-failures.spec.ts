@@ -188,3 +188,32 @@ describe('greatestCommonParent', () => {
     expect(greatestCommonParent([])).toBe('');
   });
 });
+
+describe('parseFsFailures: non-filesystem denials', () => {
+  test('ignores unix-socket syscall errors (listen / connect / bind)', () => {
+    const stderr = [
+      'Error: listen EPERM: operation not permitted /tmp/claude/srt-mux-1-0.sock',
+      'Error: connect EACCES /var/run/docker.sock',
+    ].join('\n');
+    expect(parseFsFailures(stderr)).toEqual({ writePaths: [], readPaths: [] });
+  });
+
+  test('ignores rg / grep -n hits that merely mention a denial', () => {
+    const stderr = [
+      "94: *   * `path: '/abs/path'`        Node `EACCES`/`EPERM` error shape",
+      'docs/x.md:290:# Expect: EPERM. /sandbox-violations --fs shows the row.',
+      '12-cp: /etc/passwd: Permission denied',
+    ].join('\n');
+    expect(parseFsFailures(stderr)).toEqual({ writePaths: [], readPaths: [] });
+  });
+
+  test('drops the interpreter path from a `bash: line N:` prefix', () => {
+    const stderr = '/opt/homebrew/bin/bash: line 1: /opt/x/pwned: Operation not permitted';
+    expect(parseFsFailures(stderr).writePaths).toEqual(['/opt/x/pwned']);
+  });
+
+  test('still parses a real coreutils error next to a search hit', () => {
+    const stderr = ['3:mentions EPERM /nope', 'touch: /etc/hosts: Permission denied'].join('\n');
+    expect(parseFsFailures(stderr).writePaths).toEqual(['/etc/hosts']);
+  });
+});

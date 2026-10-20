@@ -228,6 +228,59 @@ describe('buildNetworkAskCallback', () => {
     expect(ui.notifyCalls).toHaveLength(0);
   });
 
+  test('Deny with feedback + supportsDenyReason: returns the feedback as the deny reason', async () => {
+    const ui = scriptedUi({
+      onSelect: (options) => options.find((o) => o.startsWith('Deny with feedback')),
+      inputReply: '  use the\nstaging mirror ',
+    });
+    publishActiveUI(ui);
+    const cb = buildNetworkAskCallback(makeDeps({ supportsDenyReason: true }));
+    expect(await cb({ host: 'evil.example.com', port: 443 })).toEqual({
+      allow: false,
+      reason: 'user denied: use the staging mirror',
+    });
+  });
+
+  test('plain Deny stays false even when deny reasons are supported', async () => {
+    publishActiveUI(scriptedUi({ onSelect: () => 'Deny' }));
+    const cb = buildNetworkAskCallback(makeDeps({ supportsDenyReason: true }));
+    expect(await cb({ host: 'github.com', port: 443 })).toBe(false);
+  });
+
+  test('non-UI deny explains itself when deny reasons are supported', async () => {
+    const cb = buildNetworkAskCallback(makeDeps({ supportsDenyReason: true }));
+    const answer = await cb({ host: 'example.com', port: 443 });
+    expect(answer).toMatchObject({ allow: false });
+    expect(typeof answer === 'object' && answer.reason).toContain('example.com is not on the sandbox allow list');
+  });
+
+  test('concurrent asks for the same host share one dialog', async () => {
+    let release: (choice: string) => void = () => undefined;
+    const ui = scriptedUi({});
+    let selects = 0;
+    ui.select = () => {
+      selects++;
+      return new Promise((resolve) => {
+        release = resolve;
+      });
+    };
+    publishActiveUI(ui);
+    const cb = buildNetworkAskCallback(makeDeps());
+    const a = cb({ host: 'registry.npmjs.org', port: 443 });
+    const b = cb({ host: 'registry.npmjs.org', port: 443 });
+    await Promise.resolve();
+    release('Allow once');
+    expect(await a).toBe(true);
+    expect(await b).toBe(true);
+    expect(selects).toBe(1);
+    // The in-flight entry is dropped once answered: a later ask prompts again.
+    const c = cb({ host: 'registry.npmjs.org', port: 443 });
+    await Promise.resolve();
+    release('Deny');
+    expect(await c).toBe(false);
+    expect(selects).toBe(2);
+  });
+
   test('undefined select choice (user dismissed dialog) is treated as Deny', async () => {
     const ui = scriptedUi({ onSelect: () => undefined });
     publishActiveUI(ui);

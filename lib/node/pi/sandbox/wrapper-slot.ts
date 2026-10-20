@@ -13,6 +13,16 @@
  *     on extension load.
  *   - `requestSandboxWrap(command, ctx)` - bg-bash.ts (Phase 4) calls
  *     this before spawning the detached child.
+ *   - `releaseSandboxWrap(result)` - every caller that got a
+ *     `wrapped: true` result MUST call this exactly once after the
+ *     wrapped command has exited (or will never run). It balances
+ *     ASRT's per-wrap bookkeeping (`cleanupAfterCommand()` decrements
+ *     the active-sandbox count that gates Linux mount-point cleanup)
+ *     and releases the dangerous-file stub refcount. Skipping it leaks
+ *     mount points + stubs until session end; calling it for a command
+ *     that was never wrapped would let ASRT delete mount points another
+ *     still-running sandbox depends on, so the installed release
+ *     function ignores unknown / already-released handles.
  *
  * When no wrapper is installed (sandbox extension disabled, deps
  * missing, unsupported platform), the helper returns the command
@@ -32,6 +42,9 @@
 export interface SandboxWrapContext {
   hasUI: boolean;
   cwd: string;
+  /** Abort signal for the wrap itself (ASRT's Linux glob walk honors
+   *  it). Optional - callers without one just don't get early abort. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -67,14 +80,27 @@ export interface SandboxWrapResult {
    *  decrement their refcount and unlink the ones whose count drops
    *  to zero. Only set when `wrapped === true`. */
   createdStubs?: readonly string[];
+  /** Opaque, unguessable per-wrap id handed to ASRT as `commandId`, so
+   *  violations recorded while the command runs are attributed to it
+   *  and {@link releaseSandboxWrap} can release exactly this wrap.
+   *  Only set when `wrapped === true`. */
+  commandId?: string;
+}
+
+/** The subset of a {@link SandboxWrapResult} needed to release a wrap. */
+export interface SandboxWrapHandle {
+  commandId?: string;
+  createdStubs?: readonly string[];
 }
 
 export type SandboxWrapFn = (command: string, ctx: SandboxWrapContext) => Promise<SandboxWrapResult>;
+export type SandboxReleaseFn = (handle: SandboxWrapHandle) => void;
 
 import { createGlobalSlot } from '../global-slot.ts';
 
 interface SandboxWrapperSlot {
   wrap?: SandboxWrapFn;
+  release?: SandboxReleaseFn;
 }
 
 const getSlot = createGlobalSlot<SandboxWrapperSlot>('@dotfiles/pi/sandbox/wrapper', () => ({}));
@@ -85,13 +111,18 @@ const getSlot = createGlobalSlot<SandboxWrapperSlot>('@dotfiles/pi/sandbox/wrapp
  * on `session_shutdown` so a subsequent reload that disables the
  * sandbox via `PI_SANDBOX_DISABLED=1` takes effect.
  */
-export function installSandboxWrapper(fn: SandboxWrapFn): void {
-  getSlot().wrap = fn;
+export function installSandboxWrapper(fn: SandboxWrapFn, release?: SandboxReleaseFn): void {
+  const slot = getSlot();
+  slot.wrap = fn;
+  if (release) slot.release = release;
+  else delete slot.release;
 }
 
 /** Remove the installed wrapper, if any. */
 export function uninstallSandboxWrapper(): void {
-  delete getSlot().wrap;
+  const slot = getSlot();
+  delete slot.wrap;
+  delete slot.release;
 }
 
 /** Is a wrapper currently installed? Primarily for tests + introspection. */
@@ -108,4 +139,21 @@ export async function requestSandboxWrap(command: string, ctx: SandboxWrapContex
   const wrap = getSlot().wrap;
   if (!wrap) return { command, wrapped: false };
   return wrap(command, ctx);
+}
+
+/**
+ * Release a wrap previously returned by {@link requestSandboxWrap}.
+ * No-op when the result was not wrapped, carries no `commandId`, or no
+ * wrapper is installed (the sandbox extension tears everything down
+ * itself on shutdown). Never throws.
+ */
+export function releaseSandboxWrap(handle: SandboxWrapHandle & { wrapped?: boolean }): void {
+  if (handle.wrapped === false || !handle.commandId) return;
+  const release = getSlot().release;
+  if (!release) return;
+  try {
+    release(handle);
+  } catch {
+    // Best-effort bookkeeping; never break the caller's exit path.
+  }
 }

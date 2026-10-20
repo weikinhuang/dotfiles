@@ -77,7 +77,7 @@ function validateLayer(layer: SandboxConfigLayer): {
     return { partial, warnings };
   }
 
-  for (const top of ['network', 'unixSockets', 'flags'] as const) {
+  for (const top of ['network', 'unixSockets', 'flags', 'credentials'] as const) {
     const v = parsed[top];
     if (v === undefined) continue;
     if (!isRecord(v)) {
@@ -107,11 +107,14 @@ function validateLayer(layer: SandboxConfigLayer): {
 function envOverlay(env: SandboxConfigEnv): PartialSandboxConfig {
   const partial: PartialSandboxConfig = {};
 
-  if (env.PI_SANDBOX_NESTED !== undefined || env.PI_SANDBOX_WEAKER_NET !== undefined) {
-    partial.flags = {
-      weakerNestedSandbox: envTruthy(env.PI_SANDBOX_NESTED),
-      weakerNetworkIsolation: envTruthy(env.PI_SANDBOX_WEAKER_NET),
-    };
+  // Only override the flag whose env var is actually set: setting one
+  // must not reset the other (e.g. `PI_SANDBOX_NESTED=1` must not turn
+  // off a `flags.weakerNetworkIsolation: true` from sandbox.json).
+  if (env.PI_SANDBOX_NESTED !== undefined) {
+    partial.flags = { ...partial.flags, weakerNestedSandbox: envTruthy(env.PI_SANDBOX_NESTED) };
+  }
+  if (env.PI_SANDBOX_WEAKER_NET !== undefined) {
+    partial.flags = { ...partial.flags, weakerNetworkIsolation: envTruthy(env.PI_SANDBOX_WEAKER_NET) };
   }
 
   if (env.PI_SANDBOX_EXTRA_ALLOW_DOMAIN) {
@@ -157,7 +160,10 @@ export function loadSandboxConfig(layers: SandboxConfigLayer[], env: SandboxConf
 
   const overlay = envOverlay(env);
   const overlayHasAnything =
-    overlay.flags !== undefined || overlay.network !== undefined || overlay.unixSockets !== undefined;
+    overlay.flags !== undefined ||
+    overlay.network !== undefined ||
+    overlay.unixSockets !== undefined ||
+    overlay.credentials !== undefined;
   if (overlayHasAnything) {
     stack.push({ source: '<env>', partial: overlay });
   }

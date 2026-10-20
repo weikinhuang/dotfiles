@@ -169,3 +169,75 @@ describe('mergeSandboxConfigs', () => {
     expect(config.flags.linuxRuleDepth).toBe(LINUX_RULE_DEPTH_DEFAULT);
   });
 });
+
+describe('network.allowLocalhost port scoping', () => {
+  test('boolean true = every port; array = scoped ports', () => {
+    const all = mergeSandboxConfigs([{ source: 'u', partial: { network: { allowLocalhost: true } } }]).config;
+    expect(all.network.allowLocalhost).toBe(true);
+    expect(all.network.localhostPorts).toEqual([]);
+
+    const scoped = mergeSandboxConfigs([
+      { source: 'u', partial: { network: { allowLocalhost: [8188, 3000, 8188] } } },
+    ]).config;
+    expect(scoped.network.allowLocalhost).toBe(true);
+    expect(scoped.network.localhostPorts).toEqual([8188, 3000]);
+  });
+
+  test('invalid ports are dropped with a warning; an all-invalid array stays off', () => {
+    const { config, warnings } = mergeSandboxConfigs([
+      { source: 'u', partial: { network: { allowLocalhost: [0, 'x', 70000] } } },
+    ]);
+    expect(config.network.allowLocalhost).toBe(false);
+    expect(config.network.localhostPorts).toEqual([]);
+    expect(warnings.filter((w) => w.reason.includes('network.allowLocalhost['))).toHaveLength(3);
+  });
+
+  test('a later boolean layer resets the port scope', () => {
+    const { config } = mergeSandboxConfigs([
+      { source: 'u', partial: { network: { allowLocalhost: [8188] } } },
+      { source: 'p', partial: { network: { allowLocalhost: true } } },
+    ]);
+    expect(config.network.localhostPorts).toEqual([]);
+  });
+});
+
+describe('ASRT >= 0.0.80 flags', () => {
+  test('defaults: nested user namespaces off, runtime protection on', () => {
+    const { config } = mergeSandboxConfigs([]);
+    expect(config.flags.allowNestedUserNamespaces).toBe(false);
+    expect(config.flags.protectSandboxRuntime).toBe(true);
+    expect(DEFAULT_SANDBOX_CONFIG.flags.protectSandboxRuntime).toBe(true);
+  });
+
+  test('flags are last-wins booleans', () => {
+    const { config, warnings } = mergeSandboxConfigs([
+      { source: 'u', partial: { flags: { allowNestedUserNamespaces: true, protectSandboxRuntime: false } } },
+      { source: 'p', partial: { flags: { allowNestedUserNamespaces: 'yes' } } },
+    ]);
+    expect(config.flags.allowNestedUserNamespaces).toBe(true);
+    expect(config.flags.protectSandboxRuntime).toBe(false);
+    expect(warnings.find((w) => w.reason.includes('flags.allowNestedUserNamespaces'))).toBeDefined();
+  });
+});
+
+describe('credentials.denyEnv', () => {
+  test('accumulates valid names across layers, de-duplicated', () => {
+    const { config } = mergeSandboxConfigs([
+      { source: 'u', partial: { credentials: { denyEnv: ['OPENAI_API_KEY', 'GH_TOKEN'] } } },
+      { source: 'p', partial: { credentials: { denyEnv: ['GH_TOKEN', '_X1'] } } },
+    ]);
+    expect(config.credentials.denyEnv).toEqual(['OPENAI_API_KEY', 'GH_TOKEN', '_X1']);
+  });
+
+  test('invalid names are dropped with a warning', () => {
+    const { config, warnings } = mergeSandboxConfigs([
+      { source: 'u', partial: { credentials: { denyEnv: ['1BAD', 'GOOD', 'HAS-DASH', 'API_*'] } } },
+    ]);
+    expect(config.credentials.denyEnv).toEqual(['GOOD']);
+    expect(warnings.filter((w) => w.reason.includes('credentials.denyEnv'))).toHaveLength(3);
+  });
+
+  test('emptySandboxConfig has an empty deny list', () => {
+    expect(emptySandboxConfig().credentials.denyEnv).toEqual([]);
+  });
+});

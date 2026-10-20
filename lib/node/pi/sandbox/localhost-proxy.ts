@@ -9,8 +9,10 @@
  * dropping domain filtering by doing two things:
  *
  *   1. Allow-listing the loopback hosts (so the host-side proxy admits
- *      them - it `dialDirect`s the host loopback with no SSRF guard).
- *      Done in `config-translate.ts`.
+ *      them and dials the host loopback; ASRT's resolved-address guard
+ *      lets the reserved `localhost` name and allow-listed loopback
+ *      literals through). Done in `config-translate.ts`, optionally
+ *      scoped to specific ports via ASRT's `host:port` entry syntax.
  *   2. Rewriting the wrapped command's `NO_PROXY` to drop the loopback
  *      entries, so loopback HTTP(S)/SOCKS traffic routes through the
  *      proxy instead of being bypassed into the dead namespace
@@ -26,19 +28,33 @@
 
 /** Loopback hosts added to the ASRT allow-list when
  *  `network.allowLocalhost` is set. `0.0.0.0` is intentionally excluded
- *  (it is not a connect target). */
-export const LOOPBACK_PROXY_ALLOW = ['localhost', '127.0.0.1', '::1'];
+ *  (it is not a connect target). IPv6 is bracketed: ASRT's allow-list
+ *  entry schema rejects a bare `::1`. */
+export const LOOPBACK_PROXY_ALLOW = ['localhost', '127.0.0.1', '[::1]'];
+
+/**
+ * The loopback allow-list entries for `allowLocalhost`, optionally
+ * scoped to `ports` (`localhost:8188`, `127.0.0.1:8188`, `[::1]:8188`).
+ * An empty / absent `ports` list allows every loopback port.
+ */
+export function loopbackAllowEntries(ports: readonly number[] = []): string[] {
+  if (ports.length === 0) return [...LOOPBACK_PROXY_ALLOW];
+  return LOOPBACK_PROXY_ALLOW.flatMap((host) => ports.map((port) => `${host}:${port}`));
+}
 
 /**
  * The `NO_PROXY` value the wrapped command is given under
  * `allowLocalhost`: ASRT's hardcoded default MINUS the three loopback
  * hosts, so loopback routes through the proxy while private / link-local
  * ranges keep their default direct-bypass behavior. Mirrors ASRT's
- * `generateProxyEnvVars` list (sandbox-utils.ts); if ASRT changes its
- * default the only drift is in the private-range bypass, never in the
- * loopback removal this feature depends on.
+ * `generateProxyEnvVars` list (sandbox-utils.ts). ASRT >= 0.0.62
+ * deliberately leaves `*.local` OUT (under network isolation the child
+ * has no resolver, so `.local` / `*.svc.cluster.local` names must go
+ * through the proxy); this list must not add it back. If ASRT changes
+ * its default the only drift is in the private-range bypass, never in
+ * the loopback removal this feature depends on.
  */
-export const NO_PROXY_WITHOUT_LOOPBACK = '*.local,.local,169.254.0.0/16,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16';
+export const NO_PROXY_WITHOUT_LOOPBACK = '169.254.0.0/16,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16';
 
 /**
  * Prepend an `export` that rewrites `NO_PROXY` / `no_proxy` to

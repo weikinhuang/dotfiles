@@ -136,3 +136,35 @@ describe('loadSandboxConfig', () => {
     expect(warnings.find((w) => w.reason.includes('gitExcludeStubs'))).toBeDefined();
   });
 });
+
+describe('loadSandboxConfig - env overlay regressions', () => {
+  test('PI_SANDBOX_NESTED alone does not reset a file-set weakerNetworkIsolation', () => {
+    const { config } = loadSandboxConfig([{ source: 'u', raw: '{ "flags": { "weakerNetworkIsolation": true } }' }], {
+      PI_SANDBOX_NESTED: '1',
+    });
+    expect(config.flags.weakerNestedSandbox).toBe(true);
+    expect(config.flags.weakerNetworkIsolation).toBe(true);
+  });
+
+  test('PI_SANDBOX_WEAKER_NET alone does not reset a file-set weakerNestedSandbox', () => {
+    const { config } = loadSandboxConfig([{ source: 'u', raw: '{ "flags": { "weakerNestedSandbox": true } }' }], {
+      PI_SANDBOX_WEAKER_NET: '1',
+    });
+    expect(config.flags.weakerNestedSandbox).toBe(true);
+    expect(config.flags.weakerNetworkIsolation).toBe(true);
+  });
+
+  test('credentials layer passes through', () => {
+    const { config, warnings } = loadSandboxConfig([
+      { source: 'u', raw: '{ "credentials": { "denyEnv": ["ANTHROPIC_API_KEY"] } }' },
+    ]);
+    expect(warnings).toEqual([]);
+    expect(config.credentials.denyEnv).toEqual(['ANTHROPIC_API_KEY']);
+  });
+
+  test('allowLocalhost port array from a file', () => {
+    const { config } = loadSandboxConfig([{ source: 'u', raw: '{ "network": { "allowLocalhost": [8188] } }' }]);
+    expect(config.network.allowLocalhost).toBe(true);
+    expect(config.network.localhostPorts).toEqual([8188]);
+  });
+});

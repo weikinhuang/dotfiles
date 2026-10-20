@@ -134,6 +134,28 @@ function classifyLine(line: string): 'write' | 'read' {
   return 'write';
 }
 
+/** Socket syscalls (`listen EPERM /tmp/x.sock`, `connect EACCES ...`)
+ *  are unix-socket policy denials: a filesystem write grant can never
+ *  fix them, so they are not filesystem failures. */
+const SOCKET_SYSCALL_RE = /\b(?:listen|connect|bind)\s+e(?:perm|acces)\b/i;
+
+/** `rg -n` / `grep -n` match lines (`12:...`, `12-...`, `path:12:...`)
+ *  quote text that merely mentions a denial; they are not errors. */
+const SEARCH_HIT_RE = /^(?:[^\s:]+:)?\d+[:-]/;
+
+/** `/opt/homebrew/bin/bash: line 1: /x: Operation not permitted` - the
+ *  leading interpreter path is the reporter, not the denied path. */
+const SHELL_PREFIX_RE = /^\/[^\s:]+: line \d+: /;
+
+function isDenialLine(line: string): boolean {
+  if (!line) return false;
+  const lower = line.toLowerCase();
+  if (!DENIAL_MARKERS.some((marker) => lower.includes(marker))) return false;
+  if (SOCKET_SYSCALL_RE.test(line)) return false;
+  if (SEARCH_HIT_RE.test(line)) return false;
+  return true;
+}
+
 /**
  * Parse a bash tool_result's stderr (or combined stdout+stderr) for
  * sandbox-induced filesystem denials.
@@ -166,15 +188,14 @@ export function parseFsFailures(stderr: string): ParsedFsFailures {
 
   // Pass 1: lines that contain a denial marker AND an absolute path.
   for (const line of lines) {
-    if (!line) continue;
+    if (!isDenialLine(line)) continue;
     const lower = line.toLowerCase();
-    if (!DENIAL_MARKERS.some((marker) => lower.includes(marker))) continue;
     // Skip bwrap infrastructure lines (stub bind-mount setup/teardown).
     // bwrap creates empty host-side files as mount points for deny paths;
     // if that fails it emits "bwrap: Can't create file at X: Permission
     // denied". This is sandbox plumbing, not a user-tool write failure.
     if (lower.startsWith('bwrap:')) continue;
-    const paths = extractAbsPathsFromLine(line);
+    const paths = extractAbsPathsFromLine(line.replace(SHELL_PREFIX_RE, ''));
     if (paths.length === 0) continue;
     const kind = classifyLine(line);
     for (const path of paths) pushPath(kind, path);
@@ -187,11 +208,7 @@ export function parseFsFailures(stderr: string): ParsedFsFailures {
   // shape-specific block lines. We gate on a marker existing so a
   // benign `npm error path: ./foo` from an unrelated failure can't
   // fabricate a write-allow offer.
-  const sawAnyMarker = lines.some((l) => {
-    if (!l) return false;
-    const lower = l.toLowerCase();
-    return DENIAL_MARKERS.some((m) => lower.includes(m));
-  });
+  const sawAnyMarker = lines.some(isDenialLine);
   if (sawAnyMarker) {
     const blockPathRe =
       /^(?:npm (?:error|ERR!)|yarn (?:error|ERR!)|pnpm (?:error|ERR!))\s+path:?\s+['"]?(\/[^'"\s]+)['"]?/;

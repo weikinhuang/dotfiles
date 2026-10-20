@@ -28,8 +28,10 @@ import {
   buildFilesystemAskPrompt,
   buildFilesystemAskDialog,
   clampCommonParent,
+  explainUngrantableWrite,
   type FsAskDeps,
 } from '../../../../../lib/node/pi/sandbox/filesystem-ask.ts';
+import { mergePolicies } from '../../../../../lib/node/pi/filesystem-policy/schema.ts';
 
 function makeDeps(overrides: Partial<FsAskDeps> = {}): FsAskDeps {
   return {
@@ -278,5 +280,37 @@ describe('buildFilesystemAskDialog', () => {
       command: 'npm install',
     });
     expect(out).toEqual({ kind: 'deny' });
+  });
+});
+
+describe('explainUngrantableWrite', () => {
+  const policy = mergePolicies({
+    write: { allow: { paths: ['.', '/tmp'] }, deny: { segments: ['node_modules'], basenames: ['*.lock'] } },
+    read: { deny: { basenames: ['.env'] } },
+  });
+
+  test('a plain path outside the allowed roots IS grantable', () => {
+    expect(explainUngrantableWrite('/home/u/.cache/x', '/repo', policy)).toBeUndefined();
+    expect(explainUngrantableWrite('/repo/src/a.ts', '/repo', policy)).toBeUndefined();
+  });
+
+  test("ASRT's built-in dangerous files and dirs are not grantable (case-insensitive)", () => {
+    expect(explainUngrantableWrite('/repo/.bashrc', '/repo', policy)).toContain('built-in write-deny');
+    expect(explainUngrantableWrite('/repo/.GitConfig', '/repo', policy)).toContain('built-in write-deny');
+    expect(explainUngrantableWrite('/repo/.vscode/settings.json', '/repo', policy)).toContain('.vscode');
+    expect(explainUngrantableWrite('/repo/.git/hooks/pre-commit', '/repo', policy)).toContain('.git/hooks');
+    expect(explainUngrantableWrite('/repo/.git/config', '/repo', policy)).toContain('.git/config');
+    expect(explainUngrantableWrite('/repo/.claude/commands/x.md', '/repo', policy)).toContain('.claude/commands');
+  });
+
+  test('filesystem.json deny rules are not grantable (write.deny and read.deny)', () => {
+    expect(explainUngrantableWrite('/repo/node_modules/a/b.js', '/repo', policy)).toContain('deny rule');
+    expect(explainUngrantableWrite('/repo/yarn.lock', '/repo', policy)).toContain('deny rule');
+    expect(explainUngrantableWrite('/repo/.env', '/repo', policy)).toContain('deny rule');
+  });
+
+  test('relative paths resolve against cwd', () => {
+    expect(explainUngrantableWrite('.bashrc', '/repo', policy)).toBeDefined();
+    expect(explainUngrantableWrite('src/x', '/repo', policy)).toBeUndefined();
   });
 });

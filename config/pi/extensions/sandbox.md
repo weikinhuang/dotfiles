@@ -39,7 +39,7 @@ Two files, both JSONC, both hot-reloaded per tool call:
   See [`config/pi/filesystem-example.json`](../filesystem-example.json) and the `filesystem.ts` deep doc for the full
   schema; this section only covers what the kernel sandbox does with the unified policy.
 - `~/.pi/agent/sandbox.json` (or `<repo>/.pi/sandbox.json`) - **sandbox-only knobs**: `network`, `unixSockets`, `flags`,
-  `gitExcludeStubs`. See [`config/pi/sandbox-example.json`](../sandbox-example.json).
+  `gitExcludeStubs`, `credentials`. See [`config/pi/sandbox-example.json`](../sandbox-example.json).
 
 File resolution order, additive within categories:
 
@@ -47,7 +47,7 @@ File resolution order, additive within categories:
 2. User: `~/.pi/agent/{filesystem,sandbox}.json`.
 3. Project: `<repo>/.pi/{filesystem,sandbox}.json`.
 4. Env-var overlay: `PI_SANDBOX_NESTED`, `PI_SANDBOX_WEAKER_NET`, `PI_SANDBOX_EXTRA_ALLOW_DOMAIN`,
-   `PI_SANDBOX_NETWORK_UNRESTRICTED`.
+   `PI_SANDBOX_ALLOW_LOCALHOST`, `PI_SANDBOX_NETWORK_UNRESTRICTED`. Only variables that are set override the files.
 5. Persona overlay: the active persona's resolved `writeRoots` are merged into `filesystem.write.allow.paths` so the
    kernel sandbox sees the same write surface the in-process gate sees.
 
@@ -77,8 +77,8 @@ the unified policy:
   writes to `$TMPDIR` fails with `No such file or directory` (classic cascade: `mktemp` -> empty output -> `curl -o` "is
   badly used here", seen with `ai-fetch-web`). ASRT assumes the host tmpdir already exists (Claude Code creates it); pi
   did not, so [`asrt-tmpdir.ts`](../../../lib/node/pi/sandbox/asrt-tmpdir.ts) `mkdir -p`s it (mode `0o700`) in
-  `performWrap` right before the wrap, alongside the dangerous-file-stub pre-creation. Idempotent + best-effort, and
-  re-running per wrap survives a system tmp-reaper deleting it mid-session.
+  `performWrap` right before the wrap (on Linux, alongside the dangerous-file-stub pre-creation). Idempotent +
+  best-effort, and re-running per wrap survives a system tmp-reaper deleting it mid-session.
 - **Unix sockets are platform-split.** `unixSockets.allow` (the path list) is honored **only on macOS**, where
   sandbox-exec can match a socket path. On **Linux** unix-socket access is all-or-nothing: ASRT installs a seccomp-bpf
   filter that blocks every `socket(AF_UNIX, ...)` call, and seccomp cannot inspect the path, so `unixSockets.allow`
@@ -109,11 +109,50 @@ the unified policy:
   kernel deny is STRIPPED before reaching ASRT - bwrap and sandbox-exec have no allow-back hook for writes, so
   kernel-level enforcement is relaxed for the entire shadowed segment. `/sandbox` surfaces a lossy note for each strip
   so the security tradeoff stays visible. The in-process gate is the only enforcer for the carved-out subtree.
+- **`network.allowLocalhost` keeps filtering on.** `true` allow-lists `localhost` / `127.0.0.1` / `[::1]` and rewrites
+  the wrapped command's `NO_PROXY` (ASRT's list minus the loopback names, pinned by a spec) so proxy-aware clients reach
+  host loopback through the sandbox proxy. A port list (`[8188, 3000]`) emits `localhost:8188`-style entries so only
+  those ports open.
+- **Literal path entries.** Resolved `paths` rules and Linux-compiled literals that contain glob characters (`*`, `?`,
+  `[`, `]`, `\`) are passed as `{ path, literal: true }` so a directory such as Next.js `app/[slug]/` is not read as a
+  pattern.
+- **`credentials.denyEnv`** maps to ASRT `credentials.envVars` with `mode: "deny"`, stripping those variables from every
+  sandboxed command's environment.
+- **`flags.allowNestedUserNamespaces`** (Linux) restores nested user namespaces, which ASRT blocks by default since
+  0.0.80 (Chromium / Playwright sandboxes, podman, nested bwrap, a nested `pi`).
+- **`flags.protectSandboxRuntime`** (default `true`) write-denies the installed `@anthropic-ai/sandbox-runtime` package
+  directory so a sandboxed command cannot tamper with the enforcing code when the package sits under a writable root.
+  ASRT's own `checkDependencies()` writable-install warning is suppressed while the protection is on; other warnings are
+  shown once and listed in `/sandbox`.
+- **Validation.** The ASRT library does not validate its config (only the `srt` CLI does), so the extension runs the
+  translated config through `SandboxRuntimeConfigSchema` and reports issues once plus in `/sandbox`. `updateConfig()` is
+  guarded: a throw keeps the last applied config instead of blocking every bash call.
+- **Change detection.** The active-sandbox hash covers the translated ASRT config, not just the policy files, so a newly
+  compiled Linux literal (a `.env` created mid-session) or a cwd change re-applies `updateConfig()`.
+
+### Wrap lifecycle
+
+Every wrap gets a random `commandId` (passed to ASRT with the original command text, so violation attribution survives
+the `NO_PROXY` prefix) and an entry in a wrap ledger ([`wrap-ledger.ts`](../../../lib/node/pi/sandbox/wrap-ledger.ts)).
+Releasing an entry calls `cleanupAfterCommand()` and drops its stub references exactly once: the foreground bash
+`tool_result`, the subagent factory's `tool_result`, and `bg_bash` job exit all release through it. Commands that were
+never wrapped never release, so ASRT's Linux active-sandbox count cannot drop to zero while another sandbox is still
+running (which would delete mount points that sandbox relies on).
+
+Slot consumers (`bg_bash`, subagent bash) run the same per-call `reconfigure` + lazy `initialize()` as the foreground
+bash hook, so a `bg_bash` job started before any foreground bash is still wrapped instead of falling back to
+`PI_SANDBOX_DEFAULT`.
+
+ASRT's `initialize()` installs a `process.once('SIGINT', reset)` listener that never re-raises, which would make the
+first Ctrl-C on `pi -p` tear the sandbox down while pi kept running.
+[`signal-chain.ts`](../../../lib/node/pi/sandbox/signal-chain.ts) wraps that listener so ASRT's cleanup runs (bounded to
+2 s) and the signal is then re-delivered to the remaining handlers or Node's default exit.
 
 ## Slash commands
 
 - `/sandbox` - print the active config grouped by source, platform info, dependency status, current proxy ports, last
-  five violations, and (Linux) the lossy-translation report from rule compilation.
+  five violations, and the lossy-translation report (Linux rule compilation, ASRT config-validation issues, and
+  `checkDependencies()` warnings).
 - `/sandbox-allow <domain>` - add a domain to `network.allow`. Scope auto-detects (project if `.pi/` exists, else user).
 - `/sandbox-deny <domain>` - same for `network.deny`.
 - `/sandbox-allow-write <path>` - add a path to `filesystem.write.allow.paths`. Confirms with a UI prompt because it
@@ -135,10 +174,16 @@ edit `~/.pi/agent/filesystem.json` by hand for that.
 When sandboxed bash hits a non-allowlisted domain, ASRT fires a `SandboxAskCallback`. The extension routes the callback
 through the parent session's `ctx.ui.select` via the [`active-ui.ts`](../../../lib/node/pi/active-ui.ts) singleton, so
 subagent-triggered prompts surface in the parent's terminal rather than dead-ending in `hasUI: false`. Non-UI fallback
-is `PI_SANDBOX_NETWORK_DEFAULT` (default `deny`).
+is `PI_SANDBOX_NETWORK_DEFAULT` (default `deny`); a non-UI deny tells the sandboxed client why in the proxy's 403.
 
-The v1 callback offers a simple three-way choice (allow once, allow `<host>` for this session, deny). The richer
-six-option dialog (auto-write to `~/.pi/agent/sandbox.json` etc.) is wired up in Phase 4 - see plan section 7.
+The dialog offers allow once, allow `<host>` for the session, allow persistently (project / user `sandbox.json`), deny,
+and deny with feedback. The feedback text is returned to ASRT as `{ allow: false, reason }` (when the runtime advertises
+`askCallbackDenyReason`), so the model sees it in the 403 response, not only the user. Concurrent requests for the same
+host share one dialog, so an `npm install` opening many connections asks once.
+
+Every proxy denial (config deny-list, user deny, non-UI deny) is recorded by ASRT's violation store; the extension
+subscribes and appends one `net` record with the `host:port` to `sandbox-violations.log`, which feeds `/sandbox-allow` /
+`/sandbox-deny` completion.
 
 Auto-mode (`/bash-auto`) does **NOT** skip the network prompt. Network access is too easy to abuse to cover behind an
 "allow everything" toggle.
@@ -159,6 +204,10 @@ interactive UI is published, offers a five-option dialog:
 
 The "Always allow" options are hidden when the proposed common parent climbs above safe scopes (above cwd and not a
 one-segment dir under `$HOME`); in that case the user falls back to `Allow once` or `Deny`.
+
+Paths no write-allow can unlock skip the dialog: ASRT's built-in write denies (`.bashrc`, `.gitconfig`, `.git/hooks`,
+`.git/config`, `.vscode`, `.idea`, `.claude/commands`, ...) and anything matching a `filesystem.json` deny rule (deny
+wins over allow on both platforms; on Linux since ASRT 0.0.80). The model gets a hint explaining why instead.
 
 The dialog **cannot** auto-retry the failed bash (pi's `tool_result` API has no re-execute mechanism). When the user
 accepts, a "user just granted access; you may retry the previous command on the next turn" hint is spliced into the
@@ -198,15 +247,14 @@ State is published via [`session-flags.ts`](../../../lib/node/pi/session-flags.t
   AND publish to [`sandbox/active.ts`](../../../lib/node/pi/sandbox/active.ts) so a `/persona switch` mid-session fires
   `SandboxManager.updateConfig()` before the next bash spawn (the bash hook awaits `activeReconfigure()` to avoid
   TOCTOU). Existing bash children keep their old policy until they exit.
-- **`bg-bash.ts`**: Phase 4 routes `bg_bash` through [`wrapper-slot.ts`](../../../lib/node/pi/sandbox/wrapper-slot.ts)'s
-  `requestSandboxWrap`, which delegates to the same `SandboxManager` singleton. The slot is `globalThis`-anchored so it
-  works across pi's per-extension jiti module copies. Today (Phase 3) bg-bash hasn't been wired up yet, but the slot is
-  registered on extension load so the wiring lands cleanly.
+- **`bg-bash.ts`**: routes `bg_bash` through [`wrapper-slot.ts`](../../../lib/node/pi/sandbox/wrapper-slot.ts)'s
+  `requestSandboxWrap`, which delegates to the same `SandboxManager` singleton, and calls `releaseSandboxWrap` when the
+  job exits. The slot is `globalThis`-anchored so it works across pi's per-extension jiti module copies.
 - **Subagents** (`runOneShotAgent`): the extension registers `sandboxFactoryHookOnly` via
   [`subagent/extension-injection.ts`](../../../lib/node/pi/subagent/extension-injection.ts), so spawned children also
   wrap their bash calls through the same shared `SandboxManager` (subagents are in-process; the singleton + active
-  config + UI bridge + wrapper slot are all shared). The factory mounts ONLY the `tool_call` handler - no slash
-  commands, no statusline glue.
+  config + UI bridge + wrapper slot are all shared). The factory mounts ONLY the `tool_call` handler and a `tool_result`
+  handler that releases the wrap - no slash commands, no statusline glue.
 - **Pi v1 nested tool calls**: calls made through `ctx.executeTool()` stay inside the same permission and sandbox
   pipeline. When the result hook adds a policy hint to bash text, it preserves the original `structuredContent` so
   codemode and other programmatic callers retain the machine-readable bash result.
@@ -218,7 +266,7 @@ State is published via [`session-flags.ts`](../../../lib/node/pi/session-flags.t
 | `PI_SANDBOX_DISABLED`             | unset   | bypass entirely; identity-wrap. Statusline `🛡️ ·off`.                                                                                                 |
 | `PI_SANDBOX_DRY_RUN`              | unset   | log the wrapped command but pass the original through (for debugging the wrap pipeline).                                                              |
 | `PI_SANDBOX_DEFAULT`              | `warn`  | fallback when `wrapWithSandbox` itself errors: `warn` (run unwrapped + log per-call), `allow` (run unwrapped silently), `block` (refuse to run bash). |
-| `PI_SANDBOX_NETWORK_DEFAULT`      | `deny`  | non-UI default for the network ask-callback (`pi -p` mode): `deny` (silent block) or `allow` (silent admit).                                          |
+| `PI_SANDBOX_NETWORK_DEFAULT`      | `deny`  | non-UI default for the network ask-callback (`pi -p` mode): `deny` (block with a 403 reason) or `allow` (silent admit).                               |
 | `PI_SANDBOX_NESTED`               | unset   | enable `flags.weakerNestedSandbox` for users running pi inside Docker / nested containers.                                                            |
 | `PI_SANDBOX_WEAKER_NET`           | unset   | enable `flags.weakerNetworkIsolation` (macOS Go-TLS escape hatch for `gh` / `gcloud` / `terraform` / `kubectl`).                                      |
 | `PI_SANDBOX_EXTRA_ALLOW_DOMAIN`   | unset   | additive comma-separated list of domains merged into `network.allow`.                                                                                 |
@@ -340,7 +388,8 @@ actual syscall denial (still requires the model-turn smoke above) but proves the
 ## Hot reload
 
 - **Config files** (`filesystem.json` + `sandbox.json`) -- re-read on every tool call via `reconfigure`, which calls
-  `SandboxManager.updateConfig()`, so the live sandbox picks up edits without `/reload`.
+  `SandboxManager.updateConfig()` whenever the translated ASRT config changed, so the live sandbox picks up edits
+  without `/reload`.
 - **Platform + dependency detection** -- computed on `session_start`; re-run with `/sandbox-recheck` after installing
   `bubblewrap` / `socat` / `ripgrep`, no `/reload` needed.
 - **Linux literal-path rule compilation** -- recomputed on `reconfigure`; force a fresh walk with `/sandbox-rescan`
@@ -361,12 +410,12 @@ actual syscall denial (still requires the model-turn smoke above) but proves the
 - **Host `localhost` services are unreachable under network isolation (Linux).** ASRT runs bash in an isolated network
   namespace (`bwrap --unshare-net`) whenever any domain allow-list is present, and hardcodes
   `NO_PROXY=localhost,127.0.0.1,…`. So a `curl localhost:PORT` against a Docker published port or a host-bound dev
-  server fails (curl `000` / `Connection refused`), and adding `127.0.0.1` to `network.allow` does **not** help (the
-  allow-list is enforced at the host proxy, which localhost never reaches). The `tool_result` hook detects this
-  signature ([`loopback-hint.ts`](../../../lib/node/pi/sandbox/loopback-hint.ts)) and tells the model to: `docker exec`
-  into the container, start + curl the service within the **same** bash command (shared namespace), or set
-  `network.unrestricted` / `/sandbox-disable`. macOS (`sandbox-exec` + `allowLocalBinding`) does not have this
-  limitation.
+  server fails (curl `000` / `Connection refused`), and adding `127.0.0.1` to `network.allow` alone does **not** help
+  (the client never sends loopback traffic to the proxy). `network.allowLocalhost` fixes this for proxy-aware clients.
+  The `tool_result` hook detects this signature ([`loopback-hint.ts`](../../../lib/node/pi/sandbox/loopback-hint.ts))
+  and tells the model to: `docker exec` into the container, start + curl the service within the **same** bash command
+  (shared namespace), or set `network.unrestricted` / `/sandbox-disable`. macOS (`sandbox-exec` + `allowLocalBinding`)
+  does not have this limitation.
 - DNS-over-UDP exfil is not blocked (`dig @8.8.8.8 ...`). ASRT proxies HTTP/HTTPS/SOCKS5 but not raw UDP - documented as
   future work in
 - A long-running `bg_bash` job started under sandbox-config-A keeps that policy until it exits, even if the user later
@@ -376,6 +425,6 @@ actual syscall denial (still requires the model-turn smoke above) but proves the
   per platform.
 - Symlink-out-of-workspace cases disagree between the in-process gate (lexical resolve) and the kernel sandbox
   (realpath). Documented; fix deferred.
-- ASRT is `0.0.x` research preview - the runtime API may break across minor bumps. The dep is pinned exact in
-  `package.json`; a bump that drops a field surfaces as a typecheck error in `config-translate.ts`.
+- ASRT is `0.0.x` research preview - the runtime API may break across minor bumps. The dep is a caret range on `0.0.x`
+  (npm treats that as exact-patch); a bump that drops a field surfaces as a typecheck error in `config-translate.ts`.
 - MCP server sandboxing is out of v1 scope; see

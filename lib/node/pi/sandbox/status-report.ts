@@ -48,6 +48,8 @@ export interface SandboxStatusReportInput {
   network: {
     unrestricted?: boolean;
     allowLocalhost?: boolean;
+    /** Ports `allowLocalhost` is scoped to; empty / absent = every port. */
+    localhostPorts?: readonly number[];
     allow: readonly string[];
     deny: readonly string[];
   };
@@ -101,7 +103,11 @@ export function buildSandboxStatusReport(input: SandboxStatusReportInput): strin
   if (input.network.unrestricted) {
     lines.push('  unrestricted: true (network isolation OFF - host network shared, allow/deny NOT enforced)');
   } else if (input.network.allowLocalhost) {
-    lines.push('  allowLocalhost: true (loopback routed through the proxy; HTTP/SOCKS only, filtering stays on)');
+    const ports = input.network.localhostPorts ?? [];
+    const scope = ports.length > 0 ? ` [ports ${ports.join(', ')}]` : '';
+    lines.push(
+      `  allowLocalhost: true${scope} (loopback routed through the proxy; HTTP/SOCKS only, filtering stays on)`,
+    );
   }
   lines.push(`  allow: ${input.network.allow.join(', ') || '(empty - deny all)'}`);
   lines.push(`  deny:  ${input.network.deny.join(', ') || '(empty)'}`);
