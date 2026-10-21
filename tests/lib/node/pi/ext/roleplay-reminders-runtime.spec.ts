@@ -155,6 +155,8 @@ async function harness(
     memory?: boolean;
     sceneFoldDelivery?: 'reminder' | 'system';
     sceneFoldRefreshTurns?: number;
+    events?: string[];
+    eventMaxChars?: number;
   } = {},
 ): Promise<Harness> {
   const dir = mkdtempSync(join(tmpdir(), 'roleplay-reminder-runtime-'));
@@ -180,7 +182,8 @@ async function harness(
     JSON.stringify({
       imageMode: 'off',
       depthLoreInlineTail: options.inline ?? true,
-      events: ['QUEUED_EVENT_MARKER'],
+      events: options.events ?? ['QUEUED_EVENT_MARKER'],
+      ...(options.eventMaxChars ? { eventMaxChars: options.eventMaxChars } : {}),
       ...(options.sceneFoldDelivery ? { sceneFoldDelivery: options.sceneFoldDelivery } : {}),
       ...(options.sceneFoldRefreshTurns ? { sceneFoldRefreshTurns: options.sceneFoldRefreshTurns } : {}),
     }),
@@ -892,4 +895,16 @@ test('/roleplay lore reports the last narrative turn selection and timing', asyn
   expect(out).toContain('Depth lore kept (2):');
   expect(out).toContain('reef-primary  depth=0');
   expect(out).toContain('sticky-reef: sticky 2 turns, then cooldown 1 turn');
+});
+
+test('/roleplay event caps a deck pick at eventMaxChars', async () => {
+  const long = `DECK_START ${'x'.repeat(200)} DECK_END`;
+  const h = await harness({ events: [long], eventMaxChars: 60 });
+  await h.command('roleplay', 'event');
+  const notice = h.lastNotice();
+  expect(notice).toContain('Queued scene event');
+  expect(notice).toContain('DECK_START');
+  expect(notice).not.toContain('DECK_END');
+  const queued = notice.slice(notice.indexOf('\n') + 1);
+  expect(queued.length).toBeLessThanOrEqual(60);
 });

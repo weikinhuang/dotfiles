@@ -102,7 +102,7 @@ character-card fields. Optional frontmatter controls how the sheet folds into th
 | `pinned`      | `true`/`false`       | Always fold this sheet (budget permitting), ignoring triggers - the card analogue of lore `constant`. |
 | `aliases`     | `[Kal'tsit, Doctor]` | Extra names/nicknames the fold keys on (the entry `name` is always an implicit key).                  |
 | `triggers`    | `[the surgeon]`      | Extra keywords (OR'd with name + aliases) that also fold the sheet in.                                |
-| `order`       | `10`                 | Stored and round-tripped. Fold eviction does not currently read it (see note below).                  |
+| `order`       | `10`                 | Eviction priority within a fold tier; higher is kept longer when a budget evicts. Default `0`.        |
 | `sticky`      | `3`                  | Once folded, stay folded this many further turns without a re-match (anti-flicker). Default `3`.      |
 | `cooldown`    | `0`                  | After the sticky window ends, cannot fold again for this many turns. Default `0`.                     |
 | `probability` | `100`                | 0-100 chance the fold fires on a fresh match. Default `100`.                                          |
@@ -113,8 +113,9 @@ session start), and `save` / `update` can set `aliases`, `pinned`, `triggers`, a
 still folds on its own **name**. Matching reuses the lorebook rules (whole-word, case-insensitive, no-space scripts
 matched without word boundaries) and timing machinery.
 
-> Note: name-triggered sheets are ordered by cast id, and both fold budgets evict from the end of that order. The
-> `order` field is persisted but does not change eviction today.
+> Note: within the `pinned` tier and the name-triggered tier, sheets are ranked by `order` (highest first, ties by cast
+> id), and both fold budgets evict from the end of that ranking. Persona-declared `characters` keep their listed order,
+> and the POV sheet is never evicted.
 
 Author list fields with **inline** arrays (`[a, b]`) - pi's frontmatter parser does not accept block (`- item`) lists.
 
@@ -310,10 +311,12 @@ is not in the cast still produces the announcement line.
 
 **Precedence and eviction.** Each block has its own `charBudget` cap.
 
-- Head block: persona-declared sheets, then `pinned`, then (in `system` delivery only) name-triggered sheets, with POV
-  last. Eviction drops from the tail of that order; the POV sheet is never evicted, and when there is no POV sheet the
-  first sheet is always kept.
-- Reminder block: name-triggered sheets in cast order; the first is always kept, later ones drop with a trailer.
+- Head block: persona-declared sheets (listed order), then `pinned`, then (in `system` delivery only) name-triggered
+  sheets, with POV last. The `pinned` and name-triggered tiers are each ranked by `order` descending, ties by cast id.
+  Eviction drops from the tail of that order; the POV sheet is never evicted, and when there is no POV sheet the first
+  sheet is always kept.
+- Reminder block: name-triggered sheets ranked by `order` descending, ties by cast id; the first is always kept, later
+  ones drop with a trailer.
 
 **Macro stability.** Sheets in the system-prompt head resolve macros against a clock frozen for the session and a random
 source seeded per session and entry, so `{{time}}`, `{{random}}`, and `{{roll}}` stay byte-identical across turns.
@@ -352,15 +355,16 @@ From oldest to newest, the model sees: a narrative **recap** of dropped history,
 head+tail, and the last `keepTurns` user turns (default 8) **verbatim**. Drop boundaries always land on a user message,
 so an assistant tool call is never separated from its result.
 
-| Mode                | When                                         | Behavior                                                                                          |
-| ------------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| Bounded recap mode  | summarize on (default) and context window on | Covered history is dropped and replaced by the recap; pi's **threshold** compaction is cancelled. |
-| Condense-only floor | `PI_ROLEPLAY_DISABLE_SUMMARIZE=1`            | Older prose is condensed but kept; pi's compaction remains the backstop.                          |
-| Off                 | `PI_ROLEPLAY_DISABLE_CONTEXT_WINDOW=1`       | No reduction; only the compaction-time side-write below runs.                                     |
+| Mode                | When                                         | Behavior                                                                                                                     |
+| ------------------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Bounded recap mode  | summarize on (default) and context window on | Covered history is dropped and replaced by the recap; pi's **threshold** compaction is cancelled when a summarizer resolves. |
+| Condense-only floor | `PI_ROLEPLAY_DISABLE_SUMMARIZE=1`            | Older prose is condensed but kept; pi's compaction remains the backstop.                                                     |
+| Off                 | `PI_ROLEPLAY_DISABLE_CONTEXT_WINDOW=1`       | No reduction; only the compaction-time side-write below runs.                                                                |
 
 Recaps are generated only when a summarize model (see [Configuration](#configuration)) and the summarizer agent resolve.
-Without them recap mode still owns threshold compaction but covers nothing. In every mode with the window on, a hard
-safety floor drops the oldest whole turns if the reduced prompt would still overflow the session model's context window.
+Recap mode cancels pi's threshold compaction only while a summarizer resolves; without one it covers nothing, so pi's
+threshold compaction runs normally and summarizes the history instead. In every mode with the window on, a hard safety
+floor drops the oldest whole turns if the reduced prompt would still overflow the session model's context window.
 
 **The recap** is a thin narrative layer (recent events, mood, open threads) written by the
 [`roleplay-summarizer`](../agents/roleplay-summarizer.md) agent. It rolls every `recapStride` aged messages (default:
@@ -375,10 +379,11 @@ navigation continue the right recap. Each roll also refreshes the per-cast carry
 session seeds its recap text from that carry-over without treating any of its own messages as covered.
 `/roleplay newscene` archives the carry-overs and starts the next turn cold.
 
-**Compaction.** Threshold compaction is cancelled in recap mode; manual `/compact` and overflow recovery still run. On
-those paths the evicted span is folded into the current branch recap and stamped on the branch as a `compact` audit
-entry, without resetting lorebook timing. After any successful compaction, recap coverage resets to 0 (the old message
-indices no longer apply) while the recap and timeline text are kept.
+**Compaction.** Threshold compaction is cancelled in recap mode when a summarizer resolves (otherwise pi compacts
+normally); manual `/compact` and overflow recovery still run. On those paths the evicted span is folded into the current
+branch recap and stamped on the branch as a `compact` audit entry, without resetting lorebook timing. After any
+successful compaction, recap coverage resets to 0 (the old message indices no longer apply) while the recap and timeline
+text are kept.
 
 **Timeline** (opt-in, `timeline: true` or `PI_ROLEPLAY_TIMELINE=1`, requires recap mode) appends dated story beats
 extracted from each rolled span. Beats are never re-summarized, so they do not drift. Beats append to `timeline/auto.md`
@@ -413,7 +418,7 @@ Source order:
   `openThreads` to escalate. The result is truncated to `eventMaxChars`. An empty response or a `null` / `None` sentinel
   (any case, ignoring surrounding quotes and punctuation) counts as no event.
 - **Deck fallback**: when nothing is generated, one entry is drawn at random from the `events` deck in `roleplay.json`
-  and queued as written. With an empty deck the command reports that nothing is available.
+  and queued, truncated to `eventMaxChars`. With an empty deck the command reports that nothing is available.
 
 The generator inherits the parent session model unless `eventModel` is set (resolution order
 `<cwd>/.pi/roleplay-event.json` > `~/.pi/agent/roleplay-event.json` > `~/.pi/agent/settings.json`
@@ -625,7 +630,7 @@ values are clamped to the bounds below; wrong types are ignored.
   "repetitionWindow": 6, // recent assistant replies scanned (default 6, 1-50)
   "repetitionMinCount": 2, // occurrences across the window before flagging (default 2, >= 2)
   "events": [], // fallback complication deck for `/roleplay event` (default [])
-  "eventMaxChars": 280, // cap on a generated scene event (default 280, floor 40)
+  "eventMaxChars": 280, // cap on a generated or deck-picked scene event (default 280, floor 40)
   "eventSeedThreads": true, // offer relationship openThreads to the event generator (default true)
   "keepTurns": 8, // recent user turns kept verbatim (default 8, 1-200)
   "recapChunk": 8, // aged messages per roll when recapStride is 0 (default 8, 1-500)

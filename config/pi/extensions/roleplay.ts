@@ -389,7 +389,8 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   // the `summary/auto` recap and the recap-covered prefix is DROPPED
   // (O(1)). Recap requires the window; when either is off we degrade to the
   // condense-only floor. Owning pi's threshold auto-compaction is only safe
-  // in recap (size-bounded) mode - the floor keeps every message.
+  // in recap (size-bounded) mode - the floor keeps every message - and only
+  // while a summarizer resolves (checked lazily in `session_before_compact`).
   const contextWindowEnabled = !envTruthy(process.env.PI_ROLEPLAY_DISABLE_CONTEXT_WINDOW);
   const recapMode = summarizeEnabled && contextWindowEnabled;
   const ownCompaction = recapMode;
@@ -743,9 +744,11 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       headTriggered = triggeredIds.map(nameOf).filter((n): n is string => Boolean(n));
     }
 
-    // Precedence order: persona-declared, then pinned, then (legacy mode
-    // only) name-triggered. composeSceneBlock dedups by resolved id and
-    // evicts from the tail, so the lowest-precedence sheets drop first.
+    // Precedence order: persona-declared (author's listed order), then pinned,
+    // then (legacy mode only) name-triggered; the pinned / triggered tiers are
+    // pre-ranked by character `order` (planCharacterFold). composeSceneBlock
+    // dedups by resolved id and evicts from the tail, so the lowest-precedence
+    // sheets drop first.
     const characters = [...(persona.characters ?? []), ...pinnedNames, ...headTriggered];
     if (characters.length === 0 && !persona.pov) return null;
     const { block, missing } = composeSceneBlock(state, headBodyOf, {
@@ -2150,7 +2153,8 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   // ── Compaction side-write (manual / overflow) ───────────────────────
   //
   // The rolling window (context hook) owns the common path; this handler
-  // only cancels pi's THRESHOLD auto-compaction and, on the manual /
+  // only cancels pi's THRESHOLD auto-compaction (recap mode with a resolved
+  // summarizer) and, on the manual /
   // overflow safety-net paths, folds the evicted span into the running
   // recap (a strict side-write that never breaks compaction). Summarizer
   // infra (extDir / getSummarizer / toSummarizable) is defined above.
@@ -2159,9 +2163,13 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       const reason = (event as unknown as { reason?: string }).reason;
       // Own context management: cancel pi's THRESHOLD auto-compaction so the
       // rolling window is the sole manager and the see-saw stops. Only in
-      // recap (size-bounded) mode; manual `/compact` and genuine overflow
-      // recovery always run (belt-and-suspenders safety net).
-      if (ownCompaction && reason === 'threshold') return { cancel: true };
+      // recap (size-bounded) mode AND only when a summarizer resolves: with
+      // none, the recap never covers anything and the floor would silently
+      // drop history, so let pi summarize it instead. Manual `/compact` and
+      // genuine overflow recovery always run (belt-and-suspenders safety net).
+      if (ownCompaction && reason === 'threshold' && (getSummarizer(ctx)?.isEnabled() ?? false)) {
+        return { cancel: true };
+      }
       // Manual / overflow (or threshold when not owning): fold the evicted
       // span into the recap so continuity survives the compaction.
       try {
@@ -2583,7 +2591,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     promptGuidelines: [
       'Save a `character` (roleplay action `save`) for a recurring character: voice, appearance, speech tics, hard constraints, first message, example dialogue.',
       'A character sheet auto-folds into the scene when `pinned: true` or when its name/alias appears in the recent messages - prefer that over a `roleplay read` (set `pinned` on always-present leads; add `aliases` for nicknames).',
-      'The active cast is derived from the active persona (or `PI_ROLEPLAY_CAST`); switch it with `/roleplay cast <name>`.',
+      'The active cast comes from `/roleplay cast <name>` if set, else the active persona `cast:` (or the persona name).',
       'Keep scene-level one-off detail in `scratchpad` / drafts; promote only durable cast facts here.',
     ],
     parameters: RoleplayParams,
@@ -3001,7 +3009,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
           queued = await gen.generate({ cwd, model: ctx.model, modelRegistry: ctx.modelRegistry as never }, task);
         }
         if (queued === null) {
-          const deckPick = pickDeckEvent(cfg.events);
+          const deckPick = pickDeckEvent(cfg.events, Math.random, cfg.eventMaxChars);
           if (deckPick !== undefined) queued = deckPick;
         }
         if (queued === null) {

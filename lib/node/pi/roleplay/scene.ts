@@ -66,8 +66,9 @@ interface SceneSection {
  * in `characters` and as `pov` renders once, tagged as the player.
  *
  * Callers supply `characters` in **precedence order** (highest first);
- * the roleplay shell passes persona-declared + `pinned` + name-triggered
- * folds in that order. Budget eviction respects that precedence:
+ * the roleplay shell passes persona-declared (author's listed order) +
+ * `pinned` + name-triggered folds in that order, each fold tier pre-ranked
+ * by character `order` descending. Budget eviction respects that precedence:
  *   - the **POV sheet is never evicted** (highest precedence, `pov` >
  *     `pinned` > name-triggered) - its cost is reserved before any NPC,
  *   - NPC sheets are kept greedily in the given order, so the lowest-
@@ -181,7 +182,8 @@ export interface SceneFoldResult {
  * per-run `roleplay-scene-fold` reminder (kept off the cached system
  * prompt). Same `### <Name>` section shape as {@link composeSceneBlock} but
  * with no POV announcement and its own budget: sheets are kept greedily in
- * the given order, the first is always kept so a small cap never blanks the
+ * the given order (callers pre-rank by character `order` descending), the
+ * first is always kept so a small cap never blanks the
  * block, and omitted sheets are reported via a trailer. Pure.
  */
 export function composeSceneFoldBlock(

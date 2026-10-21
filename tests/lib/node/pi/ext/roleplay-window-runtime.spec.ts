@@ -15,6 +15,7 @@ import type * as summarizeModule from '../../../../../lib/node/pi/roleplay/summa
 // The recap roll runs through `createSummarizer`; stub it so no child model is spawned
 // and each test scripts the summarizer's answers (and their timing).
 const stub = vi.hoisted(() => ({
+  enabled: true,
   summarizeDetailed:
     vi.fn<
       (
@@ -27,7 +28,7 @@ const stub = vi.hoisted(() => ({
 vi.mock('../../../../../lib/node/pi/roleplay/summarize.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof summarizeModule>()),
   createSummarizer: () => ({
-    isEnabled: () => true,
+    isEnabled: () => stub.enabled,
     summarizeDetailed: stub.summarizeDetailed,
     summarize: () => Promise.resolve(null),
   }),
@@ -55,6 +56,7 @@ beforeEach(() => {
   }
   vi.stubEnv('PI_ROLEPLAY_CONTEXT_DEBUG', '1');
   stub.summarizeDetailed.mockReset();
+  stub.enabled = true;
 });
 
 afterEach(async () => {
@@ -135,6 +137,8 @@ interface Harness {
   request: (messages: Message[]) => Promise<Message[]>;
   dispatch: (name: string) => Promise<void>;
   compact: () => Promise<void>;
+  /** Run `session_before_compact` with `reason` and return the first handler result. */
+  beforeCompact: (reason: string) => Promise<unknown>;
   recaps: () => { coveredFrom: number; coveredTo: number; mode: string; applied: boolean; recap: string }[];
   debug: () => DebugEntry[];
   carryOver: string;
@@ -226,6 +230,13 @@ async function harness(config: Record<string, unknown>): Promise<Harness> {
     compact: async () => {
       stored.push({ type: 'compaction' });
       await dispatch('session_compact');
+    },
+    beforeCompact: async (reason) => {
+      for (const handler of hooks.get('session_before_compact') ?? []) {
+        const result = await handler({ type: 'session_before_compact', reason, preparation: {} }, ctx);
+        if (result !== undefined) return result;
+      }
+      return undefined;
     },
     recaps: () => customs('roleplay-context-recap'),
     debug: () => customs<DebugEntry>('roleplay-context-window-debug'),
@@ -426,4 +437,18 @@ test('/roleplay export writes a V2 card once and /roleplay rel lists relationshi
   expect(await h.command('export mira')).toContain('already exists; pick another path');
   expect(await h.command('export nobody')).toContain('no character "nobody"');
   expect(await h.command('export mira sub/m.json')).toContain('sub/m.json');
+});
+
+test('recap mode cancels threshold compaction only when a summarizer resolves', async () => {
+  const h = await harness({});
+  expect(await h.beforeCompact('threshold')).toStrictEqual({ cancel: true });
+  // Manual compaction is never cancelled.
+  expect(await h.beforeCompact('manual')).toBeUndefined();
+});
+
+test('recap mode lets pi run threshold compaction when no summarizer resolves', async () => {
+  stub.enabled = false;
+  const h = await harness({});
+  expect(await h.beforeCompact('threshold')).toBeUndefined();
+  expect(stub.summarizeDetailed).not.toHaveBeenCalled();
 });

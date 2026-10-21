@@ -136,10 +136,10 @@ payload or consuming a queued event.
 
 On a small window (a model whose context is largely consumed by a big fixed system prompt) pi's threshold compaction
 see-saws: compaction fires on the small slice it can touch, reclaims little, and each shrink resets any positional
-window. The extension instead reduces the conversation in the `context` hook every turn and owns threshold compaction.
-The per-turn arithmetic is [`window-pass.ts`](../../../lib/node/pi/roleplay/window-pass.ts) over the primitives in
-[`context-window.ts`](../../../lib/node/pi/roleplay/context-window.ts); mutable state is grouped in
-[`window-state.ts`](../../../lib/node/pi/roleplay/window-state.ts).
+window. The extension instead reduces the conversation in the `context` hook every turn and owns threshold compaction
+while a summarizer resolves. The per-turn arithmetic is [`window-pass.ts`](../../../lib/node/pi/roleplay/window-pass.ts)
+over the primitives in [`context-window.ts`](../../../lib/node/pi/roleplay/context-window.ts); mutable state is grouped
+in [`window-state.ts`](../../../lib/node/pi/roleplay/window-state.ts).
 
 ### Zones
 
@@ -165,8 +165,9 @@ tool result.
 ### Modes
 
 - **Recap mode** (summarize on + window on): layered drop + condense, then the recap and timeline prefixes. The
-  extension cancels pi's `threshold` compaction in `session_before_compact`; manual `/compact` and overflow recovery
-  still run.
+  extension cancels pi's `threshold` compaction in `session_before_compact` only when the lazily built summarizer
+  resolves (`getSummarizer(ctx)?.isEnabled()`, no spawn); with none it lets pi compact so history is summarized rather
+  than silently dropped by the safety floor. Manual `/compact` and overflow recovery always run.
 - **Condense-only floor** (`PI_ROLEPLAY_DISABLE_SUMMARIZE=1`): condenses but keeps every message, so it does not own
   compaction.
 - **Window off** (`PI_ROLEPLAY_DISABLE_CONTEXT_WINDOW=1`): no reduction.
@@ -227,7 +228,7 @@ off and the floor engaged, the oldest turns are hard-dropped; otherwise the cond
 
 ### Compaction interplay
 
-- **Threshold** compaction is cancelled in recap mode.
+- **Threshold** compaction is cancelled in recap mode when a summarizer resolves; otherwise pi compacts normally.
 - **Side-write.** On manual / overflow compaction (and threshold when not owned) `session_before_compact` folds the
   evicted span into the recap. The prior is the in-memory branch recap, falling back to `summary/auto.md` only when this
   process holds none. An accepted recap refreshes the carry-over file, upserts the `summary/auto` entry in the in-memory
@@ -378,7 +379,8 @@ Lore and scene:
 - [`scene.ts`](../../../lib/node/pi/roleplay/scene.ts) - `composeSceneBlock` (head) and `composeSceneFoldBlock`
   (name-triggered reminder block, own budget).
 - [`scene-fold.ts`](../../../lib/node/pi/roleplay/scene-fold.ts) - `planCharacterFold` (pinned + name/alias/trigger
-  match with timing) and `selectFoldDeliveries` (refresh rule).
+  match with timing, each tier ranked by `rankByCharacterOrder`: `order` descending, ties by cast id) and
+  `selectFoldDeliveries` (refresh rule).
 - [`macros.ts`](../../../lib/node/pi/roleplay/macros.ts) - macro substitution, `{{roll}}` caps (`MAX_ROLL_DICE`,
   `MAX_ROLL_SIDES`), and `hashString` / `mulberry32` / `seededRng` for session-stable head text.
 - [`text.ts`](../../../lib/node/pi/roleplay/text.ts) - `clampWords`, `normalizeInjectedBody`.
@@ -415,8 +417,8 @@ Relationships, events, and subagents:
   formatter.
 - [`repetition.ts`](../../../lib/node/pi/roleplay/repetition.ts) - `detectRepetition`, `buildExcludeSet`,
   `formatRepetitionNudge`.
-- [`event.ts`](../../../lib/node/pi/roleplay/event.ts) - event task builder, director framing, `pickDeckEvent`,
-  `isNullEventSentinel` / `validateEvent`, settings, and the `createEventGenerator` adapter.
+- [`event.ts`](../../../lib/node/pi/roleplay/event.ts) - event task builder, director framing, `pickDeckEvent` (capped
+  at `eventMaxChars`), `isNullEventSentinel` / `validateEvent`, settings, and the `createEventGenerator` adapter.
 - [`one-shot.ts`](../../../lib/node/pi/roleplay/one-shot.ts) - shared child-model settings cascade and one-shot adapter
   scaffolding.
 - [`prompt-override.ts`](../../../lib/node/pi/roleplay/prompt-override.ts) - `prompts/<name>.md` guidance overrides.

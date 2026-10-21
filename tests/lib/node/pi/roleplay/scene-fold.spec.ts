@@ -11,6 +11,7 @@ import {
   characterKeys,
   characterMatches,
   planCharacterFold,
+  rankByCharacterOrder,
   selectFoldDeliveries,
 } from '../../../../../lib/node/pi/roleplay/scene-fold.ts';
 import { type CharacterMeta, type RoleplayEntry } from '../../../../../lib/node/pi/roleplay/store.ts';
@@ -165,4 +166,35 @@ test('selectFoldDeliveries floors refreshTurns at 1 (every turn)', () => {
       refreshTurns: 0,
     }),
   ).toStrictEqual(['a']);
+});
+
+// ── order ranking ────────────────────────────────────────────────────────────
+
+test('rankByCharacterOrder sorts by order descending and keeps input order on ties', () => {
+  const orderOf = new Map([
+    ['a', 0],
+    ['b', 5],
+    ['c', 0],
+    ['d', 5],
+  ]);
+  expect(rankByCharacterOrder(['a', 'b', 'c', 'd', 'unknown'], orderOf)).toStrictEqual(['b', 'd', 'a', 'c', 'unknown']);
+  expect(rankByCharacterOrder(['x', 'y'], new Map())).toStrictEqual(['x', 'y']);
+});
+
+test('planCharacterFold ranks each tier by order so higher order survives tail eviction', () => {
+  const entries = [
+    char('alpha', 'Alpha', { pinned: true }),
+    char('beta', 'Beta', { pinned: true, order: 10 }),
+    char('gamma', 'Gamma'),
+    char('delta', 'Delta', { order: 3 }),
+    char('eps', 'Eps', { order: -1 }),
+  ];
+  const { firedIds, pinnedIds } = planCharacterFold(entries, {
+    scanText: 'Gamma, Delta and Eps arrive',
+    turn: 1,
+    priorTiming: {},
+    rng: always,
+  });
+  expect(pinnedIds).toStrictEqual(['beta', 'alpha']);
+  expect(firedIds.filter((id) => !pinnedIds.includes(id))).toStrictEqual(['delta', 'gamma', 'eps']);
 });

@@ -20,9 +20,11 @@
  * {@link applyTiming} does the sticky / cooldown / probability / delay
  * timing (a `CharacterMeta` is mapped onto the {@link LoreMeta}-shaped
  * timing input, with `pinned` playing the role of lore's `constant`).
- * Ranking + budget eviction stays in `composeSceneBlock` (the scene-block
- * renderer already owns a bounded greedy priority-eviction), so this
- * module only decides *which* characters are eligible to fold this turn.
+ * Budget eviction stays in `composeSceneBlock` (the scene-block renderer
+ * already owns a bounded greedy tail-eviction), so this module decides
+ * *which* characters are eligible to fold this turn and ranks them: each
+ * tier is sorted by `order` descending (higher kept longer under budget
+ * pressure), ties keeping the input (cast id) order.
  */
 
 import { hasKeyword } from './match.ts';
@@ -36,9 +38,9 @@ interface CharacterCandidate {
 }
 
 export interface CharacterFoldResult {
-  /** Ids of the characters that fold this turn, in input order. */
+  /** Ids of the characters that fold this turn, by `order` descending (ties in input order). */
   firedIds: string[];
-  /** Ids that folded purely because they are `pinned` (subset of `firedIds`). */
+  /** Ids that folded because they are `pinned` (subset of `firedIds`, same ranking). */
   pinnedIds: string[];
   /** Next-turn timing state for the character-fold pass (feed back as `prior`). */
   nextTiming: Record<string, TimingState>;
@@ -96,11 +98,24 @@ function timingMeta(meta: CharacterMeta): LoreMeta {
 }
 
 /**
+ * Stable-sort ids by their character `order` descending, so the renderers'
+ * tail-eviction drops the lowest `order` first. Equal `order` keeps the
+ * incoming order. Pure.
+ */
+export function rankByCharacterOrder(ids: readonly string[], orderOf: ReadonlyMap<string, number>): string[] {
+  return ids
+    .map((id, index) => ({ id, index, order: orderOf.get(id) ?? 0 }))
+    .toSorted((a, b) => b.order - a.order || a.index - b.index)
+    .map((x) => x.id);
+}
+
+/**
  * Decide which `character` entries fold into the scene this turn. Non-
  * character entries are ignored. Pinned characters fold every turn; other
  * characters fold when a key matches `scanText`, and a prior fold is kept
  * alive by its sticky window. Timing (sticky / cooldown / probability /
- * delay) is delegated to {@link applyTiming}. Pure: never mutates
+ * delay) is delegated to {@link applyTiming}. Both returned id lists are
+ * ranked by {@link rankByCharacterOrder}. Pure: never mutates
  * `priorTiming`.
  */
 export function planCharacterFold(entries: readonly RoleplayEntry[], opts: CharacterFoldOptions): CharacterFoldResult {
@@ -119,9 +134,11 @@ export function planCharacterFold(entries: readonly RoleplayEntry[], opts: Chara
     opts.rng,
   );
 
-  const firedSet = new Set(timed.fired);
-  const pinnedIds = candidates.filter((c) => c.meta.pinned && firedSet.has(c.entry.id)).map((c) => c.entry.id);
-  return { firedIds: timed.fired, pinnedIds, nextTiming: timed.nextState };
+  const orderOf = new Map(candidates.map((c) => [c.entry.id, c.meta.order]));
+  const firedIds = rankByCharacterOrder(timed.fired, orderOf);
+  const pinnedSet = new Set(candidates.filter((c) => c.meta.pinned).map((c) => c.entry.id));
+  const pinnedIds = firedIds.filter((id) => pinnedSet.has(id));
+  return { firedIds, pinnedIds, nextTiming: timed.nextState };
 }
 
 export interface FoldDeliveryOptions {
