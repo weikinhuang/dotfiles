@@ -16,6 +16,9 @@ None of those carry a token budget, which llama.cpp-hosted reasoning models (Qwe
 their thinking phase. This extension watches outgoing requests and, for providers that opt in via `models.json`, adds a
 numeric `thinking_budget_tokens` (field name configurable) derived from the current thinking level.
 
+It also carries a small, provider-independent [think-leak guard](#leaked-think-guard) that moves a stray literal
+`</think>` segment out of visible OpenAI-completions replies.
+
 ## How the injection works
 
 - Hook: `pi.on('before_provider_request', …)` - returns a mutated payload clone (`{ ...p, [field]: budget }`),
@@ -65,6 +68,8 @@ Budget resolution order per level (first defined wins): env override → provide
 ## Environment variables
 
 - `PI_LLAMA_THINKING_BUDGET_DISABLED=1` - skip the extension entirely (nothing registers).
+- `PI_LLAMA_THINKING_BUDGET_DISABLE_THINK_GUARD=1` - keep stray `</think>` text visible (disables only the
+  [think-leak guard](#leaked-think-guard); budget injection still runs).
 - `PI_LLAMA_BUDGET_MINIMAL` - override minimal-level budget (positive int).
 - `PI_LLAMA_BUDGET_LOW` - override low-level budget.
 - `PI_LLAMA_BUDGET_MEDIUM` - override medium-level budget.
@@ -95,6 +100,40 @@ Three server-side preconditions must hold for an injected budget to actually tak
    empty.
 3. Any proxy in front of llama.cpp (e.g. a LiteLLM gateway) must forward the non-standard `thinking_budget_tokens` and
    `chat_template_kwargs` params rather than stripping them (`drop_params` / `allowed_openai_params`).
+
+## Leaked `</think>` guard
+
+llama.cpp's reasoning parser splits only the **first** `<think>…</think>` span into `reasoning_content`. Qwen-family
+models with thinking enabled (seen at both `low` and `xhigh` effort) often keep deliberating after that split: they
+write a draft answer into the visible channel, emit a second literal `</think>`, then write the real answer. The server
+streams all of it as plain `content`, so the reply reads `draft </think> final`. Verified against a LiteLLM -> llama.cpp
+gateway with a Qwen 3.8 27B model: `reasoning_content` is split correctly for both `enable_thinking: true` and `false`,
+so this is model output, not a server-flag or template problem, and no server flag can repair it.
+
+The guard runs on `message_end` for every assistant message whose `api` is `openai-completions` (independent of the
+`thinkingBudgetInjection` opt-in). When a visible text part contains `<think>` / `</think>`, the pure helper
+[`splitLeakedThinking`](../../../lib/node/pi/llama-thinking-budget/think-leak.ts) moves everything before the **last**
+`</think>` into a `thinking` part (reusing the message's existing thinking signature, default `reasoning_content`) and
+keeps only the trailing answer visible. When nothing follows the last closer, the text stays visible with the tags
+stripped so a reply is never hidden. The repaired message replaces the original in place, so `pi -p` output, the session
+`.jsonl`, and later replays all see the clean version. The TUI may show the raw text while it streams; the final message
+is the repaired one.
+
+## Recommended server and `models.json` setup
+
+- Run llama.cpp with `--jinja` and the default `--reasoning-format` (`auto` / `deepseek`), so thinking lands in
+  `reasoning_content`. `--reasoning-format none` puts `<think>` blocks in `content` and defeats both pi's thinking
+  channel and this guard's single-leak assumption.
+- Any proxy in front (LiteLLM) must forward `chat_template_kwargs` and `thinking_budget_tokens` (see preconditions
+  above). A dropped `chat_template_kwargs` makes `--thinking off` a no-op on the server.
+- A `thinkingLevelMap` entry set to `null` marks that level unsupported, and pi clamps it to the nearest supported
+  level. With `defaultThinkingLevel: "high"` in `settings.json` and `"high": null` in the map (the current `qwen3-8-27b`
+  entry), every model switch that falls back to the settings default sends `reasoning_effort: "xhigh"`. Map `"high"` to
+  a real effort (or lower the settings default) if that is not intended. The persona model-swap path no longer falls
+  back to the default; see [persona thinking-level precedence](./persona.md#thinking-level-precedence).
+- `preserve_thinking` is not the trigger. In 10-turn roleplay A/B runs on a Qwen 3.8 27B at `low` effort, raw leaks hit
+  1-4 of 10 replies with `preserve_thinking: true` and 4 of 10 with `false`; with thinking `off`
+  (`enable_thinking: false`) there were none in 10. Keep the guard on for any thinking-enabled Qwen chat-template model.
 
 ## Hot reload
 

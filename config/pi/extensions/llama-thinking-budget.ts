@@ -53,8 +53,15 @@
  *
  * Env:
  *   PI_LLAMA_THINKING_BUDGET_DISABLED=1  skip the extension entirely
+ *   PI_LLAMA_THINKING_BUDGET_DISABLE_THINK_GUARD=1
+ *                                        keep stray `</think>` text visible
  *   PI_LLAMA_BUDGET_DEBUG=<path>         append one diagnostic line per
  *                                        request decision to <path>
+ *
+ * Think-leak guard (independent of the budget opt-in): on `message_end`,
+ * an OpenAI-completions assistant message whose visible text carries a
+ * literal `</think>` gets everything before the last closer moved into a
+ * `thinking` part (see `think-leak.ts`).
  *
  * The pure logic lives under `lib/node/pi/llama-thinking-budget/`; this
  * shell only reads env / cwd, loads config, and wires the hook.
@@ -68,6 +75,7 @@ import { computeInjection } from '../../../lib/node/pi/llama-thinking-budget/inj
 import { loadProviderInjections, loadSettingsBudgets } from '../../../lib/node/pi/llama-thinking-budget/load-config.ts';
 import { envBudgets } from '../../../lib/node/pi/llama-thinking-budget/resolve-budget.ts';
 import { resolveThinkingLevel } from '../../../lib/node/pi/llama-thinking-budget/session-thinking-level.ts';
+import { type ContentPartLike, splitLeakedThinking } from '../../../lib/node/pi/llama-thinking-budget/think-leak.ts';
 import { type Level } from '../../../lib/node/pi/llama-thinking-budget/types.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 
@@ -83,6 +91,16 @@ export default function llamaThinkingBudgetExtension(pi: ExtensionAPI): void {
   // TODO(phase-k): add a command-surface spec asserting this guard skips
   // registration once this extension gains a spec file.
   if (envTruthy(process.env.PI_LLAMA_THINKING_BUDGET_DISABLED)) return;
+
+  if (!envTruthy(process.env.PI_LLAMA_THINKING_BUDGET_DISABLE_THINK_GUARD)) {
+    pi.on('message_end', (event) => {
+      const msg = event.message as { role?: string; api?: string; content?: unknown };
+      if (msg.role !== 'assistant' || msg.api !== 'openai-completions' || !Array.isArray(msg.content)) return;
+      const content = splitLeakedThinking(msg.content as ContentPartLike[]);
+      if (!content) return;
+      return { message: { ...event.message, content } as typeof event.message };
+    });
+  }
 
   const providers = loadProviderInjections(process.cwd());
   if (providers.size === 0) return; // No providers opted in - no-op.
