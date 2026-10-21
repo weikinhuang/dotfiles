@@ -33,9 +33,9 @@
  *     so /fork, /tree, and session-usage can see delegated runs.
  *   - Statusline integration through `ctx.ui.setStatus('subagent', …)` -
  *     statusline.ts already renders extension statuses on line 3.
- *   - Companion `/agents` command lists loaded agent definitions
- *     (`/agents`), shows one (`/agents show <name>`), or lists active
- *     background children (`/agents running`).
+ *   - Companion `/agents` command shows active background children
+ *     (`/agents`, alias `/agents running`), lists loaded agent
+ *     definitions (`/agents list`), or shows one (`/agents show <name>`).
  *
  * Environment:
  *   PI_SUBAGENT_DISABLED=1              skip the extension entirely
@@ -47,15 +47,17 @@
  *   PI_SUBAGENT_RETAIN_DAYS=N           retain child session files for N days (default 30)
  *   PI_SUBAGENT_STATUS_LINGER_MS=N      keep completed status visible for N ms (default 5000)
  *   PI_SUBAGENT_MAX_TURNS=N             global max-turns cap (wins over per-agent setting)
- *   PI_SUBAGENT_TIMEOUT_MS=N            global wall-clock cap (wins over per-agent setting)
+ *   PI_SUBAGENT_TIMEOUT_MS=N            global wall-clock hard cap (wins over per-agent + per-call settings)
+ *   PI_SUBAGENT_MAX_TIMEOUT_MS=N        ceiling on a per-call `timeoutMs` override (default 1 h)
  *   PI_SUBAGENT_MODEL=provider/id       global model override applied to every child
  *   PI_SUBAGENT_BG_MAX=N                max entries retained in the background registry (default 32)
  *   PI_SUBAGENT_BG_SHUTDOWN_MS=N        wall-clock cap on the shutdown abort-and-dispose loop (default 2000)
  *
  * Commands:
- *   /agents              list every loaded agent with its source layer
+ *   /agents              list active background sub-agents + their snapshots (alias: /agents running)
+ *   /agents list         list every loaded agent with its source layer
  *   /agents show <name>  print full frontmatter + body of agent <name>
- *   /agents running      list active background sub-agents + their snapshots
+ *   /agents reload       re-scan agent directories and report what loaded
  *
  * Pure helpers live under `../../../lib/node/pi/subagent/` so they
  * can be unit-tested under vitest without the pi runtime.
@@ -113,6 +115,7 @@ import {
   formatSpawnMessage,
   formatSubagentScorecard,
   formatSubagentStatus,
+  formatUnknownAgentError,
   scorecardGlyph,
   subagentDetailsToSnapshot,
   type AgentPreviewSource,
@@ -123,7 +126,7 @@ import {
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { completeSubverbs } from '../../../lib/node/pi/commands/complete.ts';
 import { makeHandleCounter, pruneBackgroundRegistry, resolveHandle } from '../../../lib/node/pi/subagent/handle.ts';
-import { AGENTS_USAGE } from '../../../lib/node/pi/subagent/usage.ts';
+import { AGENTS_USAGE, agentsSubverbSpec, parseAgentsCommand } from '../../../lib/node/pi/subagent/usage.ts';
 import { buildForkPrompt, RECURSIVE_TOOL_NAMES, resolveForkMode } from '../../../lib/node/pi/subagent/fork.ts';
 import { createNotifyOnce } from '../../../lib/node/pi/notify-once.ts';
 import {
@@ -133,8 +136,10 @@ import {
   defaultAgentLayers,
   loadAgents,
   makeNodeReadLayer,
+  resolveAgentWithRescan,
+  resolveKnownToolNames,
 } from '../../../lib/node/pi/subagent/loader.ts';
-import { resolveFinalText } from '../../../lib/node/pi/subagent/result.ts';
+import { formatRunResultText, formatStopSummary } from '../../../lib/node/pi/subagent/result.ts';
 import {
   childSessionDir,
   subagentSessionRoot,
@@ -151,7 +156,7 @@ import {
   type WorktreeRemovalResult,
 } from '../../../lib/node/pi/subagent/worktree.ts';
 import { createChildRun, resolveChildModel } from '../../../lib/node/pi/subagent/spawn.ts';
-import { resolveMaxTurns } from '../../../lib/node/pi/subagent/budget.ts';
+import { resolveMaxTurns, resolveTimeoutMs } from '../../../lib/node/pi/subagent/budget.ts';
 import { type SubagentConfig, loadSubagentConfig } from '../../../lib/node/pi/subagent/config.ts';
 import { collectSubagentInjections } from '../../../lib/node/pi/subagent/extension-injection.ts';
 import { envTruthy, parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
@@ -235,6 +240,12 @@ export interface SubagentDetails {
   contextTokens?: number;
   /** Context window of the child's model. */
   contextWindow?: number;
+  /** Effective wall-clock cap (ms) for this dispatch. */
+  timeoutMs?: number;
+  /** True when the wall-clock cap (not the parent) stopped the child. */
+  timedOut?: boolean;
+  /** Files the child tried to write via write / edit / apply_patch. */
+  touchedFiles?: string[];
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -445,6 +456,8 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     /** Prevent late completions from mutating a replacement session. */
     generation: number;
     releaseCapacity(): void;
+    /** Files the child has tried to write so far (live, for status polls). */
+    touchedFiles(): string[];
   }
 
   const backgroundChildren = new Map<string, RunningChild>();
@@ -480,6 +493,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       byTool: snap.byTool,
       contextTokens: snap.contextTokens,
       contextWindow: snap.contextWindow,
+      touchedFiles: entry.touchedFiles(),
     };
   };
 
@@ -525,7 +539,10 @@ export default function subagentExtension(pi: ExtensionAPI): void {
   };
 
   const reload = (cwd: string): void => {
-    const knownToolNames = new Set(pi.getAllTools().map((t) => t.name));
+    // pi.getAllTools() throws during extension loading; the helper falls
+    // back to a permissive filter so the factory-time load still yields
+    // agent names + descriptions for the tool schema.
+    const knownToolNames = resolveKnownToolNames(() => pi.getAllTools());
     const layers = defaultAgentLayers({ extensionDir: extDir, cwd });
     loadResult = loadAgents({
       layers,
@@ -719,7 +736,16 @@ export default function subagentExtension(pi: ExtensionAPI): void {
         minimum: 1,
         maximum: 1000,
         description:
-          "Optional `maxTurns` cap (default: the agent's `.md`, 20 for general-purpose). Raise for large multi-file work. Bounded by `PI_SUBAGENT_MAX_TURNS`.",
+          "Optional `maxTurns` cap (default: the agent's `.md`, 20 when unset). Raise for large multi-file work. Bounded by `PI_SUBAGENT_MAX_TURNS`.",
+      }),
+    ),
+    timeoutMs: Type.Optional(
+      Type.Integer({
+        minimum: 1000,
+        description:
+          "Optional wall-clock cap in ms for this call (default: the agent's `.md` `timeoutMs`, 180000 when unset). " +
+          'Raise for long implementation work (e.g. 1200000 = 20 min). Clamped to the `maxTimeoutMs` ceiling ' +
+          '(default 3600000 = 1 h) and bounded by `PI_SUBAGENT_TIMEOUT_MS`.',
       }),
     ),
   });
@@ -759,6 +785,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     task: string;
     modelOverride: string | undefined;
     maxTurnsOverride: number | undefined;
+    timeoutOverride: number | undefined;
     returnFormat: 'text' | 'json' | undefined;
     ctx: ExtensionContext;
     parentSignal: AbortSignal | undefined;
@@ -773,6 +800,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       task,
       modelOverride,
       maxTurnsOverride,
+      timeoutOverride,
       returnFormat,
       ctx,
       parentSignal,
@@ -1041,6 +1069,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       abort: () => run.abort(),
       generation,
       releaseCapacity,
+      touchedFiles: () => run.touchedFiles(),
     };
 
     const pushStatus = (state: SubagentRunSnapshot['state'], opts?: { durationMs?: number }): void => {
@@ -1071,7 +1100,20 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     const activityState = makeActivityState();
     getSessionActivityRings().set(handle, activityRing);
 
-    const timeoutMs = Math.min(agent.timeoutMs, envPositiveInt('PI_SUBAGENT_TIMEOUT_MS', Number.MAX_SAFE_INTEGER));
+    // Per-call `timeoutMs` (clamped to the config `maxTimeoutMs` ceiling)
+    // > agent frontmatter; PI_SUBAGENT_TIMEOUT_MS stays the global hard cap.
+    const { timeoutMs, clampedToCeiling } = resolveTimeoutMs({
+      override: timeoutOverride,
+      agentDefault: agent.timeoutMs,
+      maxTimeoutMs: subagentConfig.maxTimeoutMs,
+      hardCap: envPositiveInt('PI_SUBAGENT_TIMEOUT_MS', Number.MAX_SAFE_INTEGER),
+    });
+    if (clampedToCeiling) {
+      ctx.ui.notify(
+        `subagent: timeoutMs ${timeoutOverride} exceeds the ${subagentConfig.maxTimeoutMs}ms ceiling (maxTimeoutMs); clamped`,
+        'warning',
+      );
+    }
     run = createChildRun({
       session: child,
       maxTurns,
@@ -1135,16 +1177,24 @@ export default function subagentExtension(pi: ExtensionAPI): void {
         if (worktree) cleanup = removeWorktree(parentCwd, worktree);
       }
       const stopReason = outcome.stopReason;
-      const finalText = resolveFinalText({
-        stopReason,
-        finalText: outcome.finalText,
+      const durationMs = Date.now() - start;
+      // Non-completed stops lead with an explicit headline (timeout /
+      // turn cap / abort / error) plus the files the child tried to
+      // write; the child's last assistant text trails as "Last message".
+      const finalText = formatRunResultText({
         agent: agent.name,
+        stopReason,
+        timedOut: outcome.timedOut,
+        timeoutMs,
+        durationMs,
+        turns: outcome.turns,
         maxTurns,
-        childErrorMessage: outcome.errorMessage,
+        touchedFiles: outcome.touchedFiles,
+        errorMessage: outcome.errorMessage,
+        finalText: outcome.finalText,
       });
 
       // ── Final status with duration atomically, then schedule linger clear ─
-      const durationMs = Date.now() - start;
       const finalState: SubagentRunSnapshot['state'] =
         stopReason === 'completed'
           ? 'completed'
@@ -1212,6 +1262,9 @@ export default function subagentExtension(pi: ExtensionAPI): void {
         byTool: snapshotByTool(agg.tools),
         contextTokens: agg.contextTokens > 0 ? agg.contextTokens : undefined,
         contextWindow: childModel?.contextWindow,
+        timeoutMs,
+        timedOut: outcome.timedOut || undefined,
+        touchedFiles: outcome.touchedFiles.length > 0 ? outcome.touchedFiles : undefined,
       };
 
       const result: RunChildResult = {
@@ -1238,6 +1291,11 @@ export default function subagentExtension(pi: ExtensionAPI): void {
   // Tool registration
   // ────────────────────────────────────────────────────────────────────
 
+  // The description (agent list included) is built ONCE, here, from the
+  // factory-time scan and never re-registered: changing a tool schema
+  // mid-session would invalidate the prompt cache. Agents added later are
+  // still callable via the lazy re-scan in execute(); `/reload` re-runs
+  // this factory and is the only path that refreshes the description.
   pi.registerTool({
     name: 'subagent',
     label: 'Subagent',
@@ -1254,14 +1312,24 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 
     async execute(_toolCallId, rawParams, signal, _onUpdate, ctx) {
       const params = rawParams;
-      const agent: AgentDef | undefined = loadResult.agents.get(params.agent);
+      // Unknown name: re-scan the agent directories once so a `.md` added
+      // mid-session works without `/reload`. The tool description keeps
+      // its startup snapshot (rebuilding it mid-session would bust the
+      // prompt cache); the lookup itself is always live.
+      const { agent } = resolveAgentWithRescan(
+        params.agent,
+        () => loadResult,
+        () => {
+          reload(ctx.cwd);
+          surfaceWarnings(ctx, loadResult.warnings);
+        },
+      );
       if (!agent) {
-        const available = loadResult.nameOrder.join(', ') || '(none loaded)';
         return {
           content: [
             {
               type: 'text',
-              text: `subagent: unknown agent "${params.agent}". Available: ${available}`,
+              text: formatUnknownAgentError(params.agent, loadResult.nameOrder),
             },
           ],
           details: {
@@ -1318,6 +1386,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
           task: params.task,
           modelOverride: params.modelOverride,
           maxTurnsOverride: params.maxTurns,
+          timeoutOverride: params.timeoutMs,
           returnFormat: params.returnFormat,
           ctx,
           // Background work detaches from the spawning turn, not from
@@ -1397,7 +1466,10 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       if (background) {
         return {
           content: [
-            { type: 'text', text: formatSpawnMessage({ handle: entry.handle, agent: agent.name, task: params.task }) },
+            {
+              type: 'text',
+              text: formatSpawnMessage({ handle: entry.handle, agent: agent.name, task: params.task }),
+            },
           ],
           details: spawnedDetails,
           isError: false,
@@ -1448,7 +1520,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
         snapshot: subagentDetailsToSnapshot(details, stopReason),
         // For successful background spawns we want a "spawned in background"
         // suffix so the card visually mirrors the toast text.
-        leadSuffix: stopReason === 'spawned' ? 'spawned in background' : undefined,
+        leadSuffix: stopReason === 'spawned' ? 'spawned in background' : details.timedOut ? 'timed out' : undefined,
       });
       const first = result.content.find((c) => c.type === 'text');
       const body = first?.type === 'text' ? first.text : '';
@@ -1652,9 +1724,36 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       // entries formatSubagentStatus intentionally hides elapsed time,
       // so we leave the snapshot untouched and expose wall-clock only
       // via the `details.durationMs` payload.
+      // A finished child that did not complete (timeout / turn cap / abort /
+      // error) gets the same explicit headline + touched-file list the
+      // `wait` result leads with; a running child lists writes so far.
+      const statusLines = [formatSubagentStatus(entry.snapshot)];
+      const outcomeDetails = entry.outcome?.details;
+      if (outcomeDetails) {
+        const summary =
+          outcomeDetails.stopReason === 'completed' ||
+          outcomeDetails.stopReason === 'running' ||
+          outcomeDetails.stopReason === 'spawned'
+            ? undefined
+            : formatStopSummary({
+                agent: outcomeDetails.agent,
+                stopReason: outcomeDetails.stopReason,
+                timedOut: outcomeDetails.timedOut,
+                timeoutMs: outcomeDetails.timeoutMs,
+                durationMs: outcomeDetails.durationMs,
+                turns: outcomeDetails.turns,
+                maxTurns: outcomeDetails.maxTurns ?? entry.agent.maxTurns,
+                touchedFiles: outcomeDetails.touchedFiles ?? [],
+                errorMessage: outcomeDetails.error,
+              });
+        if (summary) statusLines.push(summary);
+      } else {
+        const touched = entry.touchedFiles();
+        if (touched.length > 0) statusLines.push(`files written so far: ${touched.join(', ')}`);
+      }
       return {
-        content: [{ type: 'text', text: formatSubagentStatus(entry.snapshot) }],
-        details: entry.outcome?.details ?? entryToRunningDetails(entry),
+        content: [{ type: 'text', text: statusLines.join('\n') }],
+        details: outcomeDetails ?? entryToRunningDetails(entry),
         isError: false,
       };
     },
@@ -1731,32 +1830,41 @@ export default function subagentExtension(pi: ExtensionAPI): void {
   // ────────────────────────────────────────────────────────────────────
 
   pi.registerCommand('agents', {
-    description: 'Inspect loaded sub-agents and active background children',
+    description: 'Show running sub-agents (default) or inspect loaded agent definitions',
     getArgumentCompletions: (prefix) =>
-      completeSubverbs(prefix, {
-        show: {
-          description: 'Show full frontmatter + body for an agent',
-          args: (tail) =>
-            loadResult.nameOrder
-              .filter((n) => n.startsWith(tail))
-              .map((n) => ({ label: n, description: loadResult.agents.get(n)?.description ?? '' })),
-        },
-        running: { description: 'List active background sub-agents' },
-      }),
+      completeSubverbs(
+        prefix,
+        agentsSubverbSpec(loadResult.nameOrder, (n) => loadResult.agents.get(n)?.description ?? ''),
+      ),
 
     handler: async (args, ctx) => {
       if (isHelpArg(args)) {
         ctx.ui.notify(AGENTS_USAGE, 'info');
         return;
       }
-      const raw = (args ?? '').trim();
+      const command = parseAgentsCommand(args);
+      if (command.verb === 'invalid') {
+        ctx.ui.notify(AGENTS_USAGE, 'warning');
+        return;
+      }
       reload(ctx.cwd);
       surfaceWarnings(ctx, loadResult.warnings);
 
-      if (raw === 'running') {
-        // Live overlay of active background children, auto-refreshing on a
-        // RUNNING_TICK_MS timer. Falls back to a flat notify when the host
-        // lacks UI (print / rpc modes).
+      if (command.verb === 'reload') {
+        const names = loadResult.nameOrder;
+        const warnCount = loadResult.warnings.length;
+        ctx.ui.notify(
+          `subagent: re-scanned agent directories - ${names.length} loaded (${names.join(', ') || 'none'})` +
+            (warnCount > 0 ? `; ${warnCount} warning(s)` : ''),
+          'info',
+        );
+        return;
+      }
+
+      if (command.verb === 'running') {
+        // Default view. Live overlay of background children, auto-refreshing
+        // on a RUNNING_TICK_MS timer. Falls back to a flat notify when the
+        // host lacks UI (print / rpc modes).
         const buildEntries = (): RunningOverlayEntry[] => {
           return [...backgroundChildren.values()]
             .sort((a, b) => a.startedAt - b.startedAt)
@@ -1802,9 +1910,8 @@ export default function subagentExtension(pi: ExtensionAPI): void {
         return;
       }
 
-      const match = /^show\s+(\S+)$/.exec(raw);
-      if (match) {
-        const name = match[1];
+      if (command.verb === 'show') {
+        const name = command.name;
         const a = loadResult.agents.get(name);
         if (!a) {
           ctx.ui.notify(
@@ -1825,11 +1932,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
         return;
       }
 
-      if (raw && raw !== 'list') {
-        ctx.ui.notify('subagent: usage: /agents [list] | /agents show <name> | /agents running', 'warning');
-        return;
-      }
-
+      // command.verb === 'list': loaded-list overlay.
       // Loaded-list overlay. Fall back to a flat notify when the host
       // lacks UI (print / rpc modes) so the command stays usable.
       const agents: AgentPreviewSource[] = loadResult.nameOrder

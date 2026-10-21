@@ -9,6 +9,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { type AgentDef } from '../../../../../lib/node/pi/subagent/loader.ts';
+import { formatRunResultText } from '../../../../../lib/node/pi/subagent/result.ts';
 import {
   adaptCreateAgentSession,
   agentWithResolvedThinking,
@@ -1038,5 +1039,72 @@ describe('runOneShotAgent', () => {
 
     expect(seen).toBe(sentinel);
     expect(seen).not.toBe(sentinelB);
+  });
+});
+
+describe('createChildRun wall-clock timeout', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  test('a child past its wall clock reports timedOut + touched files; the result text leads with the timeout', async () => {
+    const { session, emit } = makeControlledSession();
+    session.state.messages = [{ role: 'assistant', content: [{ type: 'text', text: 'Now update the tests.' }] }];
+    const run = createChildRun({ session, maxTurns: 50, timeoutMs: 300_000 });
+    const running = run.run('implement the feature');
+    await Promise.resolve();
+
+    emit({ type: 'turn_start' });
+    emit({ type: 'tool_execution_start', toolName: 'write', args: { path: 'src/feature.ts', content: 'x' } });
+    emit({ type: 'tool_execution_start', toolName: 'read', args: { path: 'src/other.ts' } });
+    emit({
+      type: 'tool_execution_start',
+      toolName: 'apply_patch',
+      args: { patch: '*** Begin Patch\n*** Update File: src/index.ts\n@@\n-a\n+b\n*** End Patch' },
+    });
+    emit({ type: 'tool_execution_start', toolName: 'edit', args: { path: 'src/feature.ts', edits: [] } });
+    emit({ type: 'message_end', message: { role: 'assistant', content: [{ type: 'toolCall' }] } });
+    emit({ type: 'turn_end', message: { role: 'assistant', content: [{ type: 'toolCall' }] } });
+    expect(run.touchedFiles()).toEqual(['src/feature.ts', 'src/index.ts']);
+
+    await vi.advanceTimersByTimeAsync(300_000);
+    const result = await running;
+    expect(result).toMatchObject({
+      stopReason: 'aborted',
+      timedOut: true,
+      turns: 1,
+      touchedFiles: ['src/feature.ts', 'src/index.ts'],
+      errorMessage: 'timed out after 300000ms',
+    });
+
+    const text = formatRunResultText({
+      agent: 'general-purpose',
+      stopReason: result.stopReason,
+      timedOut: result.timedOut,
+      timeoutMs: 300_000,
+      durationMs: 300_000,
+      turns: result.turns,
+      maxTurns: 50,
+      touchedFiles: result.touchedFiles,
+      errorMessage: result.errorMessage,
+      finalText: result.finalText,
+    });
+    const [first, ...rest] = text.split('\n');
+    expect(first).toBe('subagent "general-purpose" timed out after 300s (1 turn); partial changes may be on disk:');
+    expect(rest.slice(0, 2)).toEqual(['- src/feature.ts', '- src/index.ts']);
+    expect(text).toContain('Last message:\nNow update the tests.');
+  });
+
+  test('a parent abort is not reported as a timeout', async () => {
+    const { session } = makeControlledSession();
+    const controller = new AbortController();
+    const running = createChildRun({ session, maxTurns: 5, timeoutMs: 300_000, signal: controller.signal }).run('t');
+    await Promise.resolve();
+    controller.abort();
+    expect(await running).toMatchObject({ stopReason: 'aborted', timedOut: false, touchedFiles: [] });
   });
 });

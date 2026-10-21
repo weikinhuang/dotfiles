@@ -10,6 +10,7 @@ import {
   type AgentListItem,
   type AgentPreviewSource,
   formatAgentListDescription,
+  formatUnknownAgentError,
   formatAgentListRowDescription,
   formatAgentPreview,
   formatContextBar,
@@ -33,7 +34,8 @@ describe('formatAgentListDescription', () => {
     const out = formatAgentListDescription([]);
 
     expect(out).toContain('No agent definitions loaded');
-    expect(out).toContain('~/.pi/agents/');
+    expect(out).toContain('~/.pi/agent/agents/');
+    expect(out).toContain('.pi/agents/');
   });
 
   test('sorts alphabetically and tags non-global sources', () => {
@@ -635,5 +637,20 @@ describe('formatSubagentScorecard', () => {
 
     expect(lines[0]).toContain('2 turns');
     expect(lines[0]).not.toContain('max');
+  });
+});
+
+describe('formatUnknownAgentError', () => {
+  test('lists loaded agents and points at /agents + /reload', () => {
+    const out = formatUnknownAgentError('worker', ['explore', 'general-purpose']);
+    expect(out).toContain('unknown agent "worker"');
+    expect(out).toContain('re-scanned');
+    expect(out).toContain('Available: explore, general-purpose.');
+    expect(out).toContain('/agents list');
+    expect(out).toContain('/reload');
+  });
+
+  test('empty list says none loaded', () => {
+    expect(formatUnknownAgentError('x', [])).toContain('Available: (none loaded).');
   });
 });

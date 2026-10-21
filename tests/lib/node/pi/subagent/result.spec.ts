@@ -10,7 +10,10 @@ import {
   type AgentMessageLike,
   classifyStopReason,
   extractFinalAssistantText,
+  formatRunResultText,
+  formatStopSummary,
   resolveFinalText,
+  type StopSummaryInput,
 } from '../../../../../lib/node/pi/subagent/result.ts';
 
 describe('extractFinalAssistantText', () => {
@@ -125,5 +128,55 @@ describe('resolveFinalText', () => {
 
   test('aborted fallback', () => {
     expect(resolveFinalText({ ...base, stopReason: 'aborted', finalText: '' })).toBe('subagent explore was aborted.');
+  });
+});
+
+describe('formatStopSummary / formatRunResultText', () => {
+  const base: StopSummaryInput = {
+    agent: 'general-purpose',
+    stopReason: 'aborted',
+    timedOut: true,
+    timeoutMs: 300_000,
+    durationMs: 300_412,
+    turns: 23,
+    maxTurns: 50,
+    touchedFiles: ['src/a.ts', 'tests/a.spec.ts'],
+  };
+
+  test('completed runs return the final answer verbatim and no summary', () => {
+    expect(formatStopSummary({ ...base, stopReason: 'completed', timedOut: false })).toBeUndefined();
+    expect(formatRunResultText({ ...base, stopReason: 'completed', timedOut: false, finalText: 'done' })).toBe('done');
+  });
+
+  test('timeout leads with the timeout + touched files; last message trails', () => {
+    const out = formatRunResultText({ ...base, finalText: 'Now update the tests.' });
+    const lines = out.split('\n');
+    expect(lines[0]).toBe(
+      'subagent "general-purpose" timed out after 300s (23 turns); partial changes may be on disk:',
+    );
+    expect(lines.slice(1, 3)).toEqual(['- src/a.ts', '- tests/a.spec.ts']);
+    expect(out.endsWith('\n\nLast message:\nNow update the tests.')).toBe(true);
+  });
+
+  test('no recorded writes says so instead of listing files', () => {
+    const out = formatRunResultText({ ...base, touchedFiles: [], turns: 1, finalText: '' });
+    expect(out).toBe(
+      'subagent "general-purpose" timed out after 300s (1 turn); no write/edit/apply_patch calls were recorded (bash commands may still have changed files).',
+    );
+  });
+
+  test('max_turns, plain abort, and error each get their own headline', () => {
+    expect(formatStopSummary({ ...base, stopReason: 'max_turns', timedOut: false })?.split('\n')[0]).toBe(
+      'subagent "general-purpose" hit its 50-turn limit after 300s (23 turns); partial changes may be on disk:',
+    );
+    expect(formatStopSummary({ ...base, timedOut: false, durationMs: 4_000 })?.split('\n')[0]).toBe(
+      'subagent "general-purpose" was aborted after 4s (23 turns); partial changes may be on disk:',
+    );
+    expect(
+      formatStopSummary({ ...base, stopReason: 'error', timedOut: false, errorMessage: 'boom', touchedFiles: [] }),
+    ).toMatch(/^subagent "general-purpose" failed after 300s \(23 turns\): boom; no write/);
+    expect(formatStopSummary({ ...base, stopReason: 'error', timedOut: false, errorMessage: '  ' })).toContain(
+      ': child session errored;',
+    );
   });
 });

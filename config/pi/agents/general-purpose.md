@@ -9,7 +9,7 @@ model: inherit
 thinkingLevel: medium
 maxTurns: 50
 isolation: shared-cwd
-timeoutMs: 300000
+timeoutMs: 600000
 ---
 
 # general-purpose

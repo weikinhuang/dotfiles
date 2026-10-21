@@ -48,6 +48,30 @@ One model response plus its requested tools consumes one `maxTurns` step. Multip
 step; processing their results in another model response consumes another. A final answer on the last allowed step is
 successful completion. Pending continuation at the cap returns `max_turns`; no extra summary call is added.
 
+### Early-stop results
+
+A child that does not complete normally never returns its last mid-task message as the headline. The result (sync
+`subagent`, `subagent_send wait`, and the `subagent_send status` of a finished child) leads with what stopped it, then
+the files it tried to write (`write` / `edit` / `apply_patch` call paths, tracked from the child's tool events), then
+the child's last assistant text as a trailing `Last message:` section:
+
+```text
+subagent "general-purpose" timed out after 300s (23 turns); partial changes may be on disk:
+- config/pi/extensions/context-window.ts
+- tests/lib/node/pi/context-window.spec.ts
+
+Last message:
+Now update the tests.
+```
+
+Other headlines: `hit its N-turn limit after Xs`, `was aborted after Xs`, `failed after Xs (N turns): <error>`. With no
+recorded writes the line ends
+`no write/edit/apply_patch calls were recorded (bash commands may still have changed files)`. `details.timedOut`,
+`details.timeoutMs`, and `details.touchedFiles` carry the same data; the scorecard lead shows `timed out`. A running
+child's `subagent_send status` lists `files written so far`. Formatting lives in
+[`result.ts`](../../../lib/node/pi/subagent/result.ts) (`formatStopSummary` / `formatRunResultText`); path extraction in
+[`touched-files.ts`](../../../lib/node/pi/subagent/touched-files.ts).
+
 ## Agent definitions
 
 Markdown files with YAML frontmatter, discovered across three priority layers (higher wins by `name`):
@@ -68,7 +92,7 @@ Frontmatter schema:
 | `model`              | `inherit` \| `provider/id` | `inherit`                | Which model answers. `inherit` reuses the parent's current model.                                                                                                                                                                                                     |
 | `thinkingLevel`      | `off…xhigh`                | inherit                  | Clamped to the chosen model's capabilities.                                                                                                                                                                                                                           |
 | `maxTurns`           | number                     | `20`                     | Hard cap on model steps, including tool continuations. Natural completion on the last allowed step succeeds.                                                                                                                                                          |
-| `timeoutMs`          | number                     | `180000`                 | Wall-clock cap - aborts the child session.                                                                                                                                                                                                                            |
+| `timeoutMs`          | number                     | `180000`                 | Wall-clock cap - aborts the child session. A per-call `timeoutMs` replaces it (see [Per-call overrides](#per-call-overrides)).                                                                                                                                        |
 | `isolation`          | `shared-cwd` \| `worktree` | `shared-cwd`             | `worktree` creates an owned temporary linked checkout. Only clean owned checkouts are removed; child changes and commits remain recoverable.                                                                                                                          |
 | `context`            | `fresh` \| `inherit`       | `fresh`                  | `inherit` forks the parent's full conversation history into the child (see [Fork mode](#fork-mode)). `fresh` starts blank with only the persona + task.                                                                                                               |
 | `appendSystemPrompt` | string                     | -                        | Extra text appended to pi's default system prompt, before the Markdown body. Rare escape hatch.                                                                                                                                                                       |
@@ -101,10 +125,13 @@ Default agents shipped with the dotfiles:
   codebase" / "summarize what this module does".
 - **`plan`** - same read-only toolkit, `thinkingLevel: medium`, `maxTurns: 16`. Turns a vague problem into a
   step-by-step implementation plan grounded in real files.
-- **`general-purpose`** - full default tool set (`bash, read, write, edit, grep, find, ls`), `maxTurns: 20`. Catch-all
-  when the subtask needs both reads and edits.
+- **`general-purpose`** - full default tool set (`bash, read, write, edit, grep, find, ls`), `maxTurns: 50`,
+  `timeoutMs: 600000` (10 min). Catch-all when the subtask needs both reads and edits.
+- **`implementer`** - same tool set, `maxTurns: 150`, `timeoutMs: 2400000` (40 min). Long-running scoped implementation
+  with tests; its prompt tells it to edit only the files the task assigns (parallel children share the checkout). See
+  [`../agents/README.md`](../agents/README.md) for picking a cheaper `modelOverride` for mechanical work.
 
-All three deliberately exclude `memory`. Parent extension tool handlers are not automatically inherited: requesting
+All of these deliberately exclude `memory`. Parent extension tool handlers are not automatically inherited: requesting
 `memory` or another parent-only tool fails with an actionable error unless a child-safe factory registers it. Merely
 adding its name to `tools` does not copy parent-session state into the child.
 
@@ -181,20 +208,26 @@ lockstep.
 
 ## Commands
 
-- `/agents` (or `/agents list`) - open the **Loaded sub-agents** overlay: a navigable row list (↑/↓) with a
-  selection-driven preview block below the rule (path, tools / model / maxTurns / timeout / isolation, then the full
-  description). The row list is windowed to the terminal height (keeping the highlighted agent in view, with `↑ N more`
-  / `↓ N more` indicators) above the pinned preview. Escape closes.
+Argument parsing, USAGE text, and the completion spec live in [`usage.ts`](../../../lib/node/pi/subagent/usage.ts).
+Every subcommand re-scans the agent directories first (this never changes the `subagent` tool description); unknown
+arguments print the USAGE text.
+
+- `/agents` (alias `/agents running`) - open the **Running sub-agents** live overlay (auto-refresh every 1s). Each row
+  block shows `<handle> <agent> <state> <elapsed> turn N/max`, a tokens line, a context-usage bar, model, and per-tool
+  call counts (`read(7) · grep(3) · bash(1)`). Below the row list, a preview block summarises the highlighted child and
+  tails a bounded ring (default 64 entries) of structured-event activity: `→ <tool>  <args>` / `← <result>` for tool
+  calls, `▌ <…>` while an assistant message is streaming, plus retry / compaction one-liners. Follow-mode is on by
+  default for live children; press `f` to freeze. Terminal children fall back to reading the child's on-disk JSONL
+  transcript via `tailJsonl(...)`. The child list is windowed to the terminal height (keeping the highlighted child in
+  view) above the pinned detail block, whose activity-tail budget shrinks on short terminals. Escape closes. Without a
+  UI (print / RPC modes) it prints a flat list instead.
+- `/agents list` - open the **Loaded sub-agents** overlay: a navigable row list (↑/↓) with a selection-driven preview
+  block below the rule (path, tools / model / maxTurns / timeout / isolation, then the full description). The row list
+  is windowed to the terminal height (keeping the highlighted agent in view, with `↑ N more` / `↓ N more` indicators)
+  above the pinned preview. Escape closes.
 - `/agents show <name>` - print the full frontmatter + body of a single agent (useful for confirming an override took
   effect).
-- `/agents running` - open the **Running sub-agents** live overlay (auto-refresh every 1s). Each row block shows
-  `<handle> <agent> <state> <elapsed> turn N/max`, a tokens line, a context-usage bar, model, and per-tool call counts
-  (`read(7) · grep(3) · bash(1)`). Below the row list, a preview block summarises the highlighted child and tails a
-  bounded ring (default 64 entries) of structured-event activity: `→ <tool>  <args>` / `← <result>` for tool calls,
-  `▌ <…>` while an assistant message is streaming, plus retry / compaction one-liners. Follow-mode is on by default for
-  live children; press `f` to freeze. Terminal children fall back to reading the child's on-disk JSONL transcript via
-  `tailJsonl(...)`. The child list is windowed to the terminal height (keeping the highlighted child in view) above the
-  pinned detail block, whose activity-tail budget shrinks on short terminals. Escape closes.
+- `/agents reload` - re-scan the three agent directories and report how many agents loaded (plus any load warnings).
 
 Both overlays follow the same `─── Title ───…─── chip ───` rule style as `/todos` and share the pure helpers in
 [`lib/node/pi/subagent/format.ts`](../../../lib/node/pi/subagent/format.ts) +
@@ -211,6 +244,7 @@ sparingly - the agent frontmatter defaults are the right starting point, and the
 | --------------- | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `modelOverride` | `string` (`provider/modelId`) | Replaces the agent's `model` for this dispatch. Falls back to the config `model` (project > user > `PI_SUBAGENT_MODEL`) if unset.                                                                                                                                                                        |
 | `maxTurns`      | `integer` (1–1000)            | Replaces the agent's `maxTurns` for this dispatch. Lifts the cap above the agent default when delegating a known multi-file implementation; can also lower it. The config `maxTurns` (project > user > `PI_SUBAGENT_MAX_TURNS`) still acts as the global ceiling - resolved cap is `min(maxTurns, cap)`. |
+| `timeoutMs`     | `integer` (≥ 1000)            | Replaces the agent's `timeoutMs` for this dispatch (e.g. `1200000` for a 20 min implementation run on a 300 s agent). Clamped (with a warning notify) to the config `maxTimeoutMs` ceiling (default `3600000` = 1 h); `PI_SUBAGENT_TIMEOUT_MS` remains the global hard cap over the result.              |
 | `fork`          | `boolean`                     | Fork the parent conversation into the child for this dispatch (see [Fork mode](#fork-mode)). Overrides the agent's `context` field. Downgrades to a fresh start (with a notify) when the parent session is not persisted to disk.                                                                        |
 
 ## Fork mode
@@ -239,10 +273,10 @@ can ever fan out further.
 
 ## Config file
 
-`model`, `maxTurns`, and `concurrency` are settable per-project (`<cwd>/.pi/subagent.json`) and per-user
+`model`, `maxTurns`, `concurrency`, and `maxTimeoutMs` are settable per-project (`<cwd>/.pi/subagent.json`) and per-user
 (`~/.pi/agent/subagent.json`) in addition to the `PI_SUBAGENT_*` env vars. Layers, lowest precedence first: built-in
 defaults → `PI_SUBAGENT_*` env knobs → user config → project config. A per-call tool override (`modelOverride` /
-`maxTurns`) still wins over all of these, so the full resolution order is:
+`maxTurns` / `timeoutMs`) still wins over all of these, so the full resolution order is:
 
 ```text
 per-call param > project config > user config > env knob > built-in default
@@ -250,11 +284,12 @@ per-call param > project config > user config > env knob > built-in default
 
 (Pure logic in [`../../../lib/node/pi/subagent/config.ts`](../../../lib/node/pi/subagent/config.ts).)
 
-| Key           | Type                          | Default | Effect                                                                                                   |
-| ------------- | ----------------------------- | ------- | -------------------------------------------------------------------------------------------------------- |
-| `model`       | `string` (`provider/modelId`) | (unset) | Global model override applied to every child (env: `PI_SUBAGENT_MODEL`).                                 |
-| `maxTurns`    | integer ≥ 1                   | (unset) | Global max-turns ceiling fed to `min(perCall ?? agentDefault, cap)` (env: `PI_SUBAGENT_MAX_TURNS`).      |
-| `concurrency` | integer (clamped 1–8)         | `4`     | Max concurrent children (env: `PI_SUBAGENT_CONCURRENCY`). Captured at load; changing it needs `/reload`. |
+| Key            | Type                          | Default   | Effect                                                                                                         |
+| -------------- | ----------------------------- | --------- | -------------------------------------------------------------------------------------------------------------- |
+| `model`        | `string` (`provider/modelId`) | (unset)   | Global model override applied to every child (env: `PI_SUBAGENT_MODEL`).                                       |
+| `maxTurns`     | integer ≥ 1                   | (unset)   | Global max-turns ceiling fed to `min(perCall ?? agentDefault, cap)` (env: `PI_SUBAGENT_MAX_TURNS`).            |
+| `concurrency`  | integer (clamped 1–8)         | `4`       | Max concurrent children (env: `PI_SUBAGENT_CONCURRENCY`). Captured at load; changing it needs `/reload`.       |
+| `maxTimeoutMs` | integer ≥ 1                   | `3600000` | Ceiling on a per-call `timeoutMs` (env: `PI_SUBAGENT_MAX_TIMEOUT_MS`). Agent frontmatter is not bounded by it. |
 
 ```jsonc
 // <cwd>/.pi/subagent.json - this project fans out to a cheaper local model, lower turn budget
@@ -290,7 +325,9 @@ boundary. If a child needs project-scoped state, keep `isolation: "shared-cwd"` 
 - `PI_SUBAGENT_STATUS_LINGER_MS=N` - keep completed status visible for N ms (default `5000`).
 - `PI_SUBAGENT_MAX_TURNS=N` - global max-turns cap. Wins over per-agent settings. Also settable via the
   [config file](#config-file)'s `maxTurns`, which wins over this env var.
-- `PI_SUBAGENT_TIMEOUT_MS=N` - global wall-clock cap in ms. Wins over per-agent settings.
+- `PI_SUBAGENT_TIMEOUT_MS=N` - global wall-clock hard cap in ms. Wins over per-agent settings and per-call `timeoutMs`.
+- `PI_SUBAGENT_MAX_TIMEOUT_MS=N` - ceiling in ms on a per-call `timeoutMs` (default `3600000`). Also settable via the
+  [config file](#config-file)'s `maxTimeoutMs`, which wins over this env var.
 - `PI_SUBAGENT_MODEL=provider/id` - global model override applied to every child. Also settable via the
   [config file](#config-file)'s `model`, which wins over this env var.
 - `PI_SUBAGENT_BG_MAX=N` - max entries retained in the background-children registry; older completed entries are pruned
@@ -305,10 +342,16 @@ boundary. If a child needs project-scoped state, keep `isolation: "shared-cwd"` 
 
 Edit [`extensions/subagent.ts`](./subagent.ts) or the helpers under
 [`lib/node/pi/subagent/`](../../../lib/node/pi/subagent) and run `/reload` inside an interactive pi session. New or
-edited `.md` files under any of the three agent directories are picked up on the next `/reload` (or when any `/agents`
-subcommand runs - the command rescans before listing).
+edited `.md` files under any of the three agent directories are picked up on the next `/reload`, when any `/agents`
+subcommand runs (each rescans before acting), or lazily: a `subagent` call naming an unknown agent re-scans once before
+failing, so a `.md` dropped in mid-session is callable without `/reload`. If the name is still unknown the error lists
+the loaded agents and points at `/agents list` (load warnings) and `/reload`.
 
-**Caveat:** the `subagent` tool's LLM-visible description (the list of available agents baked into the tool schema) is
-captured at `registerTool` time. `/reload` re-runs the extension factory and so refreshes it; a `.md` file dropped in
-mid-session without a `/reload` is usable via `/agents` and callable via `subagent` (the tool looks up agents by name
-dynamically), but the parent model won't see the new agent in the tool-description enum until the next `/reload`.
+The `subagent` tool's LLM-visible description (the agent list in the tool schema) is built when the extension loads.
+pi's `getAllTools()` throws during extension loading, so that first scan validates `tools` permissively
+(`resolveKnownToolNames` in [`loader.ts`](../../../lib/node/pi/subagent/loader.ts)) - names and descriptions are what
+the schema needs. The description is then fixed for the life of the extension instance: it is never re-registered on
+`session_start`, resume, or a lazy re-scan, because changing a tool schema mid-session invalidates the prompt cache.
+`session_start` still re-scans against the real tool registry and `ctx.cwd`, but that only updates the agent lookup.
+Mid-session additions found by the lazy re-scan are callable but not listed in the description until `/reload` (or a new
+pi process) rebuilds it.

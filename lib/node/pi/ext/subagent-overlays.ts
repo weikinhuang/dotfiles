@@ -30,7 +30,7 @@ import { collapseWhitespace } from '../shared.ts';
 import { formatHeaderRule } from '../tui-rule.ts';
 
 /**
- * Loaded-list overlay rendered by `/agents`. Two horizontal rules
+ * Loaded-list overlay rendered by `/agents list`. Two horizontal rules
  * separate a row list (top) from a preview block (bottom); selection
  * is driven by the arrow keys, escape closes.
  */
@@ -159,7 +159,7 @@ export class AgentsLoadedOverlay implements Component {
 }
 
 /**
- * Running-children overlay rendered by `/agents running`. Live tick
+ * Running-children overlay rendered by `/agents` (alias `/agents running`). Live tick
  * every 1 s; each row block lays out handle, agent, state, elapsed,
  * `turn N/max`, token line, ctx bar, model, and (optional) tool counts.
  * Below the row list, a preview block summarises the highlighted child

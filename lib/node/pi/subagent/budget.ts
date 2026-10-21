@@ -25,3 +25,36 @@ export function resolveMaxTurns(inputs: MaxTurnsInputs): number {
   const requested = inputs.override ?? inputs.agentDefault;
   return Math.min(requested, inputs.envCap);
 }
+
+export interface TimeoutInputs {
+  /** Per-call override (from the subagent tool's `timeoutMs` field). */
+  override: number | undefined;
+  /** Default from the agent .md frontmatter (always present). */
+  agentDefault: number;
+  /** Ceiling on a per-call override (config `maxTimeoutMs`). */
+  maxTimeoutMs: number;
+  /** Global hard cap from PI_SUBAGENT_TIMEOUT_MS, or Number.MAX_SAFE_INTEGER if unset. */
+  hardCap: number;
+}
+
+export interface ResolvedTimeout {
+  timeoutMs: number;
+  /** The per-call override exceeded `maxTimeoutMs` and was lowered to it. */
+  clampedToCeiling: boolean;
+}
+
+/**
+ * Resolve the effective wall-clock cap for one subagent dispatch.
+ *
+ * Precedence: per-call override > agent frontmatter default. A per-call
+ * override is first clamped to `maxTimeoutMs` (it may lift the cap above
+ * the agent default, but not without bound); the agent default itself is
+ * not subject to that ceiling. `hardCap` (PI_SUBAGENT_TIMEOUT_MS) always
+ * wins last, mirroring how PI_SUBAGENT_MAX_TURNS caps `resolveMaxTurns`.
+ */
+export function resolveTimeoutMs(inputs: TimeoutInputs): ResolvedTimeout {
+  const { override, agentDefault, maxTimeoutMs, hardCap } = inputs;
+  const clampedToCeiling = override !== undefined && override > maxTimeoutMs;
+  const requested = override === undefined ? agentDefault : Math.min(override, maxTimeoutMs);
+  return { timeoutMs: Math.min(requested, hardCap), clampedToCeiling };
+}

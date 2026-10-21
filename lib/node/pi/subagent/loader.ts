@@ -135,6 +135,52 @@ export interface AgentLoadResult {
   warnings: AgentLoadWarning[];
 }
 
+/**
+ * Membership test for tool names. A `ReadonlySet<string>` satisfies it;
+ * {@link resolveKnownToolNames} may return a permissive filter instead.
+ */
+export interface ToolNameFilter {
+  has(name: string): boolean;
+}
+
+/** Accepts every tool name - used before pi's tool registry is readable. */
+export const ANY_TOOL_NAME: ToolNameFilter = { has: () => true };
+
+/**
+ * Build the tool-name filter for {@link loadAgents} from pi's
+ * `getAllTools`. During extension loading pi's action methods are stubs
+ * that throw ("Extension runtime not initialized"), so a factory-time
+ * load used to fail outright and leave the agent list empty - which is
+ * how the `subagent` tool description shipped "No agent definitions
+ * loaded" while agents worked fine. Fall back to {@link ANY_TOOL_NAME}
+ * so names + descriptions still load at registration time; the
+ * `session_start` re-scan validates tools against the real registry.
+ */
+export function resolveKnownToolNames(getAllTools: () => readonly { name: string }[]): ToolNameFilter {
+  try {
+    return new Set(getAllTools().map((t) => t.name));
+  } catch {
+    return ANY_TOOL_NAME;
+  }
+}
+
+/**
+ * Look `name` up in the current load result; on a miss, run `rescan`
+ * once (picking up `.md` files added mid-session) and look again.
+ * `current` is re-read after the rescan so the caller can swap its
+ * load-result binding inside `rescan`.
+ */
+export function resolveAgentWithRescan(
+  name: string,
+  current: () => AgentLoadResult,
+  rescan: () => void,
+): { agent: AgentDef | undefined; rescanned: boolean } {
+  const hit = current().agents.get(name);
+  if (hit) return { agent: hit, rescanned: false };
+  rescan();
+  return { agent: current().agents.get(name), rescanned: true };
+}
+
 export interface ReadLayer {
   /** Return a list of filenames in `dir`, or `null` if the dir is missing. */
   listMarkdownFiles: (dir: string) => string[] | null;
@@ -162,7 +208,7 @@ export interface LoadAgentsOptions {
   /** Ordered lowest→highest priority. Typically `[global, user, project]`. */
   layers: { source: AgentSourceLayer; dir: string }[];
   /** Every tool name pi currently exposes - used to validate `tools`. */
-  knownToolNames: ReadonlySet<string>;
+  knownToolNames: ToolNameFilter;
   /** File I/O adapter. */
   fs: ReadLayer;
   /** Frontmatter parser - inject pi's `parseFrontmatter` at the extension layer. */
@@ -232,7 +278,7 @@ export function validateAgent(args: {
   source: AgentSourceLayer;
   frontmatter: FrontmatterRaw;
   body: string;
-  knownToolNames: ReadonlySet<string>;
+  knownToolNames: ToolNameFilter;
   warnings: AgentLoadWarning[];
 }): AgentDef | null {
   const { path, source, frontmatter: fm, body, knownToolNames, warnings } = args;

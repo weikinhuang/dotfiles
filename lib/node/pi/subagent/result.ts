@@ -13,6 +13,7 @@
  */
 
 import { extractAssistantMessageText } from '../message-extract.ts';
+import { trimOrUndefined } from '../shared/strings.ts';
 
 export type StopReason = 'completed' | 'max_turns' | 'aborted' | 'error';
 
@@ -112,4 +113,68 @@ export function resolveFinalText(input: ResolveFinalTextInput): string {
     return `subagent ${agent} was aborted.`;
   }
   return finalText;
+}
+
+export interface StopSummaryInput {
+  agent: string;
+  stopReason: StopReason;
+  /** The wall-clock timer (not the parent) stopped the child. */
+  timedOut?: boolean;
+  /** Effective wall-clock cap, used in the timeout headline. */
+  timeoutMs?: number;
+  durationMs: number;
+  turns: number;
+  maxTurns: number;
+  /** Files the child tried to write (see `touched-files.ts`). */
+  touchedFiles: readonly string[];
+  /** Child error text for `error` stops. */
+  errorMessage?: string;
+}
+
+function fmtSeconds(ms: number): string {
+  return `${Math.max(0, Math.round(ms / 1000))}s`;
+}
+
+function fmtTurns(turns: number): string {
+  return `${turns} turn${turns === 1 ? '' : 's'}`;
+}
+
+/**
+ * Headline + touched-file list for a run that did NOT complete normally.
+ * Returns `undefined` for `completed`. The first line always states why
+ * the child stopped, so the parent never mistakes the child's last
+ * (mid-task) assistant message for an answer or an error string.
+ */
+export function formatStopSummary(input: StopSummaryInput): string | undefined {
+  const { agent, stopReason, timedOut, timeoutMs, durationMs, turns, maxTurns, touchedFiles, errorMessage } = input;
+  if (stopReason === 'completed') return undefined;
+  const name = `subagent "${agent}"`;
+  let headline: string;
+  if (stopReason === 'aborted' && timedOut) {
+    headline = `${name} timed out after ${fmtSeconds(timeoutMs ?? durationMs)} (${fmtTurns(turns)})`;
+  } else if (stopReason === 'max_turns') {
+    headline = `${name} hit its ${maxTurns}-turn limit after ${fmtSeconds(durationMs)} (${fmtTurns(turns)})`;
+  } else if (stopReason === 'aborted') {
+    headline = `${name} was aborted after ${fmtSeconds(durationMs)} (${fmtTurns(turns)})`;
+  } else {
+    const why = trimOrUndefined(errorMessage) ?? 'child session errored';
+    headline = `${name} failed after ${fmtSeconds(durationMs)} (${fmtTurns(turns)}): ${why}`;
+  }
+  if (touchedFiles.length === 0) {
+    return `${headline}; no write/edit/apply_patch calls were recorded (bash commands may still have changed files).`;
+  }
+  return [`${headline}; partial changes may be on disk:`, ...touchedFiles.map((p) => `- ${p}`)].join('\n');
+}
+
+/**
+ * Parent-visible text for a finished child run. A `completed` run returns
+ * the child's final answer verbatim. Any other stop leads with
+ * {@link formatStopSummary} and keeps the child's last assistant text as a
+ * trailing `Last message:` section instead of the headline.
+ */
+export function formatRunResultText(input: StopSummaryInput & { finalText: string }): string {
+  const summary = formatStopSummary(input);
+  if (summary === undefined) return input.finalText;
+  const last = input.finalText.trim();
+  return last.length > 0 ? `${summary}\n\nLast message:\n${last}` : summary;
 }

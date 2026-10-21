@@ -2,7 +2,7 @@
  * Pure config defaults + coercion + layering for the `subagent`
  * extension.
  *
- * Three knobs, all previously env-only, are now also settable per-project
+ * Four knobs, each with a `PI_SUBAGENT_*` env layer, are also settable per-project
  * (`<cwd>/.pi/subagent.json`) and per-user (`<piAgentDir>/subagent.json`):
  *
  *   - `model`       global model override (`provider/id`) applied to every
@@ -15,6 +15,11 @@
  *                   `PI_SUBAGENT_MAX_TURNS`. Undefined = no global cap.
  *   - `concurrency` max concurrent children. Env: `PI_SUBAGENT_CONCURRENCY`.
  *                   Built-in 4, clamped to [1, 8].
+ *   - `maxTimeoutMs` ceiling on a per-call `timeoutMs` override. Env:
+ *                   `PI_SUBAGENT_MAX_TIMEOUT_MS`. Built-in 1 h. Agent
+ *                   frontmatter `timeoutMs` is not bounded by it; the
+ *                   env-only `PI_SUBAGENT_TIMEOUT_MS` stays the global hard
+ *                   cap over everything.
  *
  * Resolution order (lowest -> highest): built-in default -> env knob ->
  * user global -> project local. The per-call param (`modelOverride`,
@@ -43,11 +48,17 @@ export interface SubagentConfig {
   maxTurns?: number;
   /** Max concurrent children, clamped to [1, 8]. */
   concurrency: number;
+  /** Ceiling (ms) on a per-call `timeoutMs` override. */
+  maxTimeoutMs: number;
 }
+
+/** Built-in ceiling for a per-call `timeoutMs` override: 1 hour. */
+export const DEFAULT_MAX_TIMEOUT_MS = 3_600_000;
 
 /** Built-in defaults, used as the lowest config layer. */
 export const DEFAULT_SUBAGENT_CONFIG: SubagentConfig = {
   concurrency: 4,
+  maxTimeoutMs: DEFAULT_MAX_TIMEOUT_MS,
 };
 
 function asPositiveInt(value: unknown): number | undefined {
@@ -101,6 +112,9 @@ export function coerceSubagentConfigLayer(raw: unknown): Partial<SubagentConfig>
   const concurrency = asPositiveInt(raw.concurrency);
   if (concurrency !== undefined) out.concurrency = concurrency;
 
+  const maxTimeoutMs = asPositiveInt(raw.maxTimeoutMs);
+  if (maxTimeoutMs !== undefined) out.maxTimeoutMs = maxTimeoutMs;
+
   return out;
 }
 
@@ -129,6 +143,9 @@ export function subagentEnvLayer(env: NodeJS.ProcessEnv = process.env): Partial<
   const concurrency = envPositiveInt(env.PI_SUBAGENT_CONCURRENCY);
   if (concurrency !== undefined) out.concurrency = concurrency;
 
+  const maxTimeoutMs = envPositiveInt(env.PI_SUBAGENT_MAX_TIMEOUT_MS);
+  if (maxTimeoutMs !== undefined) out.maxTimeoutMs = maxTimeoutMs;
+
   return out;
 }
 
@@ -144,6 +161,7 @@ export function mergeSubagentConfigLayers(...overrides: Partial<SubagentConfig>[
     if (layer.model !== undefined) result.model = layer.model;
     if (layer.maxTurns !== undefined) result.maxTurns = layer.maxTurns;
     if (layer.concurrency !== undefined) result.concurrency = layer.concurrency;
+    if (layer.maxTimeoutMs !== undefined) result.maxTimeoutMs = layer.maxTimeoutMs;
   }
   result.concurrency = Math.max(MIN_CONCURRENCY, Math.min(MAX_CONCURRENCY, result.concurrency));
   return result;

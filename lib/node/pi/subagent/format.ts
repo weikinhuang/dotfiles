@@ -43,7 +43,7 @@ function shorten(s: string, cap: number): string {
  */
 export function formatAgentListDescription(items: readonly AgentListItem[]): string {
   if (items.length === 0) {
-    return 'Sub-agent type name. No agent definitions loaded - drop Markdown files into `~/.pi/agents/` or `.pi/agents/`.';
+    return 'Sub-agent type name. No agent definitions loaded - drop Markdown files into `~/.pi/agent/agents/` or `.pi/agents/` (see `/agents`).';
   }
   const sorted = [...items].sort((a, b) => a.name.localeCompare(b.name));
   const maxName = sorted.reduce((m, a) => Math.max(m, a.name.length), 0);
@@ -54,6 +54,19 @@ export function formatAgentListDescription(items: readonly AgentListItem[]): str
     lines.push(`  ${a.name}${pad}- ${shorten(a.description, SHORT_DESCRIPTION_CAP)}${sourceTag}`);
   }
   return lines.join('\n');
+}
+
+/**
+ * Error text for a `subagent` call naming an agent that is still unknown
+ * after the lazy re-scan. Lists what IS loaded and points at the
+ * commands that surface load warnings / force a full reload.
+ */
+export function formatUnknownAgentError(name: string, available: readonly string[]): string {
+  const list = available.length > 0 ? available.join(', ') : '(none loaded)';
+  return (
+    `subagent: unknown agent "${name}" (agent definitions were re-scanned). Available: ${list}. ` +
+    'Check `/agents list` for load warnings (e.g. invalid frontmatter), or run `/reload`.'
+  );
 }
 
 export type SubagentRunState = 'running' | 'completed' | 'error' | 'aborted' | 'max_turns';

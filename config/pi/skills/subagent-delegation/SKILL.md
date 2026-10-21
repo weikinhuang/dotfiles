@@ -58,7 +58,8 @@ Rules of thumb:
 - Use `general-purpose` only when the child actually needs to write or run commands. Don't give it write access as
   insurance.
 
-Run `/agents` in pi to see the currently loaded agents and their frontmatter.
+Run `/agents list` in pi to see the currently loaded agents and their frontmatter (bare `/agents` shows running
+background children).
 
 ## Writing the `task`
 

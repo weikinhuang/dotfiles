@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import {
   coerceSubagentConfigLayer,
+  DEFAULT_MAX_TIMEOUT_MS,
   DEFAULT_SUBAGENT_CONFIG,
   loadSubagentConfig,
   mergeSubagentConfigLayers,
@@ -53,6 +54,9 @@ describe('coerceSubagentConfigLayer', () => {
   });
 
   test('non-object input yields an empty layer', () => {
+    expect(coerceSubagentConfigLayer({ maxTimeoutMs: 120000.7 })).toEqual({ maxTimeoutMs: 120000 });
+    expect(coerceSubagentConfigLayer({ maxTimeoutMs: -1 })).toEqual({});
+    expect(coerceSubagentConfigLayer({ maxTimeoutMs: '1h' })).toEqual({});
     expect(coerceSubagentConfigLayer(null)).toEqual({});
     expect(coerceSubagentConfigLayer('x')).toEqual({});
   });
@@ -66,6 +70,8 @@ describe('subagentEnvLayer', () => {
   });
 
   test('drops invalid env values', () => {
+    expect(subagentEnvLayer({ PI_SUBAGENT_MAX_TIMEOUT_MS: '600000' })).toEqual({ maxTimeoutMs: 600000 });
+    expect(subagentEnvLayer({ PI_SUBAGENT_MAX_TIMEOUT_MS: '0' })).toEqual({});
     expect(subagentEnvLayer({ PI_SUBAGENT_MAX_TURNS: 'lots' })).toEqual({});
     expect(subagentEnvLayer({})).toEqual({});
   });
@@ -85,6 +91,12 @@ describe('mergeSubagentConfigLayers', () => {
     const out = mergeSubagentConfigLayers({ model: 'a', maxTurns: 3 }, { model: 'b' });
     expect(out.model).toBe('b');
     expect(out.maxTurns).toBe(3);
+  });
+
+  test('maxTimeoutMs defaults to 1 h and is overridable by any layer', () => {
+    expect(mergeSubagentConfigLayers().maxTimeoutMs).toBe(DEFAULT_MAX_TIMEOUT_MS);
+    expect(DEFAULT_MAX_TIMEOUT_MS).toBe(3_600_000);
+    expect(mergeSubagentConfigLayers({ maxTimeoutMs: 5000 }, { maxTimeoutMs: 7200000 }).maxTimeoutMs).toBe(7200000);
   });
 
   test('clamps the final resolved concurrency to [1, 8]', () => {
@@ -130,6 +142,12 @@ describe('loadSubagentConfig', () => {
     expect(config.maxTurns).toBe(10);
     // env wins for concurrency (no file sets it), still clamped
     expect(config.concurrency).toBe(2);
+  });
+
+  test('maxTimeoutMs: project config beats PI_SUBAGENT_MAX_TIMEOUT_MS', () => {
+    expect(loadSubagentConfig(cwd, { PI_SUBAGENT_MAX_TIMEOUT_MS: '900000' }).maxTimeoutMs).toBe(900000);
+    writeProject({ maxTimeoutMs: 7200000 });
+    expect(loadSubagentConfig(cwd, { PI_SUBAGENT_MAX_TIMEOUT_MS: '900000' }).maxTimeoutMs).toBe(7200000);
   });
 
   test('malformed files degrade to env + defaults', () => {

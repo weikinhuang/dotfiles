@@ -36,6 +36,7 @@ import { type ThinkingLevel, THINKING_LEVELS } from '../preset.ts';
 import { collectSubagentInjections, type SubagentExtensionFactory } from './extension-injection.ts';
 import { type AgentDef } from './loader.ts';
 import { classifyStopReason, extractFinalAssistantText, type AgentMessageLike } from './result.ts';
+import { recordTouchedFiles } from './touched-files.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Model resolution
@@ -163,6 +164,10 @@ export interface AgentSessionLike {
 /** Subset of pi's `AgentSessionEvent` union used for turn counting + cost aggregation. */
 export interface AgentSessionEventLike {
   type: string;
+  /** Tool name on `tool_execution_*` events (used to track file writes). */
+  toolName?: string;
+  /** Tool arguments on `tool_execution_start` events. */
+  args?: unknown;
   message?: {
     role?: string;
     errorMessage?: string;
@@ -327,6 +332,14 @@ export interface RunOneShotAgentResult {
   stopReason: OneShotStopReason;
   /** Human-readable error when `stopReason !== 'completed'`. */
   errorMessage?: string;
+  /** True when the wall-clock timer (not the parent or the turn cap) stopped the child. */
+  timedOut: boolean;
+  /**
+   * Files the child tried to write (`write` / `edit` / `apply_patch` call
+   * args, insertion order, de-duplicated). Lets an early stop report where
+   * partial changes may be on disk.
+   */
+  touchedFiles: string[];
   /** Child's message list (same reference as `session.state.messages`). */
   messages: AgentMessageLike[];
   /** The session itself. Disposed unless `keepSession: true` was passed. */
@@ -347,6 +360,8 @@ export interface ChildRun {
   run(task: string): Promise<RunOneShotAgentResult>;
   /** Cancels immediately and safely awaits the child's single abort attempt. */
   abort(): Promise<void>;
+  /** Files the child has tried to write so far (live view for status polls). */
+  touchedFiles(): string[];
 }
 
 /**
@@ -374,6 +389,7 @@ export function createChildRun({
   let errFromChild: string | undefined;
   let callbackError: Error | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  const touched = new Set<string>();
 
   const cancelChild = (): Promise<void> => {
     cancelled = true;
@@ -408,6 +424,7 @@ export function createChildRun({
         if (signal?.aborted) void abort();
         if (!cancelled) {
           unsubscribe = child.subscribe((event) => {
+            if (event.type === 'tool_execution_start') recordTouchedFiles(touched, event.toolName, event.args);
             if (event.type === 'turn_start') {
               lastTurnWantsMore = false;
               // Steering or an explicit loop continuation can request another
@@ -477,7 +494,16 @@ export function createChildRun({
       } else if (stopReason === 'error') {
         errorMessage = callbackError?.message ?? (thrownError && !errorIsAbort ? thrownError.message : errFromChild);
       }
-      return { finalText, turns, stopReason, errorMessage, messages, session: child };
+      return {
+        finalText,
+        turns,
+        stopReason,
+        errorMessage,
+        timedOut: stopReason === 'aborted' && timedOut,
+        touchedFiles: [...touched],
+        messages,
+        session: child,
+      };
     } finally {
       finished = true;
       clearTimeout(timer);
@@ -505,6 +531,7 @@ export function createChildRun({
       return result;
     },
     abort,
+    touchedFiles: () => [...touched],
   };
 }
 

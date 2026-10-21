@@ -11,7 +11,7 @@
 
 import { describe, expect, test } from 'vitest';
 
-import { resolveMaxTurns } from '../../../../../lib/node/pi/subagent/budget.ts';
+import { resolveMaxTurns, resolveTimeoutMs } from '../../../../../lib/node/pi/subagent/budget.ts';
 
 const UNCAPPED = Number.MAX_SAFE_INTEGER;
 
@@ -38,5 +38,48 @@ describe('resolveMaxTurns', () => {
 
   test('override = 0 → returns 0 (helper does not validate; TypeBox does)', () => {
     expect(resolveMaxTurns({ override: 0, agentDefault: 20, envCap: UNCAPPED })).toBe(0);
+  });
+});
+
+describe('resolveTimeoutMs', () => {
+  const HOUR = 3_600_000;
+
+  test('no override → agent frontmatter default', () => {
+    expect(
+      resolveTimeoutMs({ override: undefined, agentDefault: 300_000, maxTimeoutMs: HOUR, hardCap: UNCAPPED }),
+    ).toEqual({ timeoutMs: 300_000, clampedToCeiling: false });
+  });
+
+  test('per-call override lifts the cap above a 300 s agent default', () => {
+    expect(
+      resolveTimeoutMs({ override: 1_200_000, agentDefault: 300_000, maxTimeoutMs: HOUR, hardCap: UNCAPPED }),
+    ).toEqual({ timeoutMs: 1_200_000, clampedToCeiling: false });
+  });
+
+  test('per-call override can also lower the cap', () => {
+    expect(
+      resolveTimeoutMs({ override: 60_000, agentDefault: 300_000, maxTimeoutMs: HOUR, hardCap: UNCAPPED }),
+    ).toEqual({ timeoutMs: 60_000, clampedToCeiling: false });
+  });
+
+  test('per-call override above the ceiling is clamped and flagged', () => {
+    expect(
+      resolveTimeoutMs({ override: 2 * HOUR, agentDefault: 300_000, maxTimeoutMs: HOUR, hardCap: UNCAPPED }),
+    ).toEqual({ timeoutMs: HOUR, clampedToCeiling: true });
+  });
+
+  test('the ceiling bounds per-call overrides only, not the agent default', () => {
+    expect(
+      resolveTimeoutMs({ override: undefined, agentDefault: 2 * HOUR, maxTimeoutMs: HOUR, hardCap: UNCAPPED }),
+    ).toEqual({ timeoutMs: 2 * HOUR, clampedToCeiling: false });
+  });
+
+  test('PI_SUBAGENT_TIMEOUT_MS hard cap wins over everything', () => {
+    expect(
+      resolveTimeoutMs({ override: 1_200_000, agentDefault: 300_000, maxTimeoutMs: HOUR, hardCap: 90_000 }),
+    ).toEqual({ timeoutMs: 90_000, clampedToCeiling: false });
+    expect(
+      resolveTimeoutMs({ override: undefined, agentDefault: 300_000, maxTimeoutMs: HOUR, hardCap: 90_000 }),
+    ).toEqual({ timeoutMs: 90_000, clampedToCeiling: false });
   });
 });

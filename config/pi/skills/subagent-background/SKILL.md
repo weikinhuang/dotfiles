@@ -76,7 +76,7 @@ Every `subagent({ run_in_background: true })` call returns a short handle string
 - The `note` field on a `todo` review item - "parked pending `c1`".
 
 Do NOT try to reconstruct handles from memory across compactions. If the scratchpad doesn't have it, list active
-children with the `/agents running` surface or treat the work as lost and respawn.
+children with the `/agents` surface (the default view; alias `/agents running`) or treat the work as lost and respawn.
 
 ## `subagent_send` actions
 

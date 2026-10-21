@@ -12,12 +12,17 @@ import { join } from 'node:path';
 
 import { describe, expect, test } from 'vitest';
 
+import { formatAgentListDescription } from '../../../../../lib/node/pi/subagent/format.ts';
 import {
+  ANY_TOOL_NAME,
+  type AgentLoadResult,
   type AgentLoadWarning,
   type FrontmatterParser,
   loadAgents,
   makeNodeReadLayer,
   type ReadLayer,
+  resolveAgentWithRescan,
+  resolveKnownToolNames,
   validateAgent,
 } from '../../../../../lib/node/pi/subagent/loader.ts';
 
@@ -517,5 +522,117 @@ body`,
     expect(result.agents.get('explore')?.source).toBe('global');
     expect(result.agents.get('explore')?.description).toBe('global explore');
     expect(result.warnings.some((w) => w.path === '/user/explore.md')).toBe(true);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// Startup ordering + lazy re-scan
+// ──────────────────────────────────────────────────────────────────────
+
+const AGENT_MD = (name: string, tools = '[read, bash]'): string =>
+  `---\nname: ${name}\ndescription: ${name} agent for tests\ntools: ${tools}\n---\n\n# ${name}\n`;
+
+describe('resolveKnownToolNames', () => {
+  test('returns the registry names when pi.getAllTools() works', () => {
+    const filter = resolveKnownToolNames(() => [{ name: 'read' }, { name: 'bash' }]);
+    expect(filter.has('read')).toBe(true);
+    expect(filter.has('write')).toBe(false);
+  });
+
+  test('falls back to a permissive filter when getAllTools throws (extension-loading stub)', () => {
+    const filter = resolveKnownToolNames(() => {
+      throw new Error('Extension runtime not initialized. Action methods cannot be called during extension loading.');
+    });
+    expect(filter).toBe(ANY_TOOL_NAME);
+    expect(filter.has('anything')).toBe(true);
+  });
+
+  test('regression: a factory-time load (before pi binds getAllTools) still lists agents in the tool description', () => {
+    const fs = makeFs(
+      { '/g/explore.md': AGENT_MD('explore', '[read, grep]'), '/g/general-purpose.md': AGENT_MD('general-purpose') },
+      { '/g': ['explore.md', 'general-purpose.md'] },
+    );
+    const result = loadAgents({
+      layers: [{ source: 'global', dir: '/g' }],
+      knownToolNames: resolveKnownToolNames(() => {
+        throw new Error('Extension runtime not initialized');
+      }),
+      fs,
+      parseFrontmatter,
+    });
+    expect(result.nameOrder).toEqual(['explore', 'general-purpose']);
+    expect(result.warnings).toEqual([]);
+    expect(result.agents.get('general-purpose')?.tools).toEqual(['read', 'bash']);
+    const description = formatAgentListDescription(
+      result.nameOrder.map((n) => ({ name: n, description: result.agents.get(n)?.description ?? '' })),
+    );
+    expect(description).not.toContain('No agent definitions loaded');
+    expect(description).toContain('explore');
+    expect(description).toContain('general-purpose');
+  });
+});
+
+describe('resolveAgentWithRescan', () => {
+  test('a hit does not rescan', () => {
+    const fs = makeFs({ '/g/explore.md': AGENT_MD('explore') }, { '/g': ['explore.md'] });
+    const loaded = loadAgents({
+      layers: [{ source: 'global', dir: '/g' }],
+      knownToolNames: KNOWN_TOOLS,
+      fs,
+      parseFrontmatter,
+    });
+    let rescans = 0;
+    const out = resolveAgentWithRescan(
+      'explore',
+      () => loaded,
+      () => {
+        rescans++;
+      },
+    );
+    expect(out.agent?.name).toBe('explore');
+    expect(out.rescanned).toBe(false);
+    expect(rescans).toBe(0);
+  });
+
+  test('picks up a project agent created mid-session without /reload', () => {
+    const root = mkdtempSync(join(tmpdir(), 'subagent-rescan-'));
+    try {
+      const layers = [{ source: 'project' as const, dir: root }];
+      const load = (): AgentLoadResult =>
+        loadAgents({ layers, knownToolNames: KNOWN_TOOLS, fs: makeNodeReadLayer(), parseFrontmatter });
+      let current = load();
+      expect(current.agents.has('foo')).toBe(false);
+
+      writeFileSync(join(root, 'foo.md'), AGENT_MD('foo'), 'utf8');
+      let rescans = 0;
+      const out = resolveAgentWithRescan(
+        'foo',
+        () => current,
+        () => {
+          rescans++;
+          current = load();
+        },
+      );
+      expect(rescans).toBe(1);
+      expect(out.rescanned).toBe(true);
+      expect(out.agent?.name).toBe('foo');
+      expect(out.agent?.source).toBe('project');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('a name still unknown after the single rescan returns undefined', () => {
+    const empty: AgentLoadResult = { agents: new Map(), nameOrder: [], warnings: [] };
+    let rescans = 0;
+    const out = resolveAgentWithRescan(
+      'nope',
+      () => empty,
+      () => {
+        rescans++;
+      },
+    );
+    expect(out).toEqual({ agent: undefined, rescanned: true });
+    expect(rescans).toBe(1);
   });
 });
