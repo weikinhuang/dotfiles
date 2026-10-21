@@ -78,15 +78,21 @@ export function rankLore(chunks: readonly LoreChunk[]): LoreChunk[] {
  * (highest-priority) chunk is always kept regardless of budget; later
  * chunks are dropped once the running total would exceed the cap. If the
  * resulting trailer then overflows, the lowest-ranked kept chunks are
- * evicted (never the first) until it fits. Dropped entries are returned in
+ * evicted (never the first) until it fits. `opts.headerChars` overrides the
+ * header charge (default `LORE_BLOCK_HEADER.length`; depth lore, which
+ * renders no header, passes 0). Dropped entries are returned in
  * rank order so the caller can surface a trailer.
  */
-export function selectWithinBudget(chunks: readonly LoreChunk[], charBudget: number): BudgetResult {
+export function selectWithinBudget(
+  chunks: readonly LoreChunk[],
+  charBudget: number,
+  opts: { headerChars?: number } = {},
+): BudgetResult {
   const ranked = rankLore(chunks);
   const rankOf = new Map(ranked.map((c, i) => [c.entry.id, i]));
   const kept: LoreChunk[] = [];
   let dropped: RoleplayEntry[] = [];
-  let used = LORE_BLOCK_HEADER.length;
+  let used = opts.headerChars ?? LORE_BLOCK_HEADER.length;
   for (const chunk of ranked) {
     const cost = chunkCost(chunk);
     if (kept.length > 0 && used + cost > charBudget) {

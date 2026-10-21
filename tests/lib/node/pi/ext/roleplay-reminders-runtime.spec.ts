@@ -138,6 +138,8 @@ interface Harness {
   snapshotEntryCount: () => number;
   /** Text of the last `ctx.ui.notify` call. */
   lastNotice: () => string;
+  /** Toggle the sanitizer-required failure for later requests. */
+  setFailSanitizer: (on: boolean) => void;
 }
 
 async function harness(
@@ -308,10 +310,10 @@ async function harness(
   });
   cacheReminders(pi);
   if (options.redactor === 'after') secretRedactor(pi);
-  if (options.failSanitizer)
-    pi.events.on(REMINDER_CAPABILITIES, (request) => {
-      (request as { sanitizerRequired: boolean }).sanitizerRequired = true;
-    });
+  let failSanitizer = options.failSanitizer === true;
+  pi.events.on(REMINDER_CAPABILITIES, (request) => {
+    if (failSanitizer) (request as { sanitizerRequired: boolean }).sanitizerRequired = true;
+  });
   // Use the installed SDK's two-phase runner, including system restoration
   // and its error path, rather than a hand-written context-hook simulation.
   const errors: unknown[] = [];
@@ -388,6 +390,9 @@ async function harness(
     snapshotEntryCount: () =>
       stored.filter((entry) => entry.type === 'custom' && entry.customType === REMINDER_SNAPSHOT_TYPE).length,
     lastNotice: () => String(notify.mock.calls.at(-1)?.[0] ?? ''),
+    setFailSanitizer: (on) => {
+      failSanitizer = on;
+    },
   };
 }
 
@@ -846,6 +851,37 @@ test('name-triggered character folds ride a reminder and never change the system
   expect(folds()).toBe(2);
 });
 
+test('an aborted request leaves the scene fold pending so the next turn re-sends it', async () => {
+  const h = await harness({ sceneFoldRefreshTurns: 5 });
+  h.character('mira', 'Mira', 'MIRA_SHEET');
+  await h.command('roleplay', 'rescan');
+  const folds = (): number =>
+    h.records().filter((record) => record.specs.some((spec) => spec.id === 'roleplay-scene-fold')).length;
+
+  // Turn 1: the fold is emitted but the safety pass aborts, so nothing is captured.
+  h.setFailSanitizer(true);
+  const enter = user('Mira walks in', 1);
+  await h.start(enter);
+  const aborted = await h.request([enter]);
+  expect(h.aborts()).toBe(1);
+  expect(JSON.stringify(aborted)).not.toContain('MIRA_SHEET');
+  expect(folds()).toBe(0);
+
+  // Turn 2: not marked delivered, so the sheet is re-sent and captured.
+  h.setFailSanitizer(false);
+  const sits = user('Mira sits', 2);
+  await h.start(sits);
+  const second = await h.request([enter, sits]);
+  expect(JSON.stringify(snapshots(second))).toContain('MIRA_SHEET');
+  expect(folds()).toBe(1);
+
+  // Turn 3: the capture committed delivery; still sticky, so no re-send.
+  const waits = user('Mira waits', 3);
+  await h.start(waits);
+  await h.request([enter, sits, waits]);
+  expect(folds()).toBe(1);
+});
+
 test('legacy sceneFoldDelivery=system folds name-triggered sheets into the system prompt', async () => {
   const h = await harness({ sceneFoldDelivery: 'system' });
   h.character('mira', 'Mira', 'MIRA_SHEET');
@@ -867,15 +903,24 @@ test('suppressed reminders fall back to system-prompt folds so sheets never vani
 });
 
 test('volatile macros in system-prompt scene sheets resolve byte-stably across turns', async () => {
-  const h = await harness();
-  h.character('lead', 'Lead', 'LEAD {{random:a,b,c,d,e,f,g,h}} {{roll:1d1000}} {{time}} {{date}}', { pinned: true });
-  await h.command('roleplay', 'rescan');
-  await h.start(user('first', 1));
-  const first = h.systemPrompt();
-  expect(first).toMatch(/LEAD [a-h] \d+ \d\d:\d\d \d{4}-\d\d-\d\d/);
-  vi.mocked(Math.random).mockReturnValue(0.99);
-  await h.start(user('second', 2));
-  expect(h.systemPrompt()).toBe(first);
+  // Fake only Date so async hooks keep real scheduling; the session clock anchors at session_start.
+  vi.useFakeTimers({ toFake: ['Date'] });
+  try {
+    vi.setSystemTime(new Date(2024, 0, 1, 23, 59, 30));
+    const h = await harness();
+    h.character('lead', 'Lead', 'LEAD {{random:a,b,c,d,e,f,g,h}} {{roll:1d1000}} {{time}} {{date}}', { pinned: true });
+    await h.command('roleplay', 'rescan');
+    await h.start(user('first', 1));
+    const first = h.systemPrompt();
+    expect(first).toMatch(/LEAD [a-h] \d+ \d\d:\d\d \d{4}-\d\d-\d\d/);
+    // Cross a minute AND a day boundary: a live clock would change both {{time}} and {{date}}.
+    vi.setSystemTime(new Date(2024, 0, 2, 0, 1, 10));
+    vi.mocked(Math.random).mockReturnValue(0.99);
+    await h.start(user('second', 2));
+    expect(h.systemPrompt()).toBe(first);
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 test('/roleplay lore reports the last narrative turn selection and timing', async () => {

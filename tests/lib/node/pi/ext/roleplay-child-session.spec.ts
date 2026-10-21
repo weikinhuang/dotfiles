@@ -97,6 +97,24 @@ describe('requestOptionsGateFactory', () => {
     expect(requestOptionsGateFactory(agent())).toBeNull();
     expect(typeof requestOptionsGateFactory(agent({ requestOptions: { temperature: 0.3 } }))).toBe('function');
   });
+
+  test('the gate merges temperature / presence_penalty into a before_provider_request payload', () => {
+    const factory = requestOptionsGateFactory(agent({ requestOptions: { temperature: 0.3, presence_penalty: 0.6 } }));
+    expect(factory).not.toBeNull();
+    const handlers = new Map<string, (event: unknown, ctx: unknown) => unknown>();
+    factory!({
+      on: (name: string, handler: (event: unknown, ctx: unknown) => unknown) => {
+        handlers.set(name, handler);
+      },
+    } as never);
+    const before = handlers.get('before_provider_request');
+    expect(before).toBeDefined();
+    const payload = { model: 'fixture', messages: [], temperature: 1 };
+    const out = before!({ payload }, { cwd: root, model: { api: 'openai-completions' } });
+    expect(out).toEqual({ model: 'fixture', messages: [], temperature: 0.3, presence_penalty: 0.6 });
+    // A non-object payload is left alone (no rewrite).
+    expect(before!({ payload: 'raw' }, { cwd: root, model: { api: 'openai-completions' } })).toBeUndefined();
+  });
 });
 
 describe('runRoleplayChild', () => {

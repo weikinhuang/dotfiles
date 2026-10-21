@@ -4,9 +4,10 @@
  * Pure module - no pi runtime needed.
  */
 
-import { expect, test } from 'vitest';
+import { afterEach, expect, test, vi } from 'vitest';
 
 import {
+  clampEnvInt,
   coerceConfigLayer,
   DEFAULT_CONFIG,
   loadRoleplayConfig,
@@ -23,6 +24,12 @@ import {
   MIN_TIMELINE_FILE_CHARS,
   MIN_TIMELINE_MEMORY_CHARS,
   MAX_SCENE_FOLD_REFRESH,
+  MAX_KEEP_TURNS,
+  MAX_RECAP_ADVANCE,
+  MAX_RECAP_CHUNK,
+  MIN_KEEP_TURNS,
+  MIN_RECAP_CHUNK,
+  MIN_WINDOW_CHARS,
 } from '../../../../../lib/node/pi/roleplay/config.ts';
 
 test('coerceConfigLayer accepts a valid charBudget and floors it', () => {
@@ -130,6 +137,7 @@ test('coerceConfigLayer accepts rolling-window dials and clamps them', () => {
   expect(coerceConfigLayer({ recapStride: 9999 })).toEqual({ recapStride: 500 });
   expect(coerceConfigLayer({ recapAsync: true })).toEqual({ recapAsync: true });
   expect(coerceConfigLayer({ recapAsync: false })).toEqual({ recapAsync: false });
+  expect(coerceConfigLayer({ recapAsync: null })).toEqual({ recapAsync: null });
   expect(coerceConfigLayer({ capture: true })).toEqual({ capture: true });
   expect(coerceConfigLayer({ timeline: true })).toEqual({ timeline: true });
   expect(coerceConfigLayer({ timelineMaxInjectChars: 800 })).toEqual({ timelineMaxInjectChars: 800 });
@@ -196,4 +204,49 @@ test('coerceConfigLayer floors the timeline file + memory caps', () => {
   expect(coerceConfigLayer({ timelineFileMaxChars: 9000 }).timelineFileMaxChars).toBe(9000);
   expect(coerceConfigLayer({ timelineMemoryMaxChars: 1 }).timelineMemoryMaxChars).toBe(MIN_TIMELINE_MEMORY_CHARS);
   expect(coerceConfigLayer({ timelineMemoryMaxChars: 'x' }).timelineMemoryMaxChars).toBeUndefined();
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
+test('an explicit recapAsync: null in a later layer resets an earlier force to auto', () => {
+  const user = coerceConfigLayer({ recapAsync: true });
+  const project = coerceConfigLayer({ recapAsync: null });
+  expect(mergeConfigLayers(user, project).recapAsync).toBeNull();
+  expect(mergeConfigLayers(user, coerceConfigLayer({})).recapAsync).toBe(true);
+});
+
+test('clampEnvInt clamps to [min, max] and falls back only for non-numeric input', () => {
+  expect(clampEnvInt('5', 8, 1, 10)).toBe(5);
+  expect(clampEnvInt('0', 8, 1, 10)).toBe(1);
+  expect(clampEnvInt('-3', 8, 1, 10)).toBe(1);
+  expect(clampEnvInt('99', 8, 1, 10)).toBe(10);
+  expect(clampEnvInt('abc', 8, 1, 10)).toBe(8);
+  expect(clampEnvInt('', 8, 1, 10)).toBe(8);
+  expect(clampEnvInt(undefined, 8, 1)).toBe(8);
+  expect(clampEnvInt('123456', 8, 1)).toBe(123456);
+});
+
+test('loadRoleplayConfig clamps every env-backed numeric knob like the JSON layer', () => {
+  const cwd = '/nonexistent/cwd/for/test';
+  const cases: [string, keyof typeof DEFAULT_CONFIG, string, number][] = [
+    ['PI_ROLEPLAY_CONTEXT_TURNS', 'keepTurns', '0', MIN_KEEP_TURNS],
+    ['PI_ROLEPLAY_CONTEXT_TURNS', 'keepTurns', '99999', MAX_KEEP_TURNS],
+    ['PI_ROLEPLAY_RECAP_CHUNK', 'recapChunk', '0', MIN_RECAP_CHUNK],
+    ['PI_ROLEPLAY_RECAP_CHUNK', 'recapChunk', '99999', MAX_RECAP_CHUNK],
+    ['PI_ROLEPLAY_CONTEXT_ASSISTANT_CHARS', 'windowAssistantChars', '5', MIN_WINDOW_CHARS],
+    ['PI_ROLEPLAY_CONTEXT_USER_CHARS', 'windowUserChars', '5', MIN_WINDOW_CHARS],
+    ['PI_ROLEPLAY_RECAP_STRIDE', 'recapStride', '99999', MAX_RECAP_CHUNK],
+    ['PI_ROLEPLAY_RECAP_MAX_ADVANCE', 'recapMaxAdvance', '-4', 0],
+    ['PI_ROLEPLAY_RECAP_MAX_ADVANCE', 'recapMaxAdvance', '999999', MAX_RECAP_ADVANCE],
+    ['PI_ROLEPLAY_RECAP_LAG_CEILING', 'recapLagCeiling', '999999', MAX_RECAP_ADVANCE],
+  ];
+  for (const [name, key, raw, want] of cases) {
+    vi.stubEnv(name, raw);
+    expect(loadRoleplayConfig(cwd)[key], `${name}=${raw}`).toBe(want);
+    vi.stubEnv(name, 'junk');
+    expect(loadRoleplayConfig(cwd)[key], `${name}=junk`).toBe(DEFAULT_CONFIG[key]);
+    vi.unstubAllEnvs();
+  }
 });

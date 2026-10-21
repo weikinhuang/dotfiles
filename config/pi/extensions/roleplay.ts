@@ -60,7 +60,7 @@ import { cardToRecords, parseCardJson } from '../../../lib/node/pi/card-import/c
 import { extractCardJson } from '../../../lib/node/pi/card-import/parse-png-chara.ts';
 import { completeSubverbs } from '../../../lib/node/pi/commands/complete.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
-import { envTruthy, parseClampedPositiveInt } from '../../../lib/node/pi/parse-env.ts';
+import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 import { getActivePersona } from '../../../lib/node/pi/persona/active.ts';
 import { clearActiveRoleplay, setActiveRoleplay } from '../../../lib/node/pi/roleplay/active.ts';
 import {
@@ -74,7 +74,12 @@ import {
 } from '../../../lib/node/pi/roleplay/context-readout.ts';
 import { clearAvatarInput, setAvatarInput } from '../../../lib/node/pi/avatar/input.ts';
 import { COMFYUI_IMAGE_CHANNEL, isImageGeneratedEvent } from '../../../lib/node/pi/comfyui/events.ts';
-import { loadRoleplayConfig } from '../../../lib/node/pi/roleplay/config.ts';
+import {
+  clampEnvInt,
+  DEFAULT_CONFIG,
+  loadRoleplayConfig,
+  MIN_CHAR_BUDGET,
+} from '../../../lib/node/pi/roleplay/config.ts';
 import {
   getRoleplayImageModeOverride,
   isRoleplayImageMode,
@@ -108,7 +113,7 @@ import {
 import { composeSceneBlock, composeSceneFoldBlock, resolveCharacter } from '../../../lib/node/pi/roleplay/scene.ts';
 import { planCharacterFold, selectFoldDeliveries } from '../../../lib/node/pi/roleplay/scene-fold.ts';
 import { expandMatchedRecursive } from '../../../lib/node/pi/roleplay/recursion.ts';
-import { applyTiming } from '../../../lib/node/pi/roleplay/timing.ts';
+import { applyTiming, timingAllows } from '../../../lib/node/pi/roleplay/timing.ts';
 import {
   createCastTimingState,
   resetCastTiming,
@@ -154,7 +159,7 @@ import {
 } from '../../../lib/node/pi/roleplay/lore-readout.ts';
 import { formatRecapReadout, recapUnavailableReason } from '../../../lib/node/pi/roleplay/recap-readout.ts';
 import { formatRelationshipsReadout } from '../../../lib/node/pi/roleplay/relationship-readout.ts';
-import { recordsToCard } from '../../../lib/node/pi/card-import/records-to-card.ts';
+import { parseExportArgs, planCardExport } from '../../../lib/node/pi/card-import/records-to-card.ts';
 import { parseModelSpec } from '../../../lib/node/pi/model-spec.ts';
 import {
   buildEventTask,
@@ -226,7 +231,6 @@ import {
 } from '../../../lib/node/pi/roleplay/paths.ts';
 import {
   castSlug,
-  chooseSlug,
   cloneState,
   emptyState,
   emptyLoreMeta,
@@ -244,6 +248,7 @@ import { ROLEPLAY_USAGE, roleplaySubverbs } from '../../../lib/node/pi/roleplay/
 import { type RoleplayToolParams } from '../../../lib/node/pi/roleplay/tool-params.ts';
 import {
   type ActionPlan,
+  planCardImport,
   planRemove,
   planSave,
   planSearch,
@@ -383,7 +388,10 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   const eventsEnabled = !envTruthy(process.env.PI_ROLEPLAY_DISABLE_EVENTS) && remindersEnabled;
   const avatarDriveEnabled = !envTruthy(process.env.PI_ROLEPLAY_DISABLE_AVATAR);
   const sceneGenEnabled = !envTruthy(process.env.PI_ROLEPLAY_DISABLE_SCENEGEN);
-  const envCharBudget = parseClampedPositiveInt(process.env.PI_ROLEPLAY_MAX_INJECTED_CHARS, 0, 1) || undefined;
+  // Clamped to the `charBudget` floor (MIN_CHAR_BUDGET) by loadRoleplayConfig; unset / non-numeric -> default.
+  const envCharBudget = process.env.PI_ROLEPLAY_MAX_INJECTED_CHARS
+    ? clampEnvInt(process.env.PI_ROLEPLAY_MAX_INJECTED_CHARS, DEFAULT_CONFIG.charBudget, MIN_CHAR_BUDGET)
+    : undefined;
 
   // Activated lore bundles, resolved once at load from the env contract
   // (`PI_ROLEPLAY_LORE_BUNDLES=nameA,nameB`, ascending precedence). The
@@ -423,10 +431,13 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
    * Per-run slot for name-triggered character sheets, delivered as the
    * `<system-reminder id="roleplay-scene-fold">` block (same lifecycle as
    * `pendingLore`) so NPCs entering / leaving the sticky window never rewrite
-   * the cached system prompt. `ids` are committed to `sceneFoldDelivered`
-   * only when the block is actually emitted.
+   * the cached system prompt. Once emitted the slot moves to
+   * `sceneFoldAwaitingCapture`; its `ids` are committed to
+   * `sceneFoldDelivered` only when the cache-reminders coordinator captures
+   * a snapshot carrying the same body, so an aborted request re-sends.
    */
   let pendingSceneFold: { body: string; ids: string[]; turn: number } | null = null;
+  let sceneFoldAwaitingCapture: { body: string; ids: string[]; turn: number } | null = null;
   /** Session-start-anchored clock for macros in system-prompt (head) text, so `{{time}}` etc. stay byte-stable. */
   let frozenMacroNow: Date | null = null;
   /** Unsubscribe handle for the comfyui image-generated bus (cleared on shutdown). */
@@ -559,6 +570,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     resetCastTiming(timing);
     lastLoreSelection = null;
     pendingSceneFold = null;
+    sceneFoldAwaitingCapture = null;
     keywordVisualLore = [];
     depthVisualLore = [];
     pendingLore = null;
@@ -819,9 +831,11 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     // candidates; the timing pass (delay / probability / sticky / cooldown /
     // inclusion-group) then decides what actually fires this turn, so
     // recursive hits go through timing exactly like keyword hits.
+    // Sources timing already rules out (disabled / delay / cooldown) never feed recursion.
     const matchedIds = expandMatchedRecursive(matchLore(lore, scanText), lore, {
       bodyOf,
       maxRecursion: cfg.maxRecursion,
+      isSource: (e) => timingAllows(e.lore ?? emptyLoreMeta(), timing.timingState[e.id], timing.turnCount),
     });
     const timed = applyTiming(
       lore.map((e) => ({ id: e.id, meta: e.lore ?? emptyLoreMeta(), matched: matchedIds.has(e.id) })),
@@ -856,6 +870,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     gateRoleplayTool();
     pendingLore = null;
     pendingSceneFold = null;
+    sceneFoldAwaitingCapture = null;
     pendingDepthScan = null;
     pendingEventForRun = null;
     pendingEventGenerationForRun = null;
@@ -932,7 +947,10 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         body: normalizeInjectedBody(substituteMacros(readEntryBody(state.cast, entry) ?? '', macroCtx())),
       }))
       .filter((chunk) => chunk.body.length > 0);
-    const selected = selectWithinBudget(chunks, loadRoleplayConfig(cwd, envCharBudget).loreCharBudget);
+    // Depth chunks are injected without the lore-block header, so it costs nothing here.
+    const selected = selectWithinBudget(chunks, loadRoleplayConfig(cwd, envCharBudget).loreCharBudget, {
+      headerChars: 0,
+    });
     if (lastLoreSelection) recordDepthSelection(lastLoreSelection, selected);
     const { kept } = selected;
     depthVisualLore = kept;
@@ -2167,8 +2185,9 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
           pendingSceneFold = null;
           if (sceneFold) {
             reminders.push({ id: 'roleplay-scene-fold', body: sceneFold.body });
-            // Only sheets that actually reached this run's snapshot count as delivered.
-            for (const id of sceneFold.ids) timing.sceneFoldDelivered.set(id, sceneFold.turn);
+            // Committed by the `cache-reminders:captured` listener: only sheets
+            // that actually reached a captured snapshot count as delivered.
+            sceneFoldAwaitingCapture = sceneFold;
           }
           if (lorebookEnabled) reminders.push({ id: 'roleplay-lore', body: pendingLore });
           if (repetitionEnabled) reminders.push({ id: 'roleplay-repetition', body: buildRepetitionNudge(messages) });
@@ -2336,28 +2355,35 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   if (contextWindowEnabled) {
     pi.on('session_compact', () => {
       resetWindowCoverage(win);
+      sceneFoldAwaitingCapture = null;
       resetSceneFoldDelivery(timing);
     });
   }
 
   // ── Scene events (/roleplay event) ──────────────────────────────────
 
-  if (eventsEnabled) {
-    unsubscribeReminderSnapshots = pi.events.on('cache-reminders:captured', (data) => {
-      const snapshot = data as ReminderSnapshot | undefined;
-      if (
-        pendingEvent &&
-        snapshot &&
-        isCurrentEventCapture({
-          pendingGeneration: pendingEventGeneration,
-          frozenGeneration: pendingEventGenerationForRun,
-          frozenBody: pendingEventForRun,
-          specs: snapshot.specs,
-        })
-      )
-        eventConsumed = true;
-    });
-  }
+  // One listener serves both scene-fold delivery commits and event
+  // consumption; each branch only acts on its own pending state.
+  unsubscribeReminderSnapshots = pi.events.on('cache-reminders:captured', (data) => {
+    const snapshot = data as ReminderSnapshot | undefined;
+    if (!snapshot) return;
+    const fold = sceneFoldAwaitingCapture;
+    if (fold && snapshot.specs.some((spec) => spec.id === 'roleplay-scene-fold' && spec.body === fold.body)) {
+      sceneFoldAwaitingCapture = null;
+      for (const id of fold.ids) timing.sceneFoldDelivered.set(id, fold.turn);
+    }
+    if (
+      eventsEnabled &&
+      pendingEvent &&
+      isCurrentEventCapture({
+        pendingGeneration: pendingEventGeneration,
+        frozenGeneration: pendingEventGenerationForRun,
+        frozenBody: pendingEventForRun,
+        specs: snapshot.specs,
+      })
+    )
+      eventConsumed = true;
+  });
   //
   // `/roleplay event [hint]` queues a one-shot complication, generated by
   // the `roleplay-event` agent (default; always when a hint is given) and
@@ -2457,6 +2483,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     eventConsumed = false;
     pendingLore = null;
     pendingSceneFold = null;
+    sceneFoldAwaitingCapture = null;
     lastLoreSelection = null;
     resetSceneFoldDelivery(timing);
     frozenMacroNow = null;
@@ -2526,9 +2553,10 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
 
   const readBody = (entry: RoleplayEntry): string | null => readEntryBody(state.cast, entry);
 
-  const actSave = (params: RoleplayParamsT): ActionOut => applyPlan('save', planSave(state, params));
+  const actSave = (params: RoleplayParamsT): ActionOut => applyPlan('save', planSave(state, params, existsSync));
 
-  const actUpdate = (params: RoleplayParamsT): ActionOut => applyPlan('update', planUpdate(state, params, readBody));
+  const actUpdate = (params: RoleplayParamsT): ActionOut =>
+    applyPlan('update', planUpdate(state, params, readBody, existsSync));
 
   const actRemove = (params: RoleplayParamsT): ActionOut => applyPlan('remove', planRemove(state, params));
 
@@ -2572,42 +2600,43 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     if ('error' in card) return { ok: false, error: `card parse failed: ${card.error}` };
     const plan = cardToRecords(card);
 
-    let entries = state.entries;
-    const written: string[] = [];
-    for (const rec of plan.records) {
-      const slug = chooseSlug(entries, rec.name);
-      atomicWriteFile(
-        fileFor(state.cast, rec.kind, slug),
-        serializeEntry({
-          name: rec.name,
-          description: rec.description,
-          kind: rec.kind,
-          body: rec.body,
-          lore: rec.lore,
-          character: rec.character,
-        }),
-      );
-      const entry: RoleplayEntry = {
-        id: slug,
-        kind: rec.kind,
-        name: rec.name,
-        description: rec.description,
-        ...(rec.lore ? { lore: rec.lore } : {}),
-        ...(rec.character ? { character: rec.character } : {}),
+    const ip = planCardImport(state, plan, existsSync);
+    let done = 0;
+    try {
+      for (const w of ip.writes) {
+        atomicWriteFile(w.path, w.content);
+        done += 1;
+      }
+    } catch (err) {
+      // Partial write: resync in-memory state with what actually landed on disk.
+      state = rebuildCast(state.cast, roleplayRoot(), { loreBundles }).state;
+      excludeCache = null;
+      loreEmptyCache = null;
+      try {
+        writeIndex(state);
+      } catch {
+        /* the original error is the one worth reporting */
+      }
+      const msg = err instanceof Error ? err.message : String(err);
+      return {
+        ok: false,
+        error: [
+          `import of "${plan.characterName}" failed after ${done} of ${ip.writes.length} record(s): ${msg}`,
+          ...ip.written.slice(0, done),
+          `Cast "${state.cast}" was rescanned from disk; remove the partial records or retry.`,
+        ].join('\n'),
       };
-      entries = upsertEntry(entries, entry);
-      written.push(`  [${rec.kind}] ${slug} - ${rec.name}`);
     }
-    state = { cast: state.cast, entries };
+    state = ip.state;
     writeIndex(state);
     excludeCache = null;
     loreEmptyCache = null;
 
     const lines = [
       `Imported "${plan.characterName}" into cast "${state.cast}": ${plan.records.length} record(s).`,
-      ...written,
+      ...ip.written,
     ];
-    if (plan.warnings.length > 0) lines.push('', 'Warnings:', ...plan.warnings.map((w) => `  - ${w}`));
+    if (ip.warnings.length > 0) lines.push('', 'Warnings:', ...ip.warnings.map((w) => `  - ${w}`));
     return { ok: true, summary: lines.join('\n') };
   };
 
@@ -2626,17 +2655,21 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     baseDir: string,
   ): { ok: true; summary: string } | { ok: false; error: string } => {
     const trimmed = rawArgs.trim();
+    const characterEntries = state.entries.filter((e) => e.kind === 'character');
+    const parsed = parseExportArgs(trimmed, characterEntries);
+    let character = parsed.character ? characterEntries.find((e) => e.id === parsed.character) : undefined;
+    let pathArg = parsed.path ?? '';
     const first = trimmed.split(/\s+/)[0] ?? '';
-    let character = first ? resolveCharacter(state, first) : undefined;
-    let pathArg = trimmed;
-    if (character) {
-      pathArg = trimmed.slice(first.length).trim();
-    } else {
+    if (!character && first) {
+      // Single-token fallback: slugified name (`Jane-Doe` -> `jane-doe`).
+      character = resolveCharacter(state, first);
+      if (character) pathArg = trimmed.slice(first.length).trim();
+    }
+    if (!character) {
       if (first && !/[./~\\]/.test(trimmed))
         return { ok: false, error: `no character "${first}" in cast "${state.cast}"` };
       const primary = primaryCharName();
-      character =
-        (primary ? resolveCharacter(state, primary) : undefined) ?? state.entries.find((e) => e.kind === 'character');
+      character = (primary ? resolveCharacter(state, primary) : undefined) ?? characterEntries[0];
     }
     if (!character) return { ok: false, error: `cast "${state.cast}" has no character record to export` };
     const path = pathArg ? resolveImportPath(pathArg, baseDir, homedir()) : join(baseDir, `${character.id}.card.json`);
@@ -2648,9 +2681,16 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         description: e.description,
         body: readEntryBody(state.cast, e) ?? '',
         lore: e.lore ?? emptyLoreMeta(),
+        extra: e.extra,
       }));
-    const card = recordsToCard(
-      { name: character.name, description: character.description, body: readEntryBody(state.cast, character) ?? '' },
+    const { card, warnings } = planCardExport(
+      {
+        name: character.name,
+        description: character.description,
+        body: readEntryBody(state.cast, character) ?? '',
+        ...(character.character ? { character: character.character } : {}),
+        ...(character.extra ? { extra: character.extra } : {}),
+      },
       lore,
     );
     try {
@@ -2658,10 +2698,11 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     } catch (err) {
       return { ok: false, error: `cannot write ${path}: ${err instanceof Error ? err.message : String(err)}` };
     }
-    return {
-      ok: true,
-      summary: `Exported "${character.name}" with ${lore.length} lore entr(ies) from cast "${state.cast}" to ${path}`,
-    };
+    const lines = [
+      `Exported "${character.name}" with ${lore.length} lore entr(ies) from cast "${state.cast}" to ${path}`,
+    ];
+    if (warnings.length > 0) lines.push('', 'Warnings:', ...warnings.map((w) => `  - ${w}`));
+    return { ok: true, summary: lines.join('\n') };
   };
 
   // ── Tool registration ───────────────────────────────────────────────
@@ -3090,7 +3131,16 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
             },
             resolvePromptGuidance('event', { cwd }),
           );
-          queued = await gen.generate({ cwd, model: ctx.model, modelRegistry: ctx.modelRegistry as never }, task);
+          // Forward the command's abort signal (when pi exposes one) so Esc cancels the child run.
+          queued = await gen.generate(
+            {
+              cwd,
+              model: ctx.model,
+              modelRegistry: ctx.modelRegistry as never,
+              ...(ctx.signal ? { signal: ctx.signal } : {}),
+            },
+            task,
+          );
         }
         if (queued === null) {
           const deckPick = pickDeckEvent(cfg.events, Math.random, cfg.eventMaxChars);

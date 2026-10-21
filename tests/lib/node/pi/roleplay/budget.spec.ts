@@ -115,3 +115,11 @@ test('trailer overflow evicts the lowest-ranked kept chunk but never the first',
   expect(result.kept.map((c) => c.entry.id)).toStrictEqual(['a']);
   expect(result.dropped.map((e) => e.id)).toStrictEqual(['b', 'c']);
 });
+
+test('selectWithinBudget headerChars: 0 drops the header charge (depth lore renders no header)', () => {
+  const a = chunk('a', 2, 'x'.repeat(20));
+  const b = chunk('b', 1, 'y'.repeat(20));
+  const budget = chunkCost(a) + chunkCost(b);
+  expect(selectWithinBudget([a, b], budget).kept.map((c) => c.entry.id)).toStrictEqual(['a']);
+  expect(selectWithinBudget([a, b], budget, { headerChars: 0 }).kept.map((c) => c.entry.id)).toStrictEqual(['a', 'b']);
+});

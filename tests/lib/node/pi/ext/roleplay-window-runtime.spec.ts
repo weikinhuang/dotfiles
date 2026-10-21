@@ -600,6 +600,16 @@ test('/roleplay export writes a V2 card once and /roleplay rel lists relationshi
   expect(await h.command('export mira sub/m.json')).toContain('sub/m.json');
 });
 
+test('/roleplay export resolves a multi-word name and reports dropped data as warnings', async () => {
+  const h = await harness({});
+  await h.tool({ action: 'save', name: 'Mira Vale', description: 'lead', body: 'MIRA BODY', aliases: ['MV'] });
+  const msg = await h.command('export Mira Vale out/mv.json');
+  expect(msg).toContain('Exported "Mira Vale"');
+  expect(msg).toContain('out/mv.json');
+  expect(msg).toContain('Warnings:');
+  expect(msg).toContain('character "Mira Vale": card has no field for');
+});
+
 test('recap mode cancels threshold compaction only when a summarizer resolves', async () => {
   const h = await harness({});
   expect(await h.beforeCompact('threshold')).toStrictEqual({ cancel: true });

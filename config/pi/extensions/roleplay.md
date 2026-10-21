@@ -147,20 +147,24 @@ multi-word or punctuation-bearing keys (`Northern Outpost`, `Dr. Vance`) match l
 Letters, digits, and combining marks count as word characters. Scripts written without spaces (Han, Hiragana, Katakana,
 Thai, Lao, Khmer, Myanmar) have no token boundaries, so the boundary is not required on a keyword edge whose character
 is in one of those scripts (`阿米娅` fires in `阿米娅说`), and such a neighbor also counts as a boundary for other
-keywords (`RI` fires in `罗德岛RI基地`). Hangul uses spaces and keeps strict boundaries.
+keywords (`RI` fires in `罗德岛RI基地`). Hangul uses spaces and keeps strict boundaries. A keyword edge that is itself
+punctuation or a symbol needs no boundary on that side (`R.I.` fires in `R.I.s`, `x-` in `x-ray`); a letter or digit
+edge keeps it.
 
 **Selection.** Each narrative turn runs keyword matching, then optional recursion, then the timing pass, then the
 budget:
 
 1. **Recursion** (off by default, opt-in per entry with `recurse: true`, capped at `maxRecursion` passes, ceiling 2)
    re-scans matched bodies for further keyword hits. It runs **before** timing, so recursively matched entries obey
-   `delay`, `cooldown`, `probability`, `sticky`, and inclusion groups exactly like direct matches.
+   `delay`, `cooldown`, `probability`, `sticky`, and inclusion groups exactly like direct matches. Only entries timing
+   could let fire this turn (enabled, past `delay`, not in cooldown) act as recursion sources; a source that then fails
+   its `probability` roll or loses its group has still contributed its body.
 2. **Timing** decides which matched entries actually fire: `delay` (ineligible until turn N), `cooldown` (blocked for N
    turns after the active window), `probability` (a roll on each fresh activation), `sticky` (stay active N further
    turns without a re-roll), and `group` (keep one fired member per group). A sticky entry still inside its window is
-   the **incumbent** in its inclusion group and wins without a roll (several incumbents: highest `groupWeight`, then
-   id); otherwise the winner is a `groupWeight`-weighted random pick. Group losers do not arm sticky or cooldown
-   windows.
+   the **incumbent** in its inclusion group and wins without a roll (several incumbents: highest `groupWeight`, then id
+   in code-unit order); otherwise the winner is a `groupWeight`-weighted random pick. Group losers do not arm sticky or
+   cooldown windows.
 3. **Budget** ranks fired entries by `order` (then name) and keeps them until `loreCharBudget` is reached. The budget is
    measured against the whole rendered block, including its heading and the "lore budget reached" trailer. The single
    highest-priority entry is always kept even if it alone exceeds the budget.
@@ -586,13 +590,20 @@ regex-shaped keys (`/pattern/flags`, matched as literal text), `case_sensitive: 
 (matching stays case-insensitive and whole-word). The summary lists every record written. Decoding and mapping are pure
 ([`lib/node/pi/card-import/`](../../../lib/node/pi/card-import/)).
 
+Slugs are chosen up front against the in-memory cast and files already on disk, so an import never overwrites an
+existing record. Re-importing a card whose character name already exists in the cast warns and saves the new records
+beside the old ones under suffixed slugs. If a write fails midway, the cast is rescanned from disk (so the session state
+matches what landed) and the error lists the records written before the failure.
+
 ## Exporting a card
 
 `/roleplay export [character] [path]` writes a SillyTavern **Character Card V2** JSON:
 
-- **Character.** A leading token that resolves to a cast character (id, name, or name slug) selects it. Otherwise the
-  default is the persona's primary character (first non-POV `characters` entry), then the first character record. A
-  leading token that does not resolve and does not look like a path (no `.`, `/`, `~`, or `\`) is an error.
+- **Character.** The longest leading run of words that matches a cast character name or id (case- and
+  whitespace-insensitive, so multi-word names work unquoted) selects it; a single leading token may also match a name
+  slug. Otherwise the default is the persona's primary character (first non-POV `characters` entry), then the first
+  character record. A leading token that does not resolve and does not look like a path (no `.`, `/`, `~`, or `\`) is an
+  error.
 - **Path.** Defaults to `<session cwd>/<character-id>.card.json`. Quoting, `~` expansion, and relative resolution follow
   the import rules. The export **never overwrites** an existing file.
 - **Lore.** Every lore record loaded for the active cast is included as `character_book` entries: base lore plus the
@@ -605,14 +616,17 @@ section maps back to its card field (alternate greetings split from the numbered
 `triggers` -> `keys`, `secondaryKeys` -> `secondary_keys` (`selective` when non-empty), `secondaryMode` ->
 `extensions.selectiveLogic` (OR=0, NOT_ALL=1, NOT=2, AND=3), `order` -> `insertion_order`, `depth` ->
 `extensions.position: 4` + `extensions.depth`, and `probability` / `sticky` / `cooldown` / `delay` / `group` /
-`groupWeight` to their `extensions` counterparts. Character fold metadata (`aliases`, `pinned`, ...) is not exported.
+`groupWeight` to their `extensions` counterparts. Data a V2 card cannot carry is dropped and listed under `Warnings:` in
+the summary: character fold metadata (`aliases`, `pinned`, ...), lore `recurse: true`, lore descriptions the importer
+would not re-derive, and preserved custom frontmatter keys.
 
 ## Configuration
 
 Budgets and dials are preferences, exposed via a `roleplay.json` config layer
 ([`lib/node/pi/roleplay/config.ts`](../../../lib/node/pi/roleplay/config.ts)). Resolution order:
 `project (<cwd>/.pi/roleplay.json)` > `user (~/.pi/agent/roleplay.json)` > env knobs > built-in default. Out-of-range
-values are clamped to the bounds below; wrong types are ignored.
+values are clamped to the bounds below; wrong types are ignored. `recapAsync: null` is an explicit reset to auto, so a
+project file can undo a user-level `true` / `false`.
 
 ```jsonc
 {
@@ -665,7 +679,9 @@ fixed.
 
 ## Environment variables
 
-Env knobs that mirror config keys sit below both config files.
+Env knobs that mirror config keys sit below both config files. Numeric knobs clamp to the same bounds as their config
+key (below the minimum becomes the minimum, above the maximum becomes the maximum); a non-numeric value falls back to
+the default.
 
 - `PI_ROLEPLAY_DISABLED=1` - skip the extension entirely (no tool, no command, no injection).
 - `PI_CACHE_REMINDERS_DISABLED=1` - suppress managed reminders globally: lore, depth injection, repetition, and events

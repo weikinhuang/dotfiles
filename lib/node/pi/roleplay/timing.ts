@@ -62,6 +62,20 @@ export interface TimingResult {
 
 const ZERO: TimingState = { stickyUntil: 0, cooldownUntil: 0 };
 
+/**
+ * Whether timing could let `meta` be active this turn: enabled, past its
+ * `delay`, and not inside a cooldown (a live sticky window counts as
+ * active). Probability and inclusion groups are not considered. Used to
+ * gate recursion sources before the real timing pass runs.
+ */
+export function timingAllows(meta: LoreMeta, state: TimingState | undefined, turn: number): boolean {
+  if (meta.enabled === false) return false;
+  if (turn < meta.delay) return false;
+  const st = state ?? ZERO;
+  if (st.stickyUntil > turn) return true;
+  return turn >= st.cooldownUntil;
+}
+
 /** Whether a freshly-eligible entry wins its probability roll. */
 function rollProbability(probability: number, rng: () => number): boolean {
   if (probability >= 100) return true;
@@ -133,7 +147,8 @@ export function applyTiming(
     const total = weights.reduce((a, b) => a + b, 0);
     let winner = members[0];
     if (carries.length > 0) {
-      winner = carries.toSorted((a, b) => weightOf(b) - weightOf(a) || a.localeCompare(b))[0];
+      // Code-unit order (locale-independent) so the id A->Z tie-break is stable everywhere.
+      winner = carries.toSorted((a, b) => weightOf(b) - weightOf(a) || (a < b ? -1 : a > b ? 1 : 0))[0];
     } else if (total > 0) {
       let r = rng() * total;
       for (let i = 0; i < members.length; i += 1) {

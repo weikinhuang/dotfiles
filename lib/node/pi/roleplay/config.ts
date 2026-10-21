@@ -22,7 +22,7 @@
  */
 
 import { readJsoncOrUndefined } from '../fs-safe.ts';
-import { envTruthy, parseClampedPositiveInt, parseNonNegativeInt } from '../parse-env.ts';
+import { envTruthy } from '../parse-env.ts';
 import { piAgentPath, piProjectPath } from '../pi-paths.ts';
 import { MAX_RECURSION_CAP } from './recursion.ts';
 import { isRoleplayImageMode, type RoleplayImageMode } from './image-tools.ts';
@@ -190,6 +190,23 @@ export const MIN_TIMELINE_FILE_CHARS = 4096;
 /** Floor for the in-memory cumulative timeline cap. */
 export const MIN_TIMELINE_MEMORY_CHARS = 1024;
 
+/**
+ * Parse an integer env knob and clamp it to `[min, max]`, matching the JSON
+ * layer: below `min` -> `min`, above `max` -> `max`. Blank / non-numeric
+ * input returns `fallback`.
+ */
+export function clampEnvInt(
+  raw: string | undefined,
+  fallback: number,
+  min: number,
+  max: number = Number.POSITIVE_INFINITY,
+): number {
+  if (raw === undefined || raw.trim().length === 0) return fallback;
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, n));
+}
+
 /** Validate an untrusted JSON layer into a `Partial<RoleplayConfig>`. */
 export function coerceConfigLayer(raw: unknown): Partial<RoleplayConfig> {
   if (!raw || typeof raw !== 'object') return {};
@@ -271,7 +288,8 @@ export function coerceConfigLayer(raw: unknown): Partial<RoleplayConfig> {
   if (typeof v.recapLagCeiling === 'number' && Number.isFinite(v.recapLagCeiling)) {
     out.recapLagCeiling = Math.max(0, Math.min(MAX_RECAP_ADVANCE, Math.floor(v.recapLagCeiling)));
   }
-  if (typeof v.recapAsync === 'boolean') {
+  // Explicit `null` resets to auto, so a project layer can undo a user-level force.
+  if (typeof v.recapAsync === 'boolean' || v.recapAsync === null) {
     out.recapAsync = v.recapAsync;
   }
   if (typeof v.capture === 'boolean') {
@@ -320,51 +338,55 @@ export function loadRoleplayConfig(cwd: string, envCharBudget?: number): Rolepla
   // in when its env var is actually set, so an unset environment leaves the
   // shipped defaults untouched.
   const env = process.env;
+  // Each knob clamps to the same bounds as its JSON key (see coerceConfigLayer).
   if (env.PI_ROLEPLAY_CONTEXT_TURNS !== undefined) {
-    envLayer.keepTurns = parseClampedPositiveInt(
+    envLayer.keepTurns = clampEnvInt(
       env.PI_ROLEPLAY_CONTEXT_TURNS,
       DEFAULT_CONFIG.keepTurns,
       MIN_KEEP_TURNS,
+      MAX_KEEP_TURNS,
     );
   }
   if (env.PI_ROLEPLAY_RECAP_CHUNK !== undefined) {
-    envLayer.recapChunk = parseClampedPositiveInt(
+    envLayer.recapChunk = clampEnvInt(
       env.PI_ROLEPLAY_RECAP_CHUNK,
       DEFAULT_CONFIG.recapChunk,
       MIN_RECAP_CHUNK,
+      MAX_RECAP_CHUNK,
     );
   }
   if (env.PI_ROLEPLAY_CONTEXT_ASSISTANT_CHARS !== undefined) {
-    envLayer.windowAssistantChars = parseClampedPositiveInt(
+    envLayer.windowAssistantChars = clampEnvInt(
       env.PI_ROLEPLAY_CONTEXT_ASSISTANT_CHARS,
       DEFAULT_CONFIG.windowAssistantChars,
       MIN_WINDOW_CHARS,
     );
   }
   if (env.PI_ROLEPLAY_CONTEXT_USER_CHARS !== undefined) {
-    envLayer.windowUserChars = parseClampedPositiveInt(
+    envLayer.windowUserChars = clampEnvInt(
       env.PI_ROLEPLAY_CONTEXT_USER_CHARS,
       DEFAULT_CONFIG.windowUserChars,
       MIN_WINDOW_CHARS,
     );
   }
   if (env.PI_ROLEPLAY_RECAP_STRIDE !== undefined) {
-    // 0 is meaningful here ("follow recapChunk"), so accept an explicit 0
-    // rather than treating it as invalid and snapping back to the default.
-    envLayer.recapStride = parseNonNegativeInt(env.PI_ROLEPLAY_RECAP_STRIDE, DEFAULT_CONFIG.recapStride);
+    // 0 is meaningful here ("follow recapChunk").
+    envLayer.recapStride = clampEnvInt(env.PI_ROLEPLAY_RECAP_STRIDE, DEFAULT_CONFIG.recapStride, 0, MAX_RECAP_CHUNK);
   }
   if (env.PI_ROLEPLAY_RECAP_MAX_ADVANCE !== undefined) {
-    envLayer.recapMaxAdvance = parseClampedPositiveInt(
+    envLayer.recapMaxAdvance = clampEnvInt(
       env.PI_ROLEPLAY_RECAP_MAX_ADVANCE,
       DEFAULT_CONFIG.recapMaxAdvance,
       0,
+      MAX_RECAP_ADVANCE,
     );
   }
   if (env.PI_ROLEPLAY_RECAP_LAG_CEILING !== undefined) {
-    envLayer.recapLagCeiling = parseClampedPositiveInt(
+    envLayer.recapLagCeiling = clampEnvInt(
       env.PI_ROLEPLAY_RECAP_LAG_CEILING,
       DEFAULT_CONFIG.recapLagCeiling,
       0,
+      MAX_RECAP_ADVANCE,
     );
   }
   if (env.PI_ROLEPLAY_RECAP_ASYNC !== undefined) {

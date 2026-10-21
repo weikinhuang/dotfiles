@@ -33,6 +33,16 @@ test('hasKeyword handles punctuation-bearing keys', () => {
   expect(hasKeyword("ask Dr. Kal'tsit about it", "Kal'tsit")).toBe(true);
 });
 
+test('hasKeyword needs no boundary on a side whose edge character is punctuation', () => {
+  expect(hasKeyword('the R.I.s gathered', 'R.I.')).toBe(true);
+  expect(hasKeyword('an x-ray film', 'x-')).toBe(true);
+  expect(hasKeyword('a -tion suffix', '-tion')).toBe(true);
+  expect(hasKeyword('motion', '-tion')).toBe(false);
+  // The letter edge keeps its boundary.
+  expect(hasKeyword('PR.I. memo', 'R.I.')).toBe(false);
+  expect(hasKeyword('it is springtime', 'RI')).toBe(false);
+});
+
 test('hasKeyword is false for empty / whitespace keys', () => {
   expect(hasKeyword('anything', '   ')).toBe(false);
 });

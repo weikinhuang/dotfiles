@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
 import { emptyLoreMeta, type LoreMeta } from '../../../../../lib/node/pi/roleplay/store.ts';
-import { applyTiming, type TimingEntry, type TimingState } from '../../../../../lib/node/pi/roleplay/timing.ts';
+import {
+  applyTiming,
+  timingAllows,
+  type TimingEntry,
+  type TimingState,
+} from '../../../../../lib/node/pi/roleplay/timing.ts';
 
 /** Deterministic rng: cycles the given draws, repeating the last. */
 function seqRng(...draws: number[]): () => number {
@@ -166,6 +171,16 @@ describe('applyTiming', () => {
     expect(res.nextState.c).toEqual(prior.c);
   });
 
+  it('carry tie-break uses code-unit id order, not locale order', () => {
+    const prior: Record<string, TimingState> = {
+      a: { stickyUntil: 5, cooldownUntil: 5 },
+      B: { stickyUntil: 5, cooldownUntil: 5 },
+    };
+    const e = [entry('a', false, { group: 'g' }), entry('B', false, { group: 'g' })];
+    // 'B' (0x42) < 'a' (0x61); localeCompare would pick 'a'.
+    expect(applyTiming(e, 1, prior, NO_RNG).fired).toEqual(['B']);
+  });
+
   it('rng order: probability rolls first, then only groups without an incumbent draw', () => {
     const draws: number[] = [];
     const rng = (): number => {
@@ -186,5 +201,21 @@ describe('applyTiming', () => {
     // 2 probability rolls (a, b), g1 pick (0.9 -> b), g2 resolved by incumbent d (no draw), g3 pick (0 -> x).
     expect(draws).toEqual([0.1, 0.1, 0.9, 0]);
     expect(res.fired).toEqual(['b', 'd', 'x']);
+  });
+});
+
+describe('timingAllows', () => {
+  const meta = (over: Partial<LoreMeta> = {}): LoreMeta => ({ ...emptyLoreMeta(), ...over });
+
+  it('rejects disabled entries and entries before their delay', () => {
+    expect(timingAllows(meta({ enabled: false }), undefined, 5)).toBe(false);
+    expect(timingAllows(meta({ delay: 3 }), undefined, 2)).toBe(false);
+    expect(timingAllows(meta({ delay: 3 }), undefined, 3)).toBe(true);
+  });
+
+  it('rejects an active cooldown but allows a live sticky window', () => {
+    expect(timingAllows(meta(), { stickyUntil: 2, cooldownUntil: 6 }, 4)).toBe(false);
+    expect(timingAllows(meta(), { stickyUntil: 2, cooldownUntil: 6 }, 6)).toBe(true);
+    expect(timingAllows(meta(), { stickyUntil: 5, cooldownUntil: 8 }, 4)).toBe(true);
   });
 });

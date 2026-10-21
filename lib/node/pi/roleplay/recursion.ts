@@ -31,6 +31,12 @@ export interface RecursionOptions {
   bodyOf: (entry: RoleplayEntry) => string;
   /** Requested passes; clamped to `[0, MAX_RECURSION_CAP]`. */
   maxRecursion?: number;
+  /**
+   * Optional gate on recursion sources: an entry whose body would be
+   * re-scanned must also pass this predicate (default: every `recurse`
+   * entry). It still counts as matched either way.
+   */
+  isSource?: (entry: RoleplayEntry) => boolean;
 }
 
 function expand(
@@ -42,14 +48,15 @@ function expand(
   const fired = new Map<string, RoleplayEntry>();
   for (const e of initialFired) fired.set(e.id, e);
 
-  let frontier = initialFired.filter((e) => e.lore?.recurse);
+  const isSource = (e: RoleplayEntry): boolean => e.lore?.recurse === true && (opts.isSource?.(e) ?? true);
+  let frontier = initialFired.filter(isSource);
   for (let pass = 0; pass < passes && frontier.length > 0; pass++) {
     const scanText = frontier.map((e) => opts.bodyOf(e)).join('\n');
     const candidates = allEntries.filter((e) => !fired.has(e.id));
     const newly = matchLore(candidates, scanText);
     if (newly.length === 0) break;
     for (const e of newly) fired.set(e.id, e);
-    frontier = newly.filter((e) => e.lore?.recurse);
+    frontier = newly.filter(isSource);
   }
 
   return [...fired.values()];
@@ -81,10 +88,11 @@ export function expandRecursive(
  * the full matched id set (initial + recursive matches).
  *
  * Semantics: recursion sources are keyword-MATCHED entries, evaluated
- * before timing. A matched entry whose own timing later suppresses it
- * (delay, cooldown, failed probability roll, lost inclusion group) still
- * contributed its body to the scan; timing then filters the whole union
- * uniformly. Sticky carries that did not match this turn are not
+ * before timing. Pass `opts.isSource` to drop sources the timing state
+ * already rules out (disabled, `delay` not reached, in cooldown). Rolled
+ * outcomes are not known yet, so a source that later fails its probability
+ * roll or loses its inclusion group still contributed its body to the
+ * scan; timing then filters the whole union uniformly. Sticky carries that did not match this turn are not
  * recursion sources. This keeps the timing pass single-shot per turn.
  */
 export function expandMatchedRecursive(

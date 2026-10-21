@@ -105,3 +105,14 @@ test('recursive matches then go through timing (cooldown / probability are honor
   );
   expect(timed.fired).toStrictEqual(['a']);
 });
+
+test('isSource excludes timing-suppressed entries from feeding recursion', () => {
+  const { all, bodyOf } = fixture();
+  const initial = matchLore(all, 'Alpha arrives.');
+  // `a` still counts as matched, but its body is not re-scanned, so b and c never match.
+  const gated = expandMatchedRecursive(initial, all, { bodyOf, maxRecursion: 2, isSource: (e) => e.id !== 'a' });
+  expect([...gated]).toStrictEqual(['a']);
+  // Gating only `b` (a recursive hit) stops the chain after one pass.
+  const mid = expandMatchedRecursive(initial, all, { bodyOf, maxRecursion: 2, isSource: (e) => e.id !== 'b' });
+  expect([...mid].sort()).toStrictEqual(['a', 'b']);
+});

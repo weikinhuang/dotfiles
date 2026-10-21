@@ -27,6 +27,11 @@
  * scripts (`"阿米娅"` fires in `"阿米娅说"`). A neighboring character from
  * such a script also counts as a boundary for other keywords, so `"RI"`
  * fires in `"罗德岛RI基地"`. Hangul uses spaces and keeps strict boundaries.
+ *
+ * A keyword whose edge character is itself punctuation / a symbol (not a
+ * letter, digit, or mark) needs no boundary on that side either, since the
+ * edge already separates it: `"R.I."` fires in `"R.I.s"` and `"x-"` in
+ * `"x-ray"`. A letter / digit edge keeps the boundary (`"RI"` vs `"spring"`).
  */
 
 import { type LoreMeta, type RoleplayEntry } from './store.ts';
@@ -40,6 +45,7 @@ const WORD_CLASS = String.raw`\p{L}\p{N}\p{M}`;
 /** Regex char-class body for scripts written without inter-word spaces. */
 const NO_SPACE_CLASS = String.raw`\p{scx=Han}\p{scx=Hiragana}\p{scx=Katakana}\p{scx=Thai}\p{scx=Lao}\p{scx=Khmer}\p{scx=Myanmar}`;
 const NO_SPACE_RE = new RegExp(`^[${NO_SPACE_CLASS}]$`, 'u');
+const NON_WORD_RE = new RegExp(`^[^${WORD_CLASS}]$`, 'u');
 const LEFT_BOUNDARY = `(?<=^|[^${WORD_CLASS}]|[${NO_SPACE_CLASS}])`;
 const RIGHT_BOUNDARY = `(?=$|[^${WORD_CLASS}]|[${NO_SPACE_CLASS}])`;
 
@@ -47,14 +53,16 @@ const RIGHT_BOUNDARY = `(?=$|[^${WORD_CLASS}]|[${NO_SPACE_CLASS}])`;
  * Whole-word, case-insensitive presence test. A keyword matches only when
  * flanked by non-word characters (or string edges), so short acronyms don't
  * match inside longer words. The boundary is not required on a side whose
- * edge character belongs to a no-space script (see module doc).
+ * edge character belongs to a no-space script or is not a word character
+ * (see module doc).
  */
 export function hasKeyword(haystack: string, keyword: string): boolean {
   const k = keyword.trim();
   if (k.length === 0) return false;
   const chars = Array.from(k);
-  const left = NO_SPACE_RE.test(chars[0]) ? '' : LEFT_BOUNDARY;
-  const right = NO_SPACE_RE.test(chars[chars.length - 1]) ? '' : RIGHT_BOUNDARY;
+  const free = (c: string): boolean => NO_SPACE_RE.test(c) || NON_WORD_RE.test(c);
+  const left = free(chars[0]) ? '' : LEFT_BOUNDARY;
+  const right = free(chars[chars.length - 1]) ? '' : RIGHT_BOUNDARY;
   const re = new RegExp(`${left}${escapeRegExp(k)}${right}`, 'iu');
   return re.test(haystack);
 }

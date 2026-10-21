@@ -43,8 +43,11 @@ never delivered, or its last delivery is `sceneFoldRefreshTurns` old
 it. With the rolling window on, the effective refresh is clamped to at most `keepTurns - 1` (min 1,
 `effectiveFoldRefreshTurns`) so a still-active sheet is re-sent before the turn carrying it ages out of the verbatim
 window. `session_compact` also resets the delivery memory (`resetSceneFoldDelivery`), so active sheets are re-sent after
-a compaction. A sheet counts as delivered only when its reminder actually reaches the run's request.
-`sceneFoldDelivery: "system"`, or globally disabled reminders, restores head delivery so folds never silently vanish.
+a compaction. A sheet counts as delivered only when the cache-reminders coordinator captures a snapshot whose
+`roleplay-scene-fold` spec carries the emitted body (the `cache-reminders:captured` listener commits the ids, mirroring
+event consumption); a request aborted by the limiter or sanitizer leaves the sheet undelivered, so the next narrative
+turn re-sends it. `sceneFoldDelivery: "system"`, or globally disabled reminders, restores head delivery so folds never
+silently vanish.
 
 Volatile macros would also churn the head. Head sheets therefore resolve against the session header's start timestamp
 ([`sessionMacroClock`](../../../lib/node/pi/roleplay/macros.ts); process start time under `--no-session`) and an rng
@@ -56,7 +59,8 @@ per run anyway.
 The lore budget charges the block heading and the "lore budget reached" trailer as well as each chunk and its separator
 ([`budget.ts`](../../../lib/node/pi/roleplay/budget.ts) shares the framing with `prompt.ts`), so the rendered block fits
 `loreCharBudget` except when the always-kept top entry alone exceeds it. When the trailer would overflow, the
-lowest-ranked kept chunks are evicted (never the first).
+lowest-ranked kept chunks are evicted (never the first). Depth lore renders no heading, so `buildDepthLore` passes
+`headerChars: 0`.
 
 Scene folds and rolling context reduction can still legitimately move a prefix; the coordinator does not redesign them.
 
@@ -67,12 +71,16 @@ Per narrative turn, `buildLoreInjection` runs over non-depth, non-empty lore:
 1. `matchLore` - primary triggers plus the secondary gate ([`match.ts`](../../../lib/node/pi/roleplay/match.ts)).
 2. `expandMatchedRecursive` - re-scan bodies of matched `recurse: true` entries against the rest of the pool, up to
    `maxRecursion` passes, returning the union of matched ids
-   ([`recursion.ts`](../../../lib/node/pi/roleplay/recursion.ts)). A matched entry that timing later suppresses still
-   contributed its body to the scan; sticky carries that did not match this turn are not recursion sources.
+   ([`recursion.ts`](../../../lib/node/pi/roleplay/recursion.ts)). The `isSource` predicate
+   ([`timingAllows`](../../../lib/node/pi/roleplay/timing.ts)) drops sources the current timing state already rules out:
+   `enabled: false`, `turn < delay`, or an active cooldown outside a sticky window. Probability and inclusion groups are
+   rolled later, so a source that then fails its roll or loses its group still contributed its body to the scan; sticky
+   carries that did not match this turn are not recursion sources.
 3. `applyTiming` - one pass over every entry with `matched` set from the union
    ([`timing.ts`](../../../lib/node/pi/roleplay/timing.ts)). Probability rolls happen in entry order, then one group
    pick per contested group in sorted group-name order. A group resolved by a sticky incumbent consumes no rng draw, so
-   the incumbent never loses its slot to a fresh weighted roll mid-window.
+   the incumbent never loses its slot to a fresh weighted roll mid-window. Several incumbents tie-break by highest
+   `groupWeight`, then id in code-unit (locale-independent) order.
 4. `selectWithinBudget` - rank by `order`, name, id; evict to `loreCharBudget`.
 
 Running recursion before timing keeps the timing pass single-shot per turn and makes recursive hits obey the same
