@@ -119,6 +119,7 @@ import {
 import { completePositional } from '../../../lib/node/pi/commands/complete.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { askForPermission, askForPermissionBatch } from '../../../lib/node/pi/bash/permission-prompts.ts';
+import { buildNoUiDenyReason } from '../../../lib/node/pi/bash-permissions/no-ui-reason.ts';
 import { writeJsonFile } from '../../../lib/node/pi/atomic-write.ts';
 import { loadJsoncConfigOrFallback } from '../../../lib/node/pi/jsonc.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
@@ -353,10 +354,7 @@ export default function bashPermissions(pi: ExtensionAPI): void {
         recordDenied(...unknown);
         return {
           allowed: false,
-          reason:
-            `No UI available for approval. Unknown command(s):\n  ${unknown.join('\n  ')}\n` +
-            `Add a rule via /bash-allow or by editing ${USER_RULES_PATH}, ` +
-            'or set PI_BASH_PERMISSIONS_DEFAULT=allow.',
+          reason: buildNoUiDenyReason(unknown, USER_RULES_PATH),
         };
       }
     }

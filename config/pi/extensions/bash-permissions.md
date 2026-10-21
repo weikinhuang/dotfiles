@@ -93,6 +93,16 @@ with the parent, so it applies session-wide). When no parent UI is available (he
 disabled via `PI_SUBAGENT_DISABLE_PARENT_PROMPT=1`) the child falls through to `PI_BASH_PERMISSIONS_DEFAULT` (default
 deny). The hardcoded denylist and explicit deny rules apply to children regardless of the prompt path.
 
+### Non-interactive block message
+
+Without any approval UI, an unknown command is blocked with a reason built by
+[`buildNoUiDenyReason`](../../../lib/node/pi/bash-permissions/no-ui-reason.ts). It lists the commands, tells the model
+that the command and variations of it will be blocked again and must not be retried, and only then gives the
+`/bash-allow` / `PI_BASH_PERMISSIONS_DEFAULT` hint, labelled as being for the user. The earlier operator-only text read
+as "fix something and retry" to small models; one headless qwen3-8-27b run resubmitted the same blocked command ~270
+times. Repeated identical calls are also caught by [`loop-breaker`](./loop-breaker.md), which observes calls before this
+gate runs.
+
 ## Commands
 
 - `/bash-allow <pattern>` - add an allow rule. Writes to project scope if `.pi/bash-permissions.json` or `.pi/` already
