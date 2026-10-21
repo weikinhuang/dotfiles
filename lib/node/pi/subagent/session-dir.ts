@@ -52,7 +52,7 @@ export interface ResolveSubagentSessionDirArgs {
   parentSessionManager: ParentSessionManagerLike;
   /**
    * Extension label used in error messages (e.g. `"deep-research"`,
-   * `"iteration-loop"`). Surfaces in the thrown message so the user
+   * `"subagent"`). Surfaces in the thrown message so the user
    * knows which extension refused to start.
    */
   extensionLabel: string;

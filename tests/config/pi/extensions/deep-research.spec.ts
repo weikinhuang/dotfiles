@@ -822,17 +822,13 @@ describe('/research - statusline widget transitions', () => {
 
 describe('/research - stubbed review short-circuit notify discipline', () => {
   let sandbox: string;
-  let cwd: string;
   let runRoot: string;
-  let memoryRoot: string;
 
   beforeEach(() => {
     sandbox = mkdtempSync(join(tmpdir(), 'pi-dr-stubbed-notify-'));
-    cwd = join(sandbox, 'workspace');
+    const cwd = join(sandbox, 'workspace');
     runRoot = join(cwd, 'research', 'demo');
-    memoryRoot = join(sandbox, 'memory');
     mkdirSync(runRoot, { recursive: true });
-    mkdirSync(memoryRoot, { recursive: true });
     writeFileSync(
       join(runRoot, 'report.md'),
       [
@@ -877,15 +873,11 @@ describe('/research - stubbed review short-circuit notify discipline', () => {
     const notify = vi.fn<(m: string, l: CommandNotifyLevel) => void>();
 
     const result: ReviewWireResult = await runDeepResearchReview({
-      cwd,
       runRoot,
-      rubricSubjective: '## Rubric\n',
-      structuralBashCmd: 'node lib/node/pi/deep-research/structural-check.ts ./research/demo',
       runStructural,
       runCritic,
       refineReport,
       maxIter: 4,
-      consent: { root: memoryRoot },
       notify,
     });
 

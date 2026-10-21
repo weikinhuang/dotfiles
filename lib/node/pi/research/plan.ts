@@ -26,9 +26,8 @@
  * the `kind` discriminator rather than producing a silently-
  * validating-but-wrong plan.
  *
- * Plain-TS validators (mirroring `iteration-loop-schema.ts`) rather
- * than TypeBox - the plan text cites that module as the precedent,
- * and `typebox` is not a dep of the root tsconfig. `upgrade()`
+ * Plain-TS validators rather than TypeBox - `typebox` is not a dep
+ * of the root tsconfig. `upgrade()`
  * returns a typed error describing exactly which field failed so
  * callers can surface actionable diagnostics to the journal.
  *

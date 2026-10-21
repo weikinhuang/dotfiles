@@ -2,7 +2,7 @@
  * Shared subagent spawn primitives.
  *
  * Extracted from `config/pi/extensions/subagent.ts` so other extensions
- * that need to spawn a one-shot child agent (currently the iteration-loop
+ * that need to spawn a one-shot child agent (e.g. the deep-research
  * critic) can go through the same pipeline without cloning the spawn
  * path - model resolution, timeout + abort wiring, turn-count enforcement,
  * stop-reason classification, and final-text extraction.
@@ -316,7 +316,7 @@ export interface RunOneShotAgentOptions<M, S> {
    * a globally-registered one (pi's runner uses last-registered-wins
    * semantics for handlers on the same event).
    *
-   * Most callers (deep-research, iteration-loop) leave this unset and
+   * Most callers (e.g. deep-research) leave this unset and
    * rely solely on the registry; `subagent` style callers that build
    * their own resource loader can mirror this composition manually.
    */

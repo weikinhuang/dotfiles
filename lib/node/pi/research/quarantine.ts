@@ -42,10 +42,8 @@
  *     filesystems (rare: bind mounts, overlay FS). In a research
  *     run the quarantine target is always in the same tree as the
  *     source (`<parent>/_quarantined/...`), so EXDEV should not
- *     trigger. `iteration-loop-storage.ts` has a private
- *     `renameOrFallback` that copies-then-deletes as a fallback;
- *     if this module ever needs the same, extract that helper to
- *     `shared.ts` first.
+ *     trigger. If this module ever needs a copy-then-delete
+ *     fallback, extract a shared helper to `shared.ts` first.
  *
  * No pi imports.
  */

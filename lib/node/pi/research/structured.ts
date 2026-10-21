@@ -139,7 +139,7 @@ export interface CallTypedOpts<T> {
  *     content between the fences).
  *   - `"```json\n```json\n{...}\n```\n```"` (qwen3 "double wrap" -
  *     a fenced block whose body is itself a fenced block; observed
- *     in the iteration-loop Phase 6 smoke findings).
+ *     in small-model smoke runs).
  *
  * The loop is bounded (`safetyLimit`) so pathological input can't
  * spin forever. Each iteration must remove content; when nothing

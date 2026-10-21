@@ -5,19 +5,13 @@
  *
  * Design:
  *
- *   The iteration-loop extension's public `check` tool surface
- *   drives verdict dispatch (declare → accept → run → close) for
- *   both stages. This module, however, stays pure: the two
- *   verdict producers are injected as `runStructural` / `runCritic`
- *   so the spec can feed scripted verdicts without spawning real
- *   processes or subagents. The production adapter in
- *   `config/pi/extensions/deep-research.ts` wires them through the
- *   same underlying primitives (`iteration-loop-check-bash.ts`,
- *   `iteration-loop-check-critic.ts`) the tool uses, so behavior is
- *   identical - this is "via its tool surface" at the primitive
- *   level rather than re-invoking the tool dispatcher from inside
- *   another extension (pi does not expose a direct tool-invocation
- *   API for peers).
+ *   This module stays pure: the two verdict producers are
+ *   injected as `runStructural` / `runCritic` so the spec can feed
+ *   scripted verdicts without spawning real processes or
+ *   subagents. The production adapter in
+ *   `config/pi/extensions/deep-research.ts` wires them to
+ *   `checkReportStructure` and a `critic` subagent driven through
+ *   the shared `critic-verdict.ts` task / parser helpers.
  *
  * Algorithm:
  *
@@ -79,7 +73,7 @@ import { join } from 'node:path';
 
 import { atomicWriteFile, ensureDirSync } from '../atomic-write.ts';
 import { type StructuralCheckResult, type StructuralFailure } from './structural-check.ts';
-import { type Issue, type Verdict } from '../iteration-loop/schema.ts';
+import { type Issue, type Verdict } from '../critic-verdict.ts';
 import { paths } from '../research/paths.ts';
 import { type StubbedSection } from '../research/resume.ts';
 import { truncate } from '../shared/strings.ts';
@@ -358,7 +352,7 @@ function snapshotReport(runRoot: string, iteration: number, stage: ReviewSnapsho
 }
 
 /**
- * Selector honoring the iteration-loop's "approved beats
+ * Selector honoring the "approved beats
  * higher-scored-but-not-approved" rule - a structurally-passing
  * but subjectively-rejected report (score 0.7) outranks an
  * unapproved structural-fail snapshot (score 0.0). Ties broken by

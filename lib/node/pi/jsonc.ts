@@ -189,7 +189,7 @@ export interface TryReadJsoncOptions {
 
 /**
  * Read + parse a JSONC file as part of a multi-path layered loader
- * (`bash-exit-watchdog`, `iteration-loop-config`, `small-model-addendum`,
+ * (`bash-exit-watchdog`, `small-model-addendum`,
  * `verify-hook-detect`). Each layer either contributes a parsed value or
  * pushes a `ConfigWarning` for the caller to surface verbatim.
  *

@@ -179,9 +179,9 @@ per-call param  >  project config (<cwd>/.pi/<ext>.json)  >  user config (<piAge
 ```
 
 Env sits below the config files so a committed project config wins over a stray shell export. Extensions with this
-layering today: `comfyui`, `iteration-loop` (cap defaults), `bg_bash`, `subagent`, `deep-research`. Tool params that are
-per-call _data_ (text, ids, actions, prompts -- `apply-patch`, `scratchpad`, `todo`, `memory`, `questionnaire`,
-`scheduled-prompts`, `wasm-compute`) get NO config layer.
+layering today: `comfyui`, `bg_bash`, `subagent`, `deep-research`. Tool params that are per-call _data_ (text, ids,
+actions, prompts -- `apply-patch`, `scratchpad`, `todo`, `memory`, `questionnaire`, `scheduled-prompts`, `wasm-compute`)
+get NO config layer.
 
 ### Filesystem paths: resolve through `pi-paths.ts`, never hand-roll
 

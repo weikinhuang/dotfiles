@@ -16,9 +16,8 @@
  * the research toolkit. Callers union `Stuck | T` so the model can
  * say "I don't know" without violating the schema.
  *
- * Plain-TS implementation (mirrors `iteration-loop-schema.ts`):
- * the plan lists TypeBox as the preferred schema library, but the
- * named precedent (`iteration-loop-schema.ts`) uses hand-rolled `is*`
+ * Plain-TS implementation: the plan lists TypeBox as the preferred
+ * schema library, but this module uses hand-rolled `is*`
  * validators, and `typebox` is not part of this project's root
  * tsconfig dependency set. Schemas here are TS types + runtime
  * validators so the pure modules type-check without the pi runtime.

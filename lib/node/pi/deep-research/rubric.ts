@@ -12,16 +12,15 @@
  *     test we can run without a model.
  *
  *   - `rubric-subjective.md` is input to the `kind=critic` stage
- *     (subjective rubric passed to the `critic` agent via the
- *     iteration-loop). It deliberately does NOT re-list the
+ *     (subjective rubric passed to the `critic` agent by the
+ *     review loop). It deliberately does NOT re-list the
  *     structural items - those are already enforced, and asking
  *     the critic to re-judge them wastes tokens + produces noisy
  *     "approved despite structural issue" verdicts.
  *
  * Both files land in the run root (`./research/<slug>/`) and are
- * editable by the user before the review runs - the `memory` +
- * consent flag path will surface a "rubric was edited" nudge in
- * Phase 4, but this module only writes them.
+ * editable by the user before the review runs; this module only
+ * writes them.
  *
  * Pure module - no pi imports, no subprocess, no LLM.
  */

@@ -38,10 +38,10 @@ See root [AGENTS.md](../AGENTS.md) for repo-wide conventions; this file only doc
 
 ### Module naming
 
-- Kebab-case filenames (`iteration-loop-reducer.ts`, `bash-match.ts`). No `index.ts` barrels - each module is imported
-  by its explicit filename so refactors are greppable.
-- Related modules share a prefix (`iteration-loop-*`, `deep-research-*`, `todo-*`, `scratchpad-*`) so the lib tree stays
-  navigable at 80+ files.
+- Kebab-case filenames (`critic-verdict.ts`, `bash-match.ts`). No `index.ts` barrels - each module is imported by its
+  explicit filename so refactors are greppable.
+- Related modules share a prefix (`deep-research-*`, `todo-*`, `scratchpad-*`) so the lib tree stays navigable at 80+
+  files.
 
 ### Shared atomics
 

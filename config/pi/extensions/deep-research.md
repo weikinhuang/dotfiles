@@ -112,7 +112,7 @@ Agents loaded from [`../agents/`](../agents/) via `defaultAgentLayers`:
 - [`research-planning-critic`](../agents/research-planning-critic.md) - structural critique of `plan.json`; may halt the
   pipeline at the plan-crit checkpoint.
 - [`critic`](../agents/critic.md) - subjective reviewer invoked inside the review loop via `runDeepResearchReview` /
-  `buildCriticTask` ([`iteration-loop/check-critic.ts`](../../../lib/node/pi/iteration-loop/check-critic.ts)).
+  `buildCriticTask` ([`critic-verdict.ts`](../../../lib/node/pi/critic-verdict.ts)).
 
 The planner, self-critic, rewrite, synth, merge, and refine turns run directly on the parent `AgentSession` (no
 dedicated subagent); structural checking is a pure module, not a subagent.

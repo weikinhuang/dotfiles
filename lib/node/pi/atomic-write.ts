@@ -19,10 +19,9 @@
  * both the tempfile and the parent dir, which is slow enough that we
  * only want it gated behind an opt-in flag. Not needed today.
  *
- * This module replaces two older per-feature implementations:
- *   - `memory-paths.ts::atomicWriteFile` (static `.tmp` suffix - racy)
- *   - `iteration-loop-storage.ts::atomicWriteFile` (pid+ts suffix)
- * Both now delegate here.
+ * This module replaces an older per-feature implementation
+ * (`memory-paths.ts::atomicWriteFile`, static `.tmp` suffix - racy),
+ * which now delegates here.
  *
  * No pi imports - testable under `vitest` with a temp cwd.
  */

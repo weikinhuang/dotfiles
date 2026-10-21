@@ -2,7 +2,7 @@
  * Per-source warning de-dup helper shared by config-loading extensions.
  *
  * Several extensions (`filesystem`, `persona`, `preset`, `sandbox`,
- * `verify-before-claim`, `iteration-loop`, `subagent`, `bash-exit-watchdog`,
+ * `verify-before-claim`, `subagent`, `bash-exit-watchdog`,
  * `small-model-addendum`) load layered config files and surface parse
  * warnings via `ctx.ui.notify`. Each one inlined the same shape:
  *

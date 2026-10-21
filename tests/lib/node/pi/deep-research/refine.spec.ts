@@ -16,6 +16,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
+import { type Verdict } from '../../../../../lib/node/pi/critic-verdict.ts';
 import {
   buildSectionNudge,
   buildStructuralMergeNudge,
@@ -24,7 +25,6 @@ import {
   refineReport,
 } from '../../../../../lib/node/pi/deep-research/refine.ts';
 import { type StructuralFailure } from '../../../../../lib/node/pi/deep-research/structural-check.ts';
-import { type Verdict } from '../../../../../lib/node/pi/iteration-loop/schema.ts';
 import { type DeepResearchPlan } from '../../../../../lib/node/pi/research/plan.ts';
 import { type ResearchSessionLike } from '../../../../../lib/node/pi/research/structured.ts';
 

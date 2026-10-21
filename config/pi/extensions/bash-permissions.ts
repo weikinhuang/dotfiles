@@ -218,7 +218,7 @@ export default function bashPermissions(pi: ExtensionAPI): void {
   if (envTruthy(process.env.PI_BASH_PERMISSIONS_DISABLED)) return;
 
   // Register the hook-only factory once per extension load so spawned
-  // subagents (deep-research / iteration-loop / `subagent`) re-apply
+  // subagents (deep-research / `subagent`) re-apply
   // the parent's bash gate against their own `tool_call` events. The
   // factory is a static value - the gate function itself lives in the
   // bash-gate slot installed by `installBashGate(...)` below, so the

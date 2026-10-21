@@ -1,8 +1,8 @@
 /**
  * Tests for lib/node/pi/deep-research/review-wire.ts.
  *
- * Exercises the extension-shell wiring with a mocked iteration-
- * loop: verifies the three Phase-4 acceptance scenarios at the
+ * Exercises the extension-shell wiring with scripted runners:
+ * verifies the three Phase-4 acceptance scenarios at the
  * wrapper level on top of the core review-loop tests.
  *
  * Scenarios:
@@ -16,53 +16,38 @@
  *       "critic approved ... structure wins" phrasing.
  *   (D) maxIter=1 + structural fail → budget-exhausted warning
  *       with a best-so-far pointer.
- *
- * Plus:
- *
- *   - First-time consent bootstrap (notify fires once).
- *   - Iteration-loop check specs land under `.pi/checks/`
- *     via writeDraft + acceptDraft, then archive-on-close.
+ *   (E) Stubbed short-circuit.
  */
 
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
-import { consentPath, readConsent } from '../../../../../lib/node/pi/deep-research/review-config.ts';
+import { type Verdict } from '../../../../../lib/node/pi/critic-verdict.ts';
 import {
   type CriticRunner,
   type RefinementRunner,
   type StructuralRunner,
 } from '../../../../../lib/node/pi/deep-research/review-loop.ts';
 import {
-  buildStructuralSpec,
-  buildSubjectiveSpec,
   formatOutcome,
   type ReviewWireResult,
   reviewDoneMessage,
   runDeepResearchReview,
-  STRUCTURAL_TASK,
-  SUBJECTIVE_TASK,
 } from '../../../../../lib/node/pi/deep-research/review-wire.ts';
 import { type StructuralCheckResult } from '../../../../../lib/node/pi/deep-research/structural-check.ts';
-import { type Verdict } from '../../../../../lib/node/pi/iteration-loop/schema.ts';
-import { activePath, archiveDir } from '../../../../../lib/node/pi/iteration-loop/storage.ts';
 import { assertKind } from '../helpers.ts';
 
 let sandbox: string;
-let cwd: string;
 let runRoot: string;
-let memoryRoot: string;
 
 beforeEach(() => {
   sandbox = mkdtempSync(join(tmpdir(), 'pi-dr-review-wire-'));
-  cwd = join(sandbox, 'workspace');
+  const cwd = join(sandbox, 'workspace');
   runRoot = join(cwd, 'research', 'demo');
-  memoryRoot = join(sandbox, 'memory');
   mkdirSync(runRoot, { recursive: true });
-  mkdirSync(memoryRoot, { recursive: true });
   writeFileSync(join(runRoot, 'report.md'), '# report\n\ninitial body\n');
 });
 
@@ -167,15 +152,11 @@ describe('runDeepResearchReview - scenario A (structural refinement)', () => {
     const notify = vi.fn();
 
     const result = await runDeepResearchReview({
-      cwd,
       runRoot,
-      rubricSubjective: '## Rubric\n- cite every claim\n',
-      structuralBashCmd: 'node lib/node/pi/deep-research/structural-check.ts ./research/demo',
       runStructural,
       runCritic,
       refineReport: refine,
       maxIter: 3,
-      consent: { root: memoryRoot },
       notify,
       now: () => new Date('2025-04-05T06:07:08Z'),
     });
@@ -184,15 +165,10 @@ describe('runDeepResearchReview - scenario A (structural refinement)', () => {
 
     expect(calls).toEqual([{ stage: 'structural' }]);
 
-    // Consent landed in the memory root.
-    expect(existsSync(consentPath({ root: memoryRoot }))).toBe(true);
-    expect(readConsent({ root: memoryRoot }).consented).toBe(true);
-    expect(result.firstTimeConsent).toBe(true);
-
-    // First notify = consent bootstrap, last = summary.
+    // Only the terminal summary is notified.
     const messages = notify.mock.calls.map(([m]) => m as string);
 
-    expect(messages[0]).toContain('first-time review-loop consent');
+    expect(messages).toHaveLength(1);
     expect(messages.at(-1)).toContain('review PASSED');
   });
 });
@@ -213,15 +189,11 @@ describe('runDeepResearchReview - scenario B (subjective refinement)', () => {
     const notify = vi.fn();
 
     const result = await runDeepResearchReview({
-      cwd,
       runRoot,
-      rubricSubjective: '## Rubric\n',
-      structuralBashCmd: 'node lib/node/pi/deep-research/structural-check.ts ./research/demo',
       runStructural,
       runCritic,
       refineReport: refine,
       maxIter: 3,
-      consent: { root: memoryRoot },
       notify,
     });
 
@@ -244,15 +216,11 @@ describe('runDeepResearchReview - scenario C (structure wins)', () => {
     const notify = vi.fn();
 
     const result = await runDeepResearchReview({
-      cwd,
       runRoot,
-      rubricSubjective: '## Rubric\n',
-      structuralBashCmd: 'node lib/node/pi/deep-research/structural-check.ts ./research/demo',
       runStructural,
       runCritic,
       refineReport: refine,
       maxIter: 3,
-      consent: { root: memoryRoot },
       notify,
     });
 
@@ -277,15 +245,11 @@ describe('runDeepResearchReview - scenario D (budget exhausted)', () => {
     const notify = vi.fn();
 
     const result = await runDeepResearchReview({
-      cwd,
       runRoot,
-      rubricSubjective: '## Rubric\n',
-      structuralBashCmd: 'node lib/node/pi/deep-research/structural-check.ts ./research/demo',
       runStructural,
       runCritic,
       refineReport: refine,
       maxIter: 1,
-      consent: { root: memoryRoot },
       notify,
     });
 
@@ -332,15 +296,11 @@ describe('runDeepResearchReview - scenario D (budget exhausted)', () => {
     const notify = vi.fn();
 
     const result = await runDeepResearchReview({
-      cwd,
       runRoot,
-      rubricSubjective: '## Rubric\n',
-      structuralBashCmd: 'node lib/node/pi/deep-research/structural-check.ts ./research/demo',
       runStructural,
       runCritic,
       refineReport: refine,
       maxIter: 1,
-      consent: { root: memoryRoot },
       notify,
     });
 
@@ -364,15 +324,11 @@ describe('runDeepResearchReview - scenario D (budget exhausted)', () => {
     const notify = vi.fn();
 
     const result = await runDeepResearchReview({
-      cwd,
       runRoot,
-      rubricSubjective: '## Rubric\n',
-      structuralBashCmd: 'node lib/node/pi/deep-research/structural-check.ts ./research/demo',
       runStructural,
       runCritic,
       refineReport: refine,
       maxIter: 1,
-      consent: { root: memoryRoot },
       notify,
     });
 
@@ -431,15 +387,11 @@ describe('runDeepResearchReview - scenario E (stubbed short-circuit)', () => {
     const notify = vi.fn();
 
     const result = await runDeepResearchReview({
-      cwd,
       runRoot,
-      rubricSubjective: '## Rubric\n',
-      structuralBashCmd: 'node lib/node/pi/deep-research/structural-check.ts ./research/demo',
       runStructural,
       runCritic,
       refineReport: refine,
       maxIter: 4,
-      consent: { root: memoryRoot },
       notify,
     });
 
@@ -464,18 +416,11 @@ describe('runDeepResearchReview - scenario E (stubbed short-circuit)', () => {
     expect(result.summary).toContain('--sq=sq-1,sq-2');
     expect(result.summary).toContain(`--run-root ${runRoot}`);
 
-    // Exactly one notify (the summary itself) - no consent
-    // bootstrap on the short-circuit path since the loop never
-    // ran, and no separate recovery-hint notify.
+    // Exactly one notify (the summary itself) - no separate
+    // recovery-hint notify.
     expect(notify).toHaveBeenCalledTimes(1);
     expect(notify.mock.calls[0][0]).toBe(result.summary);
     expect(notify.mock.calls[0][1]).toBe('warning');
-
-    // Consent was NOT recorded on the short-circuit path
-    // (matches `consented: false` in the returned shape so
-    // callers can distinguish the skip from a real run).
-    expect(result.consented).toBe(false);
-    expect(result.firstTimeConsent).toBe(false);
   });
 
   test('stubbed short-circuit with unresolvable heading falls back to <id1>,<id2> placeholder', async () => {
@@ -503,15 +448,11 @@ describe('runDeepResearchReview - scenario E (stubbed short-circuit)', () => {
     const notify = vi.fn();
 
     const result = await runDeepResearchReview({
-      cwd,
       runRoot,
-      rubricSubjective: '## Rubric\n',
-      structuralBashCmd: 'node lib/node/pi/deep-research/structural-check.ts ./research/demo',
       runStructural,
       runCritic,
       refineReport: refine,
       maxIter: 4,
-      consent: { root: memoryRoot },
       notify,
     });
 
@@ -519,171 +460,6 @@ describe('runDeepResearchReview - scenario E (stubbed short-circuit)', () => {
 
     expect(result.summary).toContain('<id1>,<id2>');
     expect(result.summary).toContain('could not resolve every heading');
-  });
-});
-
-// ──────────────────────────────────────────────────────────────────────
-// Consent bootstrap behavior - the second run skips the consent notify.
-// ──────────────────────────────────────────────────────────────────────
-
-describe('runDeepResearchReview - consent flow', () => {
-  test('second run does not re-notify consent', async () => {
-    const runStructural = scripted<StructuralCheckResult>([passingStructural(), passingStructural()]);
-    const runCritic = scripted<Verdict>([approvedCritic()]);
-    const { refine } = refiner();
-    const notify1 = vi.fn();
-
-    await runDeepResearchReview({
-      cwd,
-      runRoot,
-      rubricSubjective: '## Rubric\n',
-      structuralBashCmd: 'node lib/node/pi/deep-research/structural-check.ts ./research/demo',
-      runStructural,
-      runCritic,
-      refineReport: refine,
-      maxIter: 3,
-      consent: { root: memoryRoot },
-      notify: notify1,
-    });
-
-    // Second run on a fresh refiner reuses the recorded consent.
-    const runStructural2 = scripted<StructuralCheckResult>([passingStructural(), passingStructural()]);
-    const runCritic2 = scripted<Verdict>([approvedCritic()]);
-    const notify2 = vi.fn();
-    const result2 = await runDeepResearchReview({
-      cwd,
-      runRoot,
-      rubricSubjective: '## Rubric\n',
-      structuralBashCmd: 'node lib/node/pi/deep-research/structural-check.ts ./research/demo',
-      runStructural: runStructural2,
-      runCritic: runCritic2,
-      refineReport: refine,
-      maxIter: 3,
-      consent: { root: memoryRoot },
-      notify: notify2,
-      taskNames: { structural: 'deep-research-structural-2', subjective: 'deep-research-subjective-2' },
-    });
-
-    expect(result2.firstTimeConsent).toBe(false);
-
-    // Only the summary notify, not a second consent bootstrap.
-    const messages = notify2.mock.calls.map(([m]) => m as string);
-
-    expect(messages.filter((s) => s.includes('first-time'))).toEqual([]);
-  });
-});
-
-// ──────────────────────────────────────────────────────────────────────
-// Iteration-loop spec persistence.
-// ──────────────────────────────────────────────────────────────────────
-
-describe('runDeepResearchReview - iteration-loop storage', () => {
-  test('declare + accept lands both task specs on disk; archive on close', async () => {
-    const runStructural = scripted<StructuralCheckResult>([passingStructural(), passingStructural()]);
-    const runCritic = scripted<Verdict>([approvedCritic()]);
-    const { refine } = refiner();
-
-    await runDeepResearchReview({
-      cwd,
-      runRoot,
-      rubricSubjective: '## Rubric\n',
-      structuralBashCmd: 'node lib/node/pi/deep-research/structural-check.ts ./research/demo',
-      runStructural,
-      runCritic,
-      refineReport: refine,
-      maxIter: 3,
-      consent: { root: memoryRoot },
-    });
-
-    // After the loop terminates, the active task files should have
-    // been archived. The active `.json` files are gone; the archive
-    // dir carries `<ts>__<task>` entries.
-    expect(existsSync(activePath(cwd, STRUCTURAL_TASK))).toBe(false);
-    expect(existsSync(activePath(cwd, SUBJECTIVE_TASK))).toBe(false);
-
-    const archives = readdirSync(archiveDir(cwd));
-
-    expect(archives.some((name) => name.endsWith(STRUCTURAL_TASK))).toBe(true);
-    expect(archives.some((name) => name.endsWith(SUBJECTIVE_TASK))).toBe(true);
-  });
-
-  test('writeDraft refused (active task already present) does not block the review loop', async () => {
-    // Pre-populate an active structural task so `writeDraft` in
-    // the wire returns { ok: false }. The review loop must still
-    // run against the injected runners - the iteration-loop
-    // storage is informational, not load-bearing.
-    const { writeDraft: writeDraftDirect, acceptDraft: acceptDraftDirect } =
-      await import('../../../../../lib/node/pi/iteration-loop/storage.ts');
-    const preSpec = buildStructuralSpec({
-      task: STRUCTURAL_TASK,
-      reportPath: join(runRoot, 'report.md'),
-      bashCmd: 'echo preexisting',
-      maxIter: 3,
-      createdAt: '2025-01-01T00:00:00Z',
-    });
-    const w = writeDraftDirect(cwd, preSpec);
-
-    expect(w.ok).toBe(true);
-
-    const a = acceptDraftDirect(cwd, STRUCTURAL_TASK, '2025-01-01T00:00:00Z');
-
-    expect(a.ok).toBe(true);
-
-    const runStructural = scripted<StructuralCheckResult>([passingStructural(), passingStructural()]);
-    const runCritic = scripted<Verdict>([approvedCritic()]);
-    const { refine } = refiner();
-    const notify = vi.fn();
-
-    const result = await runDeepResearchReview({
-      cwd,
-      runRoot,
-      rubricSubjective: '## Rubric\n',
-      structuralBashCmd: 'node foo.ts bar',
-      runStructural,
-      runCritic,
-      refineReport: refine,
-      maxIter: 3,
-      consent: { root: memoryRoot },
-      notify,
-    });
-
-    // Loop still terminates successfully against the scripted
-    // runners even though writeDraft was refused - the injected
-    // runners are the authoritative verdict source.
-    assertKind(result.outcome, 'passed');
-  });
-});
-
-// ──────────────────────────────────────────────────────────────────────
-// Spec builders.
-// ──────────────────────────────────────────────────────────────────────
-
-describe('buildStructuralSpec / buildSubjectiveSpec', () => {
-  test('structural spec is kind=bash with passOn=exit-zero', () => {
-    const spec = buildStructuralSpec({
-      task: 'demo',
-      reportPath: 'research/demo/report.md',
-      bashCmd: 'node foo.ts arg',
-      maxIter: 3,
-      createdAt: '2025-01-01T00:00:00Z',
-    });
-
-    expect(spec.kind).toBe('bash');
-    expect(spec.spec).toMatchObject({ cmd: 'node foo.ts arg', passOn: 'exit-zero' });
-    expect(spec.budget?.maxIter).toBe(3);
-  });
-
-  test('subjective spec is kind=critic with the rubric inlined', () => {
-    const spec = buildSubjectiveSpec({
-      task: 'demo',
-      reportPath: 'research/demo/report.md',
-      rubric: '## Rubric\n- care about citations\n',
-      maxIter: 2,
-      createdAt: '2025-01-01T00:00:00Z',
-    });
-
-    expect(spec.kind).toBe('critic');
-    expect(spec.spec).toMatchObject({ rubric: expect.stringContaining('care about citations') as unknown });
   });
 });
 
@@ -833,7 +609,7 @@ describe('formatOutcome', () => {
 
 describe('reviewDoneMessage', () => {
   function wireResult(outcome: ReviewWireResult['outcome'], level: ReviewWireResult['level']): ReviewWireResult {
-    return { outcome, consented: true, firstTimeConsent: false, summary: 'summary', level };
+    return { outcome, summary: 'summary', level };
   }
 
   test('passed outcome → "review passed" regardless of level', () => {

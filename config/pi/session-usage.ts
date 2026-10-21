@@ -350,7 +350,7 @@ function parsedToSummary(p: ParsedPi, subagentCount: number): SessionSummary {
     tokens: p.tokens,
     toolCalls: p.toolCalls,
     toolBreakdown: p.toolBreakdown,
-    // Pi's `subagent` / `deep-research` / `iteration-loop` extensions write
+    // Pi's `subagent` / `deep-research` extensions write
     // each child session under `<parent-session-id>/subagents/` (Claude Code
     // mirror layout - see `config/pi/extensions/AGENTS.md`). Mirror
     // claude/codex: list/ totals count parent tokens only; child tokens
@@ -383,7 +383,7 @@ function parseSessionFile(filePath: string): ParsedPi {
 // ---------------------------------------------------------------------------
 
 /**
- * The subagent / deep-research / iteration-loop extensions write child
+ * The subagent / deep-research extensions write child
  * transcripts to
  * `<projectDir>/<parent-session-id>/subagents/<timestamp>_<child-id>.jsonl`,
  * mirroring Claude Code's

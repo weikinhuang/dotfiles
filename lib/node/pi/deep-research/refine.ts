@@ -59,7 +59,7 @@ import { buildSubjectiveNudge } from './review-loop.ts';
 import { type StructuralFailure } from './structural-check.ts';
 import { runSynthMerge, type SynthMergeResult } from './synth-merge.ts';
 import { type SectionOutcome, runSectionSynth } from './synth-sections.ts';
-import { type Verdict } from '../iteration-loop/schema.ts';
+import { type Verdict } from '../critic-verdict.ts';
 import { appendJournal } from '../research/journal.ts';
 import { paths } from '../research/paths.ts';
 import { type DeepResearchPlan } from '../research/plan.ts';

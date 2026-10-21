@@ -1,11 +1,14 @@
 /**
- * Critic-kind check executor helpers for the iteration-loop.
+ * Shared critic task / verdict contract.
+ *
+ * Used by deep-research (planning critic, review loop, refine) and
+ * matches the JSON output contract the `critic` agent is taught.
  *
  * This module does NOT spawn the subagent itself - that's the
- * extension's job (it owns the pi runtime handle). Instead we export
- * two pure pieces:
+ * caller's job (it owns the pi runtime handle). Instead we export
+ * the verdict types plus two pure pieces:
  *
- *   1. `buildCriticTask(spec, artifactPath)` - construct the `task`
+ *   1. `buildCriticTask({ rubric, artifactPath })` - construct the `task`
  *      string handed to the critic subagent, including the rubric,
  *      the artifact path, and the strict JSON output contract.
  *
@@ -16,8 +19,8 @@
  *      - Minor structural drift: missing `issues` array, score out of
  *        range, severity values we don't recognize.
  *      - Total parse failures (returns a synthetic "failed to parse"
- *        Verdict rather than throwing, so the loop can still record
- *        the iteration and move on).
+ *        Verdict rather than throwing, so the caller can still
+ *        record the round and move on).
  *
  * The critic task template is deliberately terse and imperative -
  * weak-model critics produce better structured output when the
@@ -26,7 +29,47 @@
  * No pi imports.
  */
 
-import { type CriticCheckSpec, type Issue, type IssueSeverity, type Verdict } from './schema.ts';
+// ──────────────────────────────────────────────────────────────────────
+// Verdict - what a single critic pass produced.
+// ──────────────────────────────────────────────────────────────────────
+
+export type IssueSeverity = 'blocker' | 'major' | 'minor';
+
+export interface Issue {
+  severity: IssueSeverity;
+  description: string;
+  /**
+   * Optional free-form pointer: line number, element name, region.
+   * Model-authored; don't depend on its shape.
+   */
+  location?: string;
+}
+
+export interface Verdict {
+  /**
+   * Did the check pass? For a structural check: predicate matched.
+   * For a critic: rubric fully satisfied.
+   */
+  approved: boolean;
+  /**
+   * Scalar quality score in [0, 1]. Structural checks return 0 or 1;
+   * critics return a graded value used for best-so-far selection.
+   */
+  score: number;
+  /** Structured issues (empty when approved). */
+  issues: Issue[];
+  /**
+   * Optional short summary for the status block. The caller fills
+   * this in when the check doesn't provide one.
+   */
+  summary?: string;
+  /**
+   * Optional raw observation payload (stdout/stderr/exit for a
+   * structural check, raw critic text for a critic). Kept for
+   * debugging; truncated when large. Not guaranteed to be set.
+   */
+  raw?: string;
+}
 
 // ──────────────────────────────────────────────────────────────────────
 // Rubric sanitization
@@ -54,7 +97,8 @@ export function sanitizeRubric(rubric: string): string {
 // ──────────────────────────────────────────────────────────────────────
 
 export interface BuildCriticTaskInput {
-  spec: CriticCheckSpec;
+  /** User-authored rubric the critic judges against. */
+  rubric: string;
   /** Absolute or cwd-relative path the critic should `read`. */
   artifactPath: string;
   /** Iteration number for context. 1-indexed. */
@@ -68,14 +112,14 @@ export interface BuildCriticTaskInput {
  * instruction in its head.
  */
 export function buildCriticTask(input: BuildCriticTaskInput): string {
-  const { spec, artifactPath, iteration } = input;
+  const { rubric, artifactPath, iteration } = input;
   // Sanitize rubric input: the critic's task ends with "return JSON
   // only, no markdown fences". A rubric containing triple-backticks
   // or triple-quotes can trivially escape the indented block and
   // collide with that instruction (or with the JSON output contract).
   // Collapse both sequences to an escaped form that's still
   // human-readable but can't break the template.
-  const safeRubric = sanitizeRubric(spec.rubric);
+  const safeRubric = sanitizeRubric(rubric);
   const lines: string[] = [];
   lines.push(`You are judging iteration ${iteration} of an artifact against a rubric.`);
   lines.push('');

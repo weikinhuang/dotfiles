@@ -159,7 +159,7 @@ export default function contextTrimExtension(pi: ExtensionAPI): void {
   };
 
   // Subagent definitions (for the image auto-caption fallback), rebuilt
-  // from disk on load like iteration-loop's critic.
+  // from disk on load.
   const extDir = dirname(fileURLToPath(import.meta.url));
   const readLayer = makeNodeReadLayer();
   let agentLoad: AgentLoadResult = { agents: new Map(), nameOrder: [], warnings: [] };

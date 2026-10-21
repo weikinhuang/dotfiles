@@ -18,8 +18,7 @@
  * Pure module. Takes a `ResearchSessionLike` (already-driven parent
  * session) plus an injected `TinyAdapter`-shaped object; no pi
  * imports. Hand-rolled validators rather than TypeBox, matching the
- * precedent established by `research-plan.ts` and
- * `iteration-loop-schema.ts`. The plan text lists TypeBox as the
+ * precedent established by `research-plan.ts`. The plan text lists TypeBox as the
  * preferred schema library - revisit once the shared toolkit adopts
  * it, so every `callTyped` caller gets TypeBox together instead of
  * one module drifting out of the hand-rolled convention.
@@ -240,7 +239,7 @@ export function renderPlannerPrompt(question: string, budget: PlanBudget): strin
 /**
  * Default budget applied when the caller does not specify one.
  * Matches plan.md "default budget" clamp (6 subagents, 40 fetches,
- * $3 spend, 30 min wall-clock) minus the iteration-loop bits that
+ * $3 spend, 30 min wall-clock) minus the bits that
  * are not planner-scoped.
  */
 export const DEFAULT_PLANNER_BUDGET: PlanBudget = {

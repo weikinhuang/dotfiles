@@ -26,8 +26,8 @@ Skip it when:
 
 - The user explicitly asked for a draft, sketch, or commentary - not a finished change.
 - The change has no executable surface (pure documentation, a README edit, a comment-only diff).
-- A separate iteration loop (e.g. a declared `check` task) already owns the verification - the loop's pass verdict is
-  sufficient.
+- A separate iteration loop (e.g. a review loop with its own verifier) already owns the verification - the loop's pass
+  verdict is sufficient.
 
 ## How to pick the verification command
 

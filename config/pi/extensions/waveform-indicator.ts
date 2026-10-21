@@ -546,7 +546,7 @@ export default function extension(pi: ExtensionAPI): void {
     const task = buildPhrasePrompt(phaseTag, contextDigest);
     debugLog('spawn-fire', { requestId, phaseTag, contextDigest, model: dynamicLabelConfig.tinyModel });
 
-    // Resolve the child model via the same helper iteration-loop uses
+    // Resolve the child model via the same helper deep-research uses
     // so an explicit `tinyModel` override goes through the shared
     // precedence ladder. We already passed the registry hit check
     // above, but resolveChildModel re-checks defensively.

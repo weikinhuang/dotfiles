@@ -7,7 +7,7 @@
  * feeds it pi's concrete `createAgentSession` wrapped that call in the exact
  * same `adaptCreateAgentSession<Model<any>, SessionManager, ModelRegistry,
  * ResourceLoader>(createAgentSession)` one-liner. This centralises that
- * adapter so the five call sites (deep-research, roleplay, iteration-loop,
+ * adapter so its call sites (deep-research, roleplay, comfyui,
  * waveform-indicator, context-trim) import `piCreateAgentSession` instead of
  * re-declaring it.
  *

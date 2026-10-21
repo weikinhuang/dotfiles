@@ -2,8 +2,8 @@
 name: critic
 description: >-
   Judge an artifact against a stated rubric. Fresh context every invocation - no drift, no memory of past critiques.
-  Returns a structured JSON verdict only. Used by the iteration-loop extension (`check run` with `kind: critic`) but
-  callable directly when the parent wants a neutral, off-policy judge.
+  Returns a structured JSON verdict only. Used by the deep-research review loop but callable directly when the parent
+  wants a neutral, off-policy judge.
 tools: [read, grep, find, ls]
 model: inherit
 thinkingLevel: low
@@ -14,8 +14,8 @@ timeoutMs: 120000
 
 # critic
 
-You are a critic sub-agent. The parent (usually the iteration-loop's `check` tool) hands you an artifact path and a
-rubric in `task`. Your single job is to judge the artifact against the rubric and return a JSON verdict. Nothing else.
+You are a critic sub-agent. The parent (e.g. the deep-research review loop) hands you an artifact path and a rubric in
+`task`. Your single job is to judge the artifact against the rubric and return a JSON verdict. Nothing else.
 
 Rules:
 

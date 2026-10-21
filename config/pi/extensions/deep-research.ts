@@ -94,7 +94,7 @@ import {
   renderStatuslineWidget,
   type StatuslineState,
 } from '../../../lib/node/pi/deep-research/statusline.ts';
-import { buildStructuralBashCmd, checkReportStructure } from '../../../lib/node/pi/deep-research/structural-check.ts';
+import { checkReportStructure } from '../../../lib/node/pi/deep-research/structural-check.ts';
 import {
   createResearchSessionFlag,
   createResearchToolExecutor,
@@ -104,8 +104,7 @@ import {
 } from '../../../lib/node/pi/deep-research/tool.ts';
 import { withTransientRetry } from '../../../lib/node/pi/fanout-retry.ts';
 import { readTextOrNull } from '../../../lib/node/pi/fs-safe.ts';
-import { buildCriticTask, parseVerdict } from '../../../lib/node/pi/iteration-loop/check-critic.ts';
-import { type Verdict } from '../../../lib/node/pi/iteration-loop/schema.ts';
+import { buildCriticTask, parseVerdict, type Verdict } from '../../../lib/node/pi/critic-verdict.ts';
 import { applyDeepResearchDefaults, loadDeepResearchConfig } from '../../../lib/node/pi/deep-research/config.ts';
 import { createAiFetchWebCliClientFromEnv } from '../../../lib/node/pi/research/ai-fetch-web-cli-client.ts';
 import { createLiveBudget, DEFAULT_BUDGET_PHASES, type LiveBudget } from '../../../lib/node/pi/research/budget-live.ts';
@@ -1778,9 +1777,9 @@ function wrapSession(session: AgentSessionLike): ResearchSessionLikeWithLifecycl
     get state() {
       return session.state as { messages: readonly { role: string; content?: { type: string; text?: string }[] }[] };
     },
-    dispose: () => {
+    dispose: async () => {
       try {
-        session.dispose();
+        await session.dispose();
       } catch {
         /* best-effort */
       }
@@ -1968,13 +1967,11 @@ interface RunReviewPhaseArgs {
  * after `runResearchPipeline` returns `report-complete`.
  *
  * The structural runner calls {@link checkReportStructure} directly
- * (pure, deterministic) - identical semantics to the bash-check
- * surface the iteration-loop would spawn, without the subprocess.
+ * (pure, deterministic) - identical semantics to the manual
+ * `structural-check.ts` CLI, without the subprocess.
  *
  * The critic runner spawns the `critic` agent via `runOneShotAgent`
- * using {@link buildCriticTask} / {@link parseVerdict}; see the
- * iteration-loop extension's own critic path for the identical
- * shape.
+ * using {@link buildCriticTask} / {@link parseVerdict}.
  *
  * The refinement runner spins up a fresh parent session per
  * refinement iteration (via the same `createSession` factory
@@ -1995,7 +1992,6 @@ async function runReviewPhase(args: RunReviewPhaseArgs): Promise<ReviewWireResul
   const reviewSignal = args.signal ?? ctx.signal;
   const p = paths(runRoot);
   const rubricSubjective = readTextOrNull(p.rubricSubjective) ?? '';
-  const structuralBashCmd = buildStructuralBashCmd(runRoot);
 
   const runStructural: StructuralRunner = ({ iteration }) => {
     if (emitPhase) {
@@ -2055,7 +2051,7 @@ async function runReviewPhase(args: RunReviewPhaseArgs): Promise<ReviewWireResul
     // the agent def's own thinkingLevel for this run.
     const runAgent = agentWithResolvedThinking(criticAgent, resolution.thinkingLevel);
     const task = buildCriticTask({
-      spec: { rubric: rubricSubjective },
+      rubric: rubricSubjective,
       artifactPath: p.report,
       iteration,
     });
@@ -2185,10 +2181,7 @@ async function runReviewPhase(args: RunReviewPhaseArgs): Promise<ReviewWireResul
 
   try {
     return await runDeepResearchReview({
-      cwd: ctx.cwd,
       runRoot,
-      rubricSubjective,
-      structuralBashCmd,
       runStructural,
       runCritic,
       refineReport,

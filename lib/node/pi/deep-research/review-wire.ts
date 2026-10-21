@@ -5,27 +5,21 @@
  *
  * Orchestrates the post-pipeline review:
  *
- *   1. Gate on consent. First-time users get a one-line
- *      "auto-accepting checks from now on" notice; subsequent
- *      runs proceed silently. The consent flag lives under the
- *      user's global memory dir (see `deep-research-review-config`).
- *   2. Record the spec for each check via the iteration-loop
- *      storage helpers - `writeDraft` then `acceptDraft` - so the
- *      task shows up in `/check list` and survives pi restarts.
- *      This is the "declare / accept" half of the tool surface.
- *   3. Call `runReviewLoop` with `runStructural` /
+ *   1. Short-circuit when the report still carries stubbed
+ *      sub-question sections (the loop cannot rescue them).
+ *   2. Call `runReviewLoop` with `runStructural` /
  *      `runCritic` / `refineReport` wired by the caller.
- *   4. Render the terminal outcome into a human-readable
+ *   3. Render the terminal outcome into a human-readable
  *      summary suitable for `ctx.ui.notify`.
  *
  * Test seam:
  *
- *   The heavy-lifting wiring (subagent spawn, bash-check exec,
+ *   The heavy-lifting wiring (subagent spawn, structural check,
  *   synth re-run) lives behind the three injected runners so a
  *   vitest spec can drive this helper with scripted verdicts.
  *   That's exactly how `deep-research-review-loop.spec.ts` already
  *   exercises the core algorithm; the extension wiring adds the
- *   consent / task-state / notify layer on top.
+ *   journal / notify layer on top.
  *
  * No pi imports - this module is unit-testable under vitest and
  * the production extension consumes it with real pi deps bound.
@@ -34,7 +28,6 @@
 import { existsSync } from 'node:fs';
 import { dirname } from 'node:path';
 
-import { readConsent, recordConsent, type ReviewConsentOpts } from './review-config.ts';
 import {
   classifyReviewCloseness,
   DEFAULT_REVIEW_MAX_ITER,
@@ -45,39 +38,18 @@ import {
   type ReviewLoopOutcome,
   type StructuralRunner,
 } from './review-loop.ts';
-import { type BashCheckSpec, type CheckSpec, type CriticCheckSpec } from '../iteration-loop/schema.ts';
-import { acceptDraft, archiveTask, writeDraft } from '../iteration-loop/storage.ts';
 import { appendJournal } from '../research/journal.ts';
 import { paths } from '../research/paths.ts';
 import { findStubbedSections } from '../research/resume.ts';
 import { formatStubbedReviewSummary } from '../research/stub-hint.ts';
 
 // ──────────────────────────────────────────────────────────────────────
-// Task constants.
-// ──────────────────────────────────────────────────────────────────────
-
-/** Iteration-loop task name for the structural stage. */
-export const STRUCTURAL_TASK = 'deep-research-structural';
-/** Iteration-loop task name for the subjective critic stage. */
-export const SUBJECTIVE_TASK = 'deep-research-subjective';
-
-// ──────────────────────────────────────────────────────────────────────
 // Types.
 // ──────────────────────────────────────────────────────────────────────
 
 export interface ReviewWireDeps {
-  /** Agent cwd - where `.pi/checks/` lives. */
-  cwd: string;
   /** Deep-research run root - where `report.md` + `rubric-*.md` live. */
   runRoot: string;
-  /**
-   * Subjective rubric body (contents of `rubric-subjective.md`) -
-   * materialized upstream by the synth phase, read once and
-   * threaded in here so the critic spec carries it.
-   */
-  rubricSubjective: string;
-  /** Bash command the structural iteration-loop check would run. Used for the informational spec only. */
-  structuralBashCmd: string;
   /** Injected review-loop runners. */
   runStructural: StructuralRunner;
   runCritic: CriticRunner;
@@ -94,21 +66,13 @@ export interface ReviewWireDeps {
   signal?: AbortSignal;
   /** Injected clock (tests). */
   now?: () => Date;
-  /** Consent storage overrides (tests). */
-  consent?: ReviewConsentOpts;
   /** Hook for user-visible messaging (tests pass a spy). */
   notify?: (message: string, level: 'info' | 'warning' | 'error') => void;
-  /** Override for the iteration-loop task name pair (tests). */
-  taskNames?: { structural: string; subjective: string };
 }
 
 export interface ReviewWireResult {
   /** Terminal review-loop outcome. */
   outcome: ReviewLoopOutcome;
-  /** Consent was recorded (or already present) by the time the loop ran. */
-  consented: boolean;
-  /** True iff this run was the first time consent was recorded. */
-  firstTimeConsent: boolean;
   /** Summary string already handed to `notify`; re-exposed for journaling. */
   summary: string;
   /** Final level the summary was notified at. */
@@ -142,22 +106,13 @@ export function reviewDoneMessage(review: ReviewWireResult | null): string {
 /**
  * Run the review loop against the just-synthesized report. Drives:
  *
- *   - Consent bootstrap.
- *   - Iteration-loop declare + accept for both checks (on-disk
- *     state lives under `<cwd>/.pi/checks/`).
+ *   - Stubbed-section short-circuit.
  *   - `runReviewLoop` with the injected runners.
- *   - Archive both tasks on loop termination.
  *   - Format + notify.
- *
- * Errors in the declare/accept plumbing are journaled and then
- * swallowed so review still attempts to run - the in-memory
- * runners are the authoritative source of the verdict.
  */
 export async function runDeepResearchReview(deps: ReviewWireDeps): Promise<ReviewWireResult> {
   const notify = deps.notify ?? noopNotify;
-  const taskNames = deps.taskNames ?? { structural: STRUCTURAL_TASK, subjective: SUBJECTIVE_TASK };
   const journalPath = paths(deps.runRoot).journal;
-  const now = deps.now ?? ((): Date => new Date());
   const reportPath = paths(deps.runRoot).report;
 
   // ── 0. Stubbed short-circuit ──────────────────────────────
@@ -184,66 +139,12 @@ export async function runDeepResearchReview(deps: ReviewWireDeps): Promise<Revie
     notify(summary, 'warning');
     return {
       outcome: { kind: 'stubbed', stubbed: stubbedSections, reportPath },
-      // Consent is neither needed nor recorded on the short-
-      // circuit path - the loop never ran, so there's nothing
-      // to auto-accept. The next non-stubbed review will pick
-      // up the bootstrap the first time the loop actually runs.
-      consented: false,
-      firstTimeConsent: false,
       summary,
       level: 'warning',
     };
   }
 
-  // ── 1. Consent gate ────────────────────────────────────────
-  const consentOpts: ReviewConsentOpts = deps.consent ?? {};
-  let priorConsent = readConsent(consentOpts);
-  let firstTimeConsent = false;
-  if (!priorConsent.consented) {
-    firstTimeConsent = true;
-    priorConsent = recordConsent({ ...consentOpts, ...(deps.now ? { now: deps.now } : {}) });
-    notify(
-      '/research: first-time review-loop consent recorded - future runs will auto-accept the structural + subjective iteration-loop checks without prompting.',
-      'info',
-    );
-    safeJournal(journalPath, 'review consent recorded', priorConsent.at ?? now().toISOString());
-  }
-
-  // ── 2. Declare both iteration-loop checks ─────────────────
-  // The specs are informational - the pi runtime doesn't invoke
-  // them (we call the injected runners directly), but surfacing
-  // them through `/check list` keeps the tool surface coherent
-  // with what the plan promises. We best-effort through failures
-  // since the review loop must still run even if the iteration-
-  // loop storage refuses a write.
-  const structuralSpec = buildStructuralSpec({
-    task: taskNames.structural,
-    reportPath: paths(deps.runRoot).report,
-    bashCmd: deps.structuralBashCmd,
-    maxIter: deps.maxIter ?? DEFAULT_REVIEW_MAX_ITER,
-    createdAt: now().toISOString(),
-  });
-  const subjectiveSpec = buildSubjectiveSpec({
-    task: taskNames.subjective,
-    reportPath: paths(deps.runRoot).report,
-    rubric: deps.rubricSubjective,
-    maxIter: deps.maxIter ?? DEFAULT_REVIEW_MAX_ITER,
-    createdAt: now().toISOString(),
-  });
-
-  for (const spec of [structuralSpec, subjectiveSpec] as const) {
-    const write = writeDraft(deps.cwd, spec);
-    if (!write.ok) {
-      safeJournal(journalPath, `iteration-loop declare failed (${spec.task})`, write.error);
-      continue;
-    }
-    const accepted = acceptDraft(deps.cwd, spec.task, now().toISOString());
-    if (!accepted.ok) {
-      safeJournal(journalPath, `iteration-loop accept failed (${spec.task})`, accepted.error);
-    }
-  }
-
-  // ── 3. Drive the review loop ──────────────────────────────
+  // ── 1. Drive the review loop ──────────────────────────────
   let outcome: ReviewLoopOutcome;
   try {
     outcome = await runReviewLoop({
@@ -262,27 +163,12 @@ export async function runDeepResearchReview(deps: ReviewWireDeps): Promise<Revie
     safeJournal(journalPath, 'review loop threw', (e as Error).message);
     return {
       outcome: { kind: 'error', error: (e as Error).message, iterations: 0, bestSoFar: null },
-      consented: true,
-      firstTimeConsent,
       summary,
       level: 'error',
     };
   }
 
-  // ── 4. Archive both iteration-loop tasks ──────────────────
-  const archiveTs = now().toISOString().replace(/[:.]/g, '-');
-  for (const task of [taskNames.structural, taskNames.subjective]) {
-    try {
-      const archivedTo = archiveTask(deps.cwd, task, archiveTs);
-      if (archivedTo) {
-        safeJournal(journalPath, `iteration-loop archived ${task}`, archivedTo);
-      }
-    } catch (e) {
-      safeJournal(journalPath, `iteration-loop archive failed (${task})`, (e as Error).message);
-    }
-  }
-
-  // ── 5. Format + notify ────────────────────────────────────
+  // ── 2. Format + notify ────────────────────────────────────
   const { summary, level } = formatOutcome(outcome, {
     runRoot: deps.runRoot,
     maxIter: deps.maxIter ?? DEFAULT_REVIEW_MAX_ITER,
@@ -290,52 +176,7 @@ export async function runDeepResearchReview(deps: ReviewWireDeps): Promise<Revie
   notify(summary, level);
   safeJournal(journalPath, `review loop terminal (${outcome.kind})`, summary);
 
-  return { outcome, consented: true, firstTimeConsent, summary, level };
-}
-
-// ──────────────────────────────────────────────────────────────────────
-// Spec builders - exported for tests + downstream observability.
-// ──────────────────────────────────────────────────────────────────────
-
-export interface BuildStructuralSpecInput {
-  task: string;
-  /** Artifact path relative to cwd. The iteration-loop storage uses this for snapshots. */
-  reportPath: string;
-  bashCmd: string;
-  maxIter: number;
-  createdAt: string;
-}
-
-export function buildStructuralSpec(input: BuildStructuralSpecInput): CheckSpec {
-  const bash: BashCheckSpec = { cmd: input.bashCmd, passOn: 'exit-zero' };
-  return {
-    task: input.task,
-    kind: 'bash',
-    artifact: input.reportPath,
-    budget: { maxIter: input.maxIter },
-    spec: bash,
-    createdAt: input.createdAt,
-  };
-}
-
-export interface BuildSubjectiveSpecInput {
-  task: string;
-  reportPath: string;
-  rubric: string;
-  maxIter: number;
-  createdAt: string;
-}
-
-export function buildSubjectiveSpec(input: BuildSubjectiveSpecInput): CheckSpec {
-  const critic: CriticCheckSpec = { rubric: input.rubric };
-  return {
-    task: input.task,
-    kind: 'critic',
-    artifact: input.reportPath,
-    budget: { maxIter: input.maxIter },
-    spec: critic,
-    createdAt: input.createdAt,
-  };
+  return { outcome, summary, level };
 }
 
 // ──────────────────────────────────────────────────────────────────────

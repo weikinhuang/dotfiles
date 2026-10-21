@@ -51,9 +51,9 @@ describe('resolveSubagentSessionDir', () => {
     expect(() =>
       resolveSubagentSessionDir({
         parentSessionManager: fakeParent({ throwOn: 'id', dir: '/p' }),
-        extensionLabel: 'iteration-loop',
+        extensionLabel: 'subagent',
       }),
-    ).toThrow(/^iteration-loop: cannot persist subagent session.*boom-id/);
+    ).toThrow(/^subagent: cannot persist subagent session.*boom-id/);
   });
 
   test('throws with extensionLabel when getSessionDir throws', () => {

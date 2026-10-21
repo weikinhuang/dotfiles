@@ -13,8 +13,7 @@
  * scalars. The canonical first step in a structural validator before
  * reading properties off an untrusted payload (JSON from disk, model
  * output, session-entry state). Kept here so every validator shares
- * one definition of "record"; see the precedent in
- * `iteration-loop-schema.ts`.
+ * one definition of "record".
  */
 export function isRecord(v: unknown): v is Record<string, unknown> {
   return !!v && typeof v === 'object' && !Array.isArray(v);

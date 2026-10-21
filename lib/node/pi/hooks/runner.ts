@@ -30,9 +30,8 @@ export const DEFAULT_TIMEOUT_MS = 60000;
 
 /**
  * Per-stream byte cap (stdout & stderr each). A misbehaving hook that
- * floods its output would otherwise accumulate unbounded in memory;
- * matches the `STREAM_BUFFER_MAX` ceiling used by
- * `iteration-loop/check-bash.ts`. Output past the cap is dropped and
+ * floods its output would otherwise accumulate unbounded in memory.
+ * Output past the cap is dropped and
  * flagged via {@link HookSpawnResult.truncated}.
  */
 export const STREAM_BUFFER_MAX = 8 * 1024;

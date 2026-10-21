@@ -164,7 +164,7 @@ export interface RunPaths {
   sources: string;
   /** `findings/` - per-sub-question finding dir (deep-research). */
   findings: string;
-  /** `snapshots/` - iteration-loop artifact snapshots. */
+  /** `snapshots/` - artifact snapshots. */
   snapshots: string;
   /** `fanout.json` - live handle file for `research-fanout`. */
   fanout: string;

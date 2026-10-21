@@ -295,7 +295,7 @@ export default function filesystem(pi: ExtensionAPI): void {
   const warnings = createNotifyOnce({ tag: 'filesystem' });
 
   // Register the hook-only factory so spawned subagents (deep-research /
-  // iteration-loop / `subagent`) re-apply this gate against their own
+  // `subagent`) re-apply this gate against their own
   // `tool_call` events. The child does NOT share the parent's
   // `sessionAllow` - children run with `hasUI: false` and would always
   // hit the non-UI fallback anyway. The classify rules and default

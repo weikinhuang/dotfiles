@@ -72,8 +72,8 @@ export interface ResolveTinySettingsOpts {
 
 /**
  * Validate + normalize a `provider/model-id` value. Delegates the
- * grammar check to `parseModelSpec` (the same helper the subagent /
- * iteration-loop paths use) so every setting that resolves here
+ * grammar check to `parseModelSpec` (the same helper the subagent
+ * paths use) so every setting that resolves here
  * goes through the same `provider/model-id` rules - non-empty
  * provider + non-empty model id, whitespace around the `/`
  * tolerated, normalized on return.

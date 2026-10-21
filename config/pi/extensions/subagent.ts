@@ -815,7 +815,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     const parentCwd = ctx.cwd;
 
     // ── Model resolution ──────────────────────────────────────────────
-    // Shared with the iteration-loop's critic spawn via
+    // Shared with deep-research's child spawns via
     // lib/node/pi/subagent/spawn.ts::resolveChildModel. Both extensions
     // surface the same diagnostic strings so users see consistent
     // messages; keeping the resolver in one place prevents drift.

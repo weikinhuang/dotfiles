@@ -53,25 +53,23 @@
  *      what the review-loop orchestrator consumes and what
  *      deep-research-structural-check.spec.ts drives.
  *
- *   2. CLI (the bottom of this file) - invoked as
+ *   2. CLI (the bottom of this file) - invoked manually as
  *      `node <path>/deep-research-structural-check.ts <runRoot>`
- *      by the `kind=bash` iteration-loop check. Exits 0 on pass,
+ *      to re-run the structural review outside pi. Exits 0 on pass,
  *      non-zero on fail, and prints a diagnostic to stderr for
- *      each failure so the bash-check's observation payload is
- *      actionable.
+ *      each failure.
  *
  * No pi imports. Runs against a fixture under vitest and against
  * a real run root as a shell subprocess.
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { pathToFileURL } from 'node:url';
 
 import { SRC_PLACEHOLDER_RE } from '../research/citations.ts';
 import { paths } from '../research/paths.ts';
 import { readPlan } from '../research/plan.ts';
 import { listRun, normalizeUrl, type SourceRef } from '../research/sources.ts';
-import { shQuote } from '../util.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Public types.
@@ -747,32 +745,14 @@ export function formatFailures(result: StructuralCheckResult): string {
   return lines.join('\n');
 }
 
-/**
- * Build the bash command string recorded in the structural-check
- * spec. The production review path calls {@link checkReportStructure}
- * directly; this string is purely informational - it shows up in
- * `/check list` output so a user can see what a manual structural
- * re-run would look like.
- *
- * Anchors on this module's own file URL (`import.meta.url`) so the
- * emitted `node <script> <runRoot>` points at this exact file. Each
- * path is wrapped in POSIX single quotes via {@link shQuote} so
- * paths containing spaces (common on macOS under `~/Library/...` or
- * WSL mounts like `/mnt/c/Users/First Last/`) remain copy-pasteable.
- */
-export function buildStructuralBashCmd(runRoot: string): string {
-  const scriptPath = fileURLToPath(import.meta.url);
-  return `node ${shQuote(scriptPath)} ${shQuote(runRoot)}`;
-}
-
 // ──────────────────────────────────────────────────────────────────────
 // CLI entry.
 // ──────────────────────────────────────────────────────────────────────
 
 /**
  * Usage string printed on `-h` / `--help` and on malformed
- * invocations. Kept short so the bash check's observation payload
- * doesn't drown diagnostic output.
+ * invocations. Kept short so a manual run's diagnostic output
+ * stays readable.
  */
 const USAGE = `Usage: node deep-research-structural-check.ts <runRoot>
 
@@ -781,10 +761,10 @@ Runs the deterministic structural review over <runRoot>. Exits
 invocation error.`;
 
 /**
- * Entry point for the `kind=bash` iteration-loop check. Not
+ * Manual CLI entry point. Not
  * exported as a regular function because callers inside the pipeline
  * should use {@link checkReportStructure} directly - the CLI is
- * only for the bash-check subshell.
+ * only for out-of-process re-runs.
  */
 function main(argv: readonly string[]): number {
   const args = argv.slice(2);
@@ -809,8 +789,7 @@ function main(argv: readonly string[]): number {
 
   if (result.ok) {
     // Emit a one-line "ok" summary on stdout so a human running
-    // the script manually sees a confirmation. The bash check's
-    // `exit-zero` predicate ignores stdout content.
+    // the script manually sees a confirmation.
     process.stdout.write(
       `ok - ${result.stats.sections} section(s), ${result.stats.footnoteMarkers} marker(s), ` +
         `${result.stats.footnoteEntries} footnote entr${result.stats.footnoteEntries === 1 ? 'y' : 'ies'}, ` +

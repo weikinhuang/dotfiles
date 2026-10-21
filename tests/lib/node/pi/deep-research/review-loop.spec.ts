@@ -24,6 +24,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
+import { type Verdict } from '../../../../../lib/node/pi/critic-verdict.ts';
 import {
   buildStructuralNudge,
   buildSubjectiveNudge,
@@ -38,7 +39,6 @@ import {
   type StructuralRunner,
 } from '../../../../../lib/node/pi/deep-research/review-loop.ts';
 import { type StructuralCheckResult } from '../../../../../lib/node/pi/deep-research/structural-check.ts';
-import { type Verdict } from '../../../../../lib/node/pi/iteration-loop/schema.ts';
 import { assertKind } from '../helpers.ts';
 
 // ──────────────────────────────────────────────────────────────────────

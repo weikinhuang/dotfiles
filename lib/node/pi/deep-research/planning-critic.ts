@@ -7,7 +7,7 @@
  * "is this plan worth spending fanout budget on?". The critic
  * returns a JSON verdict `{approved, score, issues, summary}` -
  * see `config/pi/agents/research-planning-critic.md` for the
- * agent's output contract and `iteration-loop-check-critic.ts`
+ * agent's output contract and `critic-verdict.ts`
  * for the tolerant parser we share here.
  *
  * Dispatch policy (matches Phase 2 handoff prompt):
@@ -36,8 +36,7 @@
  */
 
 import { promoteToPlan, plannerOutputSchema, type PlannerOutput } from './planner.ts';
-import { parseVerdict } from '../iteration-loop/check-critic.ts';
-import { type Verdict } from '../iteration-loop/schema.ts';
+import { parseVerdict, type Verdict } from '../critic-verdict.ts';
 import { safeAppendJournal } from '../research/journal.ts';
 import { paths } from '../research/paths.ts';
 import { type DeepResearchPlan, writePlan } from '../research/plan.ts';
@@ -98,7 +97,7 @@ export const DEFAULT_PLANNING_RUBRIC = [
  * Build the task string handed to the subagent. It points the
  * agent at the on-disk plan.json and restates the rubric explicitly
  * so the agent does not have to infer criteria. Mirrors the pattern
- * `iteration-loop-check-critic.buildCriticTask` uses for the main
+ * `critic-verdict.buildCriticTask` uses for the main
  * critic.
  */
 export function buildPlanningCriticTask(planPath: string, rubric: string): string {

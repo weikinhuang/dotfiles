@@ -160,8 +160,8 @@ prompted) command or protected path: instead of failing closed, it asks the user
 
 Disable with `PI_SUBAGENT_DISABLE_PARENT_PROMPT=1` (children then fall back to `PI_BASH_PERMISSIONS_DEFAULT` /
 `PI_FILESYSTEM_DEFAULT`, default deny). The bridge is also inert in headless `pi -p` (no parent UI is published), so
-non-interactive runs keep their existing fail-closed semantics. Children spawned by other paths (`deep-research` fanout,
-the `iteration-loop` critic) are not registered here, so they keep the non-interactive fallback too.
+non-interactive runs keep their existing fail-closed semantics. Children spawned by other paths (`deep-research` fanout
+and review critic) are not registered here, so they keep the non-interactive fallback too.
 
 ## Session persistence
 

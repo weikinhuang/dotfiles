@@ -2,8 +2,7 @@
  * Shared sha256 helpers - one implementation used by every call site
  * that previously instantiated `createHash('sha256')` on its own
  * (`research-provenance.hashPrompt`, `research-sources` for cache-key
- * + content-hash, `iteration-loop-storage` for snapshot fixpoint
- * detection, …). Keeping the implementation in one place means a
+ * + content-hash, …). Keeping the implementation in one place means a
  * change in hashing policy (length, encoding, algorithm) lands in one
  * file instead of several.
  */
@@ -14,7 +13,7 @@ import { createHash } from 'node:crypto';
  * Full hex sha256 of `input`. `Buffer` inputs are hashed as-is; string
  * inputs are encoded as UTF-8. Returns the standard 64-char lowercase
  * hex digest. Use for content-addressable keys where full collision
- * resistance matters (iteration-loop snapshot fixpoint, source-body
+ * resistance matters (source-body
  * fingerprinting).
  */
 export function sha256Hex(input: string | Buffer): string {

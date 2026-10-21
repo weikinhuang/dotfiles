@@ -57,8 +57,8 @@ import {
 
 // `ensureDirSync` + `atomicWriteFile` are re-exported so memory-paths
 // consumers continue to import from this module; the canonical
-// implementation lives in atomic-write.ts so iteration-loop-storage.ts
-// + any future consumer share a single policy.
+// implementation lives in atomic-write.ts so every consumer
+// shares a single policy.
 export { atomicWriteFile, ensureDirSync };
 
 // `cwdSlug` is a generic pi-layout helper - its canonical home is

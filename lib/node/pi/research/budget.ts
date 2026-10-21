@@ -1,21 +1,11 @@
 /**
- * Budget + stop-reason helpers for research runs.
+ * Per-phase budget helpers for research runs.
  *
- * Thin wrapper over `lib/node/pi/iteration-loop/budget.ts` - the
- * iteration-loop already owns a tested implementation of
- * `computeStopReason` / `selectBestSoFar`, so research-core simply
- * re-exports them rather than re-implementing the semantics. Both
- * sibling plans (deep-research, autoresearch) consume the same
- * stop-reason enum, the same best-so-far comparator, and the same
- * per-run budget envelope; keeping the wrapper thin means a fix in
- * the iteration-loop lands in the research toolkit for free.
- *
- * What this module adds on top:
+ * What this module provides:
  *
  *   - `PhaseBudget` / `RunBudget`: a *per-phase* breakdown suited to
  *     multi-phase research pipelines (planner → fanout → synth →
- *     critic → …). The iteration-loop's budget is a single whole-run
- *     envelope; research pipelines want "the synth phase may use up
+ *     critic → …). Research pipelines want "the synth phase may use up
  *     to $0.02 and 60 seconds" with the envelope composed from
  *     per-phase caps.
  *   - `trackPhase(budget, phaseName, fn)`: wraps an async callback
@@ -25,9 +15,8 @@
  *     exceeds its cap. It does NOT abort the callback - the phase is
  *     allowed to complete; overruns are surfaced as diagnostics for
  *     the caller to decide what to do next (escalate, continue,
- *     quarantine). This mirrors how `iteration-loop-budget`'s stop-
- *     reason calculator is advisory: it reports exhaustion; it does
- *     not kill in-flight work.
+ *     quarantine). The tracker is advisory: it reports exhaustion;
+ *     it does not kill in-flight work.
  *
  * Intentional omissions:
  *
@@ -46,32 +35,7 @@
  * the journal hook without a pi runtime.
  */
 
-import {
-  budgetSnapshot,
-  type BudgetSnapshot,
-  type ComputeStopReasonInput,
-  computeStopReason,
-  isFixpoint,
-  normalizeScore,
-  selectBestSoFar,
-} from '../iteration-loop/budget.ts';
 import { appendJournal } from './journal.ts';
-
-// ──────────────────────────────────────────────────────────────────────
-// Re-exports - keep the iteration-loop stop-reason machinery under
-// research-friendly import paths so callers never have to reach past
-// research-core into the iteration-loop internals.
-// ──────────────────────────────────────────────────────────────────────
-
-export {
-  budgetSnapshot,
-  type BudgetSnapshot,
-  type ComputeStopReasonInput,
-  computeStopReason,
-  isFixpoint,
-  normalizeScore,
-  selectBestSoFar,
-};
 
 // ──────────────────────────────────────────────────────────────────────
 // Per-phase budget shapes.
