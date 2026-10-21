@@ -6,21 +6,23 @@
  * again after forgetting, again on a follow-up. `loop-breaker` catches
  * only IDENTICAL repeats (same `(toolName, input)` hash 3× in a row).
  * This extension catches the broader case: same file, same contents,
- * possibly different slice, spread across turns.
+ * overlapping lines, spread across turns.
  *
  * Mechanism:
  *
- *   1. On every successful `read` result we stat the file and record
- *      its `(absPath, mtimeMs, size)` signature plus the
- *      offset/limit the model asked for and the current turn number.
+ *   1. On every successful `read` result we stat the file, resolve the
+ *      line range the read actually returned (truncation details / the
+ *      "Use offset=N to continue" footer / returned line count), and
+ *      merge it into per-`(absPath, mtimeMs, size)` line coverage.
  *
  *   2. On the NEXT `read` of the same path we classify it:
  *        - first-time        → record + pass through
- *        - same-slice        → nudge: "you already read this slice N
- *                              turns ago; use scratchpad for carry-over"
- *        - different-slice   → softer nudge suggesting `rg` or
- *                              scratchpad carry-over
- *        - changed (mtime/size differ) → silent, record the new sig
+ *        - continuation / disjoint / partial-overlap → silent (paging)
+ *        - overlap (>= 50% of returned lines already covered) → nudge
+ *                              naming the lines already in context
+ *        - same-slice        → sharper nudge: "you already read this
+ *                              exact slice N turns ago"
+ *        - changed (mtime/size differ) → silent, coverage resets
  *
  * Composition:
  *   - Complements `loop-breaker` (which catches unchanged inputs within
@@ -46,8 +48,16 @@ import { safeStatSync } from '../../../lib/node/pi/fs-safe.ts';
 import { isFreshUserPrompt } from '../../../lib/node/pi/input-event.ts';
 import { envTruthy, parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
 import { displayPath } from '../../../lib/node/pi/path-display.ts';
-import { type FileSignature, formatNudge, ReadHistory, type RereadProbe } from '../../../lib/node/pi/read-reread.ts';
+import {
+  type FileSignature,
+  formatNudge,
+  isNudgeDecision,
+  ReadHistory,
+  type RereadProbe,
+  resolveReadRange,
+} from '../../../lib/node/pi/read-reread.ts';
 import { makeDiagnostics } from '../../../lib/node/pi/recovery-diagnostics.ts';
+import { isTextPart } from '../../../lib/node/pi/shared/guards.ts';
 import { isNestedToolEvent, preserveStructuredContent } from '../../../lib/node/pi/tool-events.ts';
 
 const DEFAULT_MAX_ENTRIES = 256;
@@ -99,17 +109,29 @@ export default function readRereadDetector(pi: ExtensionAPI): void {
     const sig: FileSignature = { path: abs, mtimeMs: s.mtimeMs, size: s.size };
     const offset = typeof input.offset === 'number' ? input.offset : undefined;
     const limit = typeof input.limit === 'number' ? input.limit : undefined;
-    const probe: RereadProbe = { sig, offset, limit, turn };
-
-    const decision = history.classify(probe);
-    trace(`decision=${decision.kind} path=${abs} offset=${offset ?? '-'} limit=${limit ?? '-'} turn=${turn}`);
-
-    // Always update history with the latest read (even if we're nudging).
-    history.record(probe);
-
-    if (decision.kind !== 'same-slice' && decision.kind !== 'different-slice') {
+    const range = resolveReadRange({
+      offset,
+      limit,
+      text: event.content.find(isTextPart)?.text,
+      isImage: event.content.some((part) => part.type === 'image'),
+      truncation: event.details?.truncation,
+    });
+    if (!range) {
+      trace(`skip: no lines returned path=${abs}`);
       return undefined;
     }
+    const probe: RereadProbe = { sig, offset, limit, turn, range };
+
+    const decision = history.classify(probe);
+    trace(
+      `decision=${decision.kind} path=${abs} offset=${offset ?? '-'} limit=${limit ?? '-'} ` +
+        `lines=${range.start}-${range.end} turn=${turn}`,
+    );
+
+    // Always merge the read into coverage (even if we're nudging).
+    history.record(probe);
+
+    if (!isNudgeDecision(decision)) return undefined;
 
     const nudge = formatNudge({
       displayPath: displayPath(abs, ctx.cwd),

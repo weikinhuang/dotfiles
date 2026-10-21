@@ -4,15 +4,27 @@ Second-layer companion to [`loop-breaker`](./loop-breaker.ts). That extension ca
 hashes repeating inside a short window; this one catches the broader small-model failure mode of `read`-ing the same
 file 3–5 times across a task - once to orient, again after forgetting, again after a follow-up prompt.
 
-For every successful `read`, the extension `statSync`s the file and records a `(absPath, mtimeMs, size)` signature plus
-the offset/limit the model asked for and the current turn. On any subsequent `read` of the same path we classify:
+For every successful `read`, the extension `statSync`s the file and merges the line range the read **actually returned**
+into per-`(absPath, mtimeMs, size)` coverage: a small sorted set of 1-based line intervals (overlapping and adjacent
+intervals merge; at most 32 per file, least-recently-read dropped first). The returned range comes from the `read`
+result's `details.truncation.outputLines`, else the trailing `Use offset=N to continue.` footer, else the returned line
+count, so a truncated open-ended read records `1-604`, not "to EOF". A result with no lines (first line over the byte
+limit) is ignored. On any subsequent `read` of the same path we classify:
 
 - **first-time** - unseen path → pass through.
-- **same-slice** - same path + unchanged signature + same offset/limit → append a nudge naming the slice, when it was
-  first read, and pointing at `scratchpad` for carry-over.
-- **different-slice** - same path + unchanged signature + different window → softer nudge suggesting
-  `rg -n "<pattern>" <path>` or `scratchpad` for incremental capture.
-- **changed** - mtime or size differs → silent, update the signature.
+- **changed** - mtime or size differs → silent, coverage resets to the new read.
+- **continuation** - the read starts right after a covered interval (the tool's own `Use offset=N to continue` hint) →
+  silent, even if the window runs into later coverage.
+- **disjoint** - no covered line → silent (paging through separate windows).
+- **partial-overlap** - under 50% of the returned lines were already covered → silent.
+- **overlap** - at least 50% of the returned lines were already covered → nudge naming the covered lines
+  (`lines 400-960 already in context`) and suggesting `rg -n "<pattern>" <path>` or `scratchpad` for incremental
+  capture.
+- **same-slice** - fully covered and the same offset/limit (or returned range) as the previous read → sharper nudge
+  naming the slice, the covered lines, when it was last read, and pointing at `scratchpad` for carry-over.
+
+Repeated full re-reads of an unchanged file (the 3-5x small-model loop) stay **same-slice** and keep nudging. "N turns
+ago" uses the most recent turn that touched the overlapping lines.
 
 Reads made by another tool through `ctx.executeTool()` carry `parentToolCallId` and are ignored. They do not update the
 history or receive model-facing nudge text, so codemode scripts get the unmodified programmatic result.
