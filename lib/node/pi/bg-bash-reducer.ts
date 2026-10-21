@@ -103,6 +103,12 @@ export interface JobSummary {
   /** Absolute path of the on-disk log file (stdout + stderr interleaved). */
   logFile?: string;
   /**
+   * True when the job was finalized by the post-exit drain deadline while a
+   * background process still held its stdout/stderr pipe open. Later bytes
+   * keep landing in the buffers / log; cleared once the pipes close.
+   */
+  outputOpen?: boolean;
+  /**
    * Whether to send an unsolicited completion nudge when this job
    * finishes on its own (set at start-time). See `bg-bash/nudge.ts`.
    */
@@ -151,6 +157,7 @@ function isJobSummaryShape(value: unknown): value is JobSummary {
   if (typeof v.stdoutTail !== 'string') return false;
   if (typeof v.stderrTail !== 'string') return false;
   if (v.logFile !== undefined && typeof v.logFile !== 'string') return false;
+  if (v.outputOpen !== undefined && typeof v.outputOpen !== 'boolean') return false;
   return true;
 }
 

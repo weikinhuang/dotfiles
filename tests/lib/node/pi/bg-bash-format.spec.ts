@@ -176,6 +176,14 @@ test('formatJobLine: exited shows exit code + wall clock', () => {
   });
 
   expect(formatJobLine(j, 9_999_999)).toMatch(/exited 0 after 5s/);
+  expect(formatJobLine(j, 9_999_999)).not.toContain('output pipe');
+});
+
+test('formatJobLine: outputOpen notes the pipe held by a background process', () => {
+  const j = mkJob({ id: 'abc', status: 'exited', exitCode: 0, startedAt: 0, endedAt: 1000, outputOpen: true });
+  expect(formatJobLine(j, 2000)).toMatch(
+    /exited 0 after 1s, .* \(output pipe still held open by a background process\)$/,
+  );
 });
 
 test('formatJobLine: signaled shows the signal name', () => {

@@ -7,7 +7,7 @@
  *      `tail`): the fallback the handler uses when a `bg_bash` call omits
  *      the param. A project can pin e.g. a longer default `wait` timeout
  *      or always-tail `logs` without the model passing it every time.
- *   2. Operational knobs (`maxBufferBytes`, `killGraceMs`,
+ *   2. Operational knobs (`maxBufferBytes`, `killGraceMs`, `drainMs`,
  *      `maxInjectedChars`) that previously read ONLY from `PI_BG_BASH_*`
  *      env vars. Those env vars are folded in here as the env layer, so a
  *      committed project / user config file now wins over a stray shell
@@ -34,6 +34,9 @@ import { isRecord } from '../shared/guards.ts';
 /** Which stream `logs` returns by default. */
 export type BgBashStream = 'stdout' | 'stderr' | 'merged';
 
+/** Shell a `start` command runs under: `sh` = `/bin/sh -c`, `bash` = `bash -c` (resolved on PATH). */
+export type BgBashShell = 'sh' | 'bash';
+
 /** Fully-resolved `bg_bash` config (built-in + env + user + project). */
 export interface BgBashConfig {
   /** Default `wait` timeout in ms when the call omits `timeoutMs`. */
@@ -51,6 +54,14 @@ export interface BgBashConfig {
   maxBufferBytes: number;
   /** SIGTERM->SIGKILL grace window on shutdown (env: `PI_BG_BASH_KILL_GRACE_MS`). */
   killGraceMs: number;
+  /**
+   * Max ms to keep draining stdout/stderr after the shell exits before the
+   * job is finalized anyway (a backgrounded grandchild can hold the pipe
+   * open). Env: `PI_BG_BASH_DRAIN_MS`.
+   */
+  drainMs: number;
+  /** Default `start` shell when the call omits `shell`. */
+  shell: BgBashShell;
   /** Soft cap on the injected `## Background Jobs` block (env: `PI_BG_BASH_MAX_INJECTED_CHARS`). */
   maxInjectedChars: number;
   /**
@@ -68,6 +79,8 @@ export const DEFAULT_BG_BASH_CONFIG: BgBashConfig = {
   maxBytes: 32 * 1024,
   maxBufferBytes: 1024 * 1024,
   killGraceMs: 3000,
+  drainMs: 2000,
+  shell: 'sh',
   maxInjectedChars: 1500,
   nudge: false,
 };
@@ -76,6 +89,7 @@ export const DEFAULT_BG_BASH_CONFIG: BgBashConfig = {
 const MAX_INJECTED_CHARS_FLOOR = 200;
 
 const STREAMS = new Set<BgBashStream>(['stdout', 'stderr', 'merged']);
+const SHELLS = new Set<BgBashShell>(['sh', 'bash']);
 
 /** Parse an env string to an integer, or undefined when missing / blank / non-numeric. */
 function numFromEnv(raw: string | undefined): number | undefined {
@@ -92,6 +106,11 @@ function asIntAtLeast(value: unknown, min: number): number | undefined {
 
 function asStream(value: unknown): BgBashStream | undefined {
   return typeof value === 'string' && STREAMS.has(value as BgBashStream) ? (value as BgBashStream) : undefined;
+}
+
+/** Narrow an untrusted value to a supported {@link BgBashShell}. */
+export function asBgBashShell(value: unknown): BgBashShell | undefined {
+  return typeof value === 'string' && SHELLS.has(value as BgBashShell) ? (value as BgBashShell) : undefined;
 }
 
 function asBoolean(value: unknown): boolean | undefined {
@@ -125,6 +144,12 @@ export function coerceBgBashConfigLayer(raw: unknown): Partial<BgBashConfig> {
   const killGraceMs = asIntAtLeast(raw.killGraceMs, 0);
   if (killGraceMs !== undefined) out.killGraceMs = killGraceMs;
 
+  const drainMs = asIntAtLeast(raw.drainMs, 0);
+  if (drainMs !== undefined) out.drainMs = drainMs;
+
+  const shell = asBgBashShell(raw.shell);
+  if (shell !== undefined) out.shell = shell;
+
   const maxInjectedChars = asIntAtLeast(raw.maxInjectedChars, MAX_INJECTED_CHARS_FLOOR);
   if (maxInjectedChars !== undefined) out.maxInjectedChars = maxInjectedChars;
 
@@ -136,7 +161,8 @@ export function coerceBgBashConfigLayer(raw: unknown): Partial<BgBashConfig> {
 
 /**
  * Build the env layer from the existing `PI_BG_BASH_*` operational knobs.
- * Only the three knobs that predate the config file are read here; a
+ * Only the operational knobs (`maxBufferBytes`, `killGraceMs`, `drainMs`,
+ * `maxInjectedChars`) are read here; a
  * set-but-invalid value is dropped (falls through to the built-in),
  * matching the prior `parseClampedPositiveInt` floor behaviour. The
  * per-call defaults (`timeoutMs`, `stream`, `maxBytes`, `tail`) have no
@@ -150,6 +176,9 @@ export function bgBashEnvLayer(env: NodeJS.ProcessEnv = process.env): Partial<Bg
 
   const killGraceMs = asIntAtLeast(numFromEnv(env.PI_BG_BASH_KILL_GRACE_MS), 0);
   if (killGraceMs !== undefined) out.killGraceMs = killGraceMs;
+
+  const drainMs = asIntAtLeast(numFromEnv(env.PI_BG_BASH_DRAIN_MS), 0);
+  if (drainMs !== undefined) out.drainMs = drainMs;
 
   const maxInjectedChars = asIntAtLeast(numFromEnv(env.PI_BG_BASH_MAX_INJECTED_CHARS), MAX_INJECTED_CHARS_FLOOR);
   if (maxInjectedChars !== undefined) out.maxInjectedChars = maxInjectedChars;
@@ -173,6 +202,8 @@ export function mergeBgBashConfigLayers(...overrides: Partial<BgBashConfig>[]): 
     if (layer.tail !== undefined) result.tail = layer.tail;
     if (layer.maxBufferBytes !== undefined) result.maxBufferBytes = layer.maxBufferBytes;
     if (layer.killGraceMs !== undefined) result.killGraceMs = layer.killGraceMs;
+    if (layer.drainMs !== undefined) result.drainMs = layer.drainMs;
+    if (layer.shell !== undefined) result.shell = layer.shell;
     if (layer.maxInjectedChars !== undefined) result.maxInjectedChars = layer.maxInjectedChars;
     if (layer.nudge !== undefined) result.nudge = layer.nudge;
   }

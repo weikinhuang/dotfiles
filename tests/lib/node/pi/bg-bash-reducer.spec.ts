@@ -102,6 +102,12 @@ test('isBgBashStateShape: rejects missing required string field', () => {
   expect(isBgBashStateShape({ jobs: [bad], nextId: 2 })).toBe(false);
 });
 
+test('isBgBashStateShape: optional outputOpen must be boolean', () => {
+  expect(isBgBashStateShape(mkState([mkJob({ outputOpen: true })]))).toBe(true);
+  const bad = { ...mkJob(), outputOpen: 'yes' } as unknown as JobSummary;
+  expect(isBgBashStateShape(mkState([bad]))).toBe(false);
+});
+
 // ──────────────────────────────────────────────────────────────────────
 // cloneState
 // ──────────────────────────────────────────────────────────────────────

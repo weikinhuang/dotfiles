@@ -11,9 +11,10 @@ Registers a single `bg_bash` tool with eight actions (`start`, `list`, `status`,
 [`bash/gate`](../../../lib/node/pi/bash/gate.ts) so bash-permissions allow/deny rules apply; approval prompts are
 serialized through a promise-chain mutex so concurrent `start` calls don't stack up racing dialogs.
 
-- **Spawn model.** `spawn('/bin/sh', ['-c', command], { detached: true, stdio: [stdinMode, 'pipe', 'pipe'] })`.
-  `detached: true` makes the child's pid its own process-group leader, so `signal`/`remove` can
-  `process.kill(-pid, sig)` and take children with it. The child is NOT `unref()`-ed - pi keeps observing until exit.
+- **Spawn model.** `spawn('/bin/sh', ['-c', command], { detached: true, stdio: [stdinMode, 'pipe', 'pipe'] })`, or
+  `spawn('bash', ['-c', command], …)` with `shell: "bash"` (see [Shell choice](#shell-choice)). `detached: true` makes
+  the child's pid its own process-group leader, so `signal`/`remove` can `process.kill(-pid, sig)` and take children
+  with it. The child is NOT `unref()`-ed - pi keeps observing until exit.
 - **stdin default.** `stdio[0] = 'ignore'` (≈ `/dev/null`). Non-interactive commands that happen to read stdin (pi's own
   CLI, `cat`, `ssh` without `-n`, `grep` with no args, nested agents) see immediate EOF instead of hanging. Pass
   `interactiveStdin: true` to get `stdio[0] = 'pipe'` so the `stdin` action can feed REPLs / installers.
@@ -41,9 +42,9 @@ serialized through a promise-chain mutex so concurrent `start` calls don't stack
 
 | Action   | Required  | Optional                                                                                                            | Notes                                                                                                                                     |
 | -------- | --------- | ------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `start`  | `command` | `cwd`, `label`, `env` (merged on top of `process.env`), `interactiveStdin` (false), `nudge` (false)                 | Routes through `bash/gate`. `cwd` accepts absolute / `~`-relative / agent-cwd-relative. `nudge` -> [Completion nudge](#completion-nudge). |
+| `start`  | `command` | `cwd`, `label`, `env` (merged on top of `process.env`), `interactiveStdin` (false), `nudge` (false), `shell` (`sh`) | Routes through `bash/gate`. `cwd` accepts absolute / `~`-relative / agent-cwd-relative. `nudge` -> [Completion nudge](#completion-nudge). |
 | `list`   | -         | -                                                                                                                   | Dumps the full registry via `formatState`.                                                                                                |
-| `status` | `id`      | -                                                                                                                   | Single-job line.                                                                                                                          |
+| `status` | `id`      | -                                                                                                                   | Single-job line. Waits for an in-flight `wait` on the same job ([Parallel batches](#parallel-tool-batches)).                              |
 | `logs`   | `id`      | `stream` (`stdout`/`stderr`/`merged`, default `merged`), `tail`, `sinceCursor`, `grep`, `maxBytes` (default 32 KiB) | `grep` is a JS `RegExp` with no flags. Response is tail-preserving-truncated to `maxBytes` with a `… truncated; see logFile …` marker.    |
 | `wait`   | `id`      | `timeoutMs` (default 15000)                                                                                         | Awaits `job.exited` race'd with timeout + `AbortSignal`. Returns `timedOut=true` if still running; otherwise a 20-line tail excerpt.      |
 | `signal` | `id`      | `signal` (default `SIGTERM`; one of `SIGINT`/`SIGTERM`/`SIGKILL`/`SIGHUP`/`SIGQUIT`/`SIGUSR1`/`SIGUSR2`)            | `process.kill(-pid, sig)` targets the whole process group; falls back to `child.kill(sig)`. Status flips to `signaled` immediately.       |
@@ -62,10 +63,10 @@ re-invokes the agent when a background command exits).
   `signal` action, or session shutdown) so whoever sent the signal already knows; `running` / `terminated` never nudge.
 - **Active `wait` suppression.** A job that exits while a `wait` action is in flight on it is skipped: that `wait`
   returns the exit (status + log tail) inline, so the agent already learns of the completion this turn and a separate
-  nudge would just duplicate it. The extension reference-counts in-flight waits per job id (`waitingOn`); the exit
-  handler runs `enqueueNudge` synchronously before the racing `wait` resumes, so the count is still positive at enqueue
-  time and the nudge is dropped. A `wait` that **times out** (job still running) decrements the count on return, so a
-  later unattended exit nudges as normal.
+  nudge would just duplicate it. The extension reference-counts in-flight waits per job id (the `WaitBarrier`); the
+  finalize handler runs `enqueueNudge` synchronously before the racing `wait` resumes, so the count is still positive at
+  enqueue time and the nudge is dropped. A `wait` that **times out** (job still running) decrements the count on return,
+  so a later unattended exit nudges as normal.
 - **Delivery.** A `custom` message (`customType: 'bg-bash-nudge'`, distinct from the non-LLM `bg-bash-state` persistence
   entry) sent via `pi.sendMessage`. pi's `convertToLlm` serializes it to a synthetic `user` turn, so the model reads it
   as actionable content but it never pollutes the editor's up-arrow input history. When the agent is idle the nudge
@@ -82,6 +83,52 @@ The flag defaults off (opt-in per call); set `nudge: true` in `bg-bash.json` to 
 `PI_BG_BASH_DISABLE_NUDGE=1` to turn the feature off entirely (the param/config are then ignored; jobs still run and
 still surface via the active-jobs block).
 
+## Job completion and output draining
+
+A job is **finalized** (status flips to `exited` / `signaled`, `wait` returns, the completion nudge fires, the summary
+byte counts are frozen into the persisted snapshot) by [`attachJobIo`](../../../lib/node/pi/bg-bash-job-io.ts), never on
+the child's bare `'exit'` event:
+
+- `'exit'` only records the exit code / signal (and the wall-clock end shown as the duration). Node emits it as soon as
+  the shell is reaped, which can be before its pipes are drained, and a backgrounded grandchild (`cmd &`, `npx` ->
+  `node` -> workers) can keep writing to the inherited pipe after the shell is gone.
+- `'close'` (every stdio stream closed) finalizes the job, after flushing the streaming decoders.
+- If the pipes are still open `drainMs` (default 2000) after `'exit'`, the job finalizes anyway with `outputOpen: true`;
+  job lines then end with `(output pipe still held open by a background process)`. Later bytes still land in the ring
+  buffers and the log file, and the byte counts keep updating; the flag clears when the pipes close.
+- The on-disk log is closed on `'close'` (or at `session_shutdown`), so late output is never written after `end()`.
+
+The byte counts in a job line (`exited 0 after 13s, 356B`) and the `logs` header (`N bytes total`) both come from the
+same ring-buffer counters, so at any moment they agree. A `logs` call on a still-running job says
+`(job still running - output so far)` in its header so a partial snapshot is never mistaken for the full output.
+
+## Parallel tool batches
+
+pi runs the tool calls of one assistant message in parallel: each `execute()` starts in message order, they run
+concurrently, and the results are appended in message order. Before this was handled, a batch like
+`[wait <id>, logs <id>]` ran `logs` immediately (a snapshot of the running job) while its result appeared after the
+`wait` result reporting the exit - which looked like lost output.
+
+`wait` now registers in a [`WaitBarrier`](../../../lib/node/pi/bg-bash/wait-barrier.ts) synchronously at execute entry,
+and `logs` / `status` on the same job await any in-flight `wait` first, so they report the post-wait state in the order
+the model wrote. The same counts suppress the completion nudge while a `wait` is in flight. The barrier only covers
+`bg_bash` siblings: another tool in the same batch (e.g. `read` of a file the job writes) still runs concurrently with
+the `wait`, so the tool description tells the model to issue it in a later turn.
+
+## Shell choice
+
+`start` runs `command` under `/bin/sh -c` by default: dash on Debian / Ubuntu, POSIX-mode bash 3.2 on macOS. Bash-only
+syntax (`${PIPESTATUS[0]}`, `[[ ]]`, `<(…)`, arrays, `&>`, `{1..5}`, `source`) fails or misbehaves there depending on
+the host.
+
+- Pass `shell: "bash"` (or set `"shell": "bash"` in `bg-bash.json`) to spawn `bash -c` (resolved on `PATH`; a missing
+  bash surfaces as a spawn error).
+- When a `sh` command looks bash-only, the `start` result adds a `Warning: the command looks bash-only (…)` line
+  ([`bashOnlySyntaxWarning`](../../../lib/node/pi/bg-bash/shell.ts), a small regex heuristic that can also fire on
+  quoted text). It never blocks the job.
+- Sandbox-wrapped commands skip the warning: the [`sandbox`](./sandbox.md) wrapper already runs the inner command under
+  bash (ASRT's default shell).
+
 ## Log buffering
 
 - Per-job [`RingBuffer`](../../../lib/node/pi/bg-bash-ring.ts) for each of stdout and stderr, default 1 MiB each
@@ -94,8 +141,8 @@ still surface via the active-jobs block).
   single stream).
 - `tail: N` returns the last N lines (line-aware over `\n`, preserves trailing newline). `grep` filters line-by-line. A
   `TAIL_PREVIEW_BYTES = 200` preview is kept on `JobSummary.stdoutTail` / `stderrTail` for the injected prompt block.
-- Decoders are streaming `TextDecoder`s so mid-codepoint boundaries don't corrupt output; final `decode()` on `exit`
-  flushes the trailing partial.
+- Decoders are streaming `TextDecoder`s so mid-codepoint boundaries don't corrupt output; each is flushed when its
+  stream ends (or on `'close'`), never on bare `'exit'`.
 
 ## Signals and process group
 
@@ -142,6 +189,8 @@ via `markLiveJobsTerminated` so the next runtime sees them as historical rather 
 - `PI_BG_BASH_MAX_INJECTED_CHARS=N` - soft cap on the injected block (default `1500`, floor `200`).
 - `PI_BG_BASH_MAX_BUFFER_BYTES=N` - per-stream ring-buffer cap (default `1048576`, floor `0`).
 - `PI_BG_BASH_KILL_GRACE_MS=N` - SIGTERM→SIGKILL grace window on shutdown (default `3000`, floor `0`).
+- `PI_BG_BASH_DRAIN_MS=N` - max ms to keep draining stdout/stderr after the shell exits before finalizing the job
+  (default `2000`, floor `0`). See [Job completion](#job-completion-and-output-draining).
 - `PI_BG_BASH_LOG_DIR=…` - override log directory root (default `$TMPDIR/pi-bg-bash`).
 
 ## Config file
@@ -166,6 +215,8 @@ per-call param > project config > user config > env knob > built-in default
 | `tail`             | integer ≥ 0                      | (unset)   | Default `logs` tail-line count; unset = return the whole buffer.        |
 | `maxBufferBytes`   | integer ≥ 0                      | `1048576` | Per-stream ring-buffer cap (env: `PI_BG_BASH_MAX_BUFFER_BYTES`).        |
 | `killGraceMs`      | integer ≥ 0                      | `3000`    | SIGTERM→SIGKILL grace on shutdown (env: `PI_BG_BASH_KILL_GRACE_MS`).    |
+| `drainMs`          | integer ≥ 0                      | `2000`    | Post-exit stdio drain deadline (env: `PI_BG_BASH_DRAIN_MS`).            |
+| `shell`            | `sh` \| `bash`                   | `sh`      | Default `start` [shell](#shell-choice) when a call omits `shell`.       |
 | `maxInjectedChars` | integer ≥ 200                    | `1500`    | Injected-block soft cap (env: `PI_BG_BASH_MAX_INJECTED_CHARS`).         |
 | `nudge`            | boolean                          | `false`   | Default `start` [completion-nudge](#completion-nudge) flag.             |
 
@@ -185,6 +236,14 @@ per-call param > project config > user config > env knob > built-in default
   `BG_BASH_CUSTOM_TYPE = 'bg-bash-state'`.
 - [`../../../lib/node/pi/bg-bash-ring.ts`](../../../lib/node/pi/bg-bash-ring.ts) - `RingBuffer` with byte-cursor
   resumable `read({ sinceCursor, maxBytes })`, `tailPreview(n)`, `byteLengthTotal` / `byteLengthDropped`.
+- [`../../../lib/node/pi/bg-bash-stream.ts`](../../../lib/node/pi/bg-bash-stream.ts) - stdout/stderr/merged read
+  semantics shared by `logs`, `wait`, and the overlay.
+- [`../../../lib/node/pi/bg-bash-job-io.ts`](../../../lib/node/pi/bg-bash-job-io.ts) - `attachJobIo`: decoding, ring +
+  log writes, and the exit / close / drain-deadline finalize ordering.
+- [`../../../lib/node/pi/bg-bash/wait-barrier.ts`](../../../lib/node/pi/bg-bash/wait-barrier.ts) - `WaitBarrier` for
+  in-flight `wait`s ([Parallel batches](#parallel-tool-batches), nudge suppression).
+- [`../../../lib/node/pi/bg-bash/shell.ts`](../../../lib/node/pi/bg-bash/shell.ts) - `shellSpawnArgs`,
+  `detectBashOnlySyntax`, `bashOnlySyntaxWarning`.
 - [`../../../lib/node/pi/bg-bash-prompt.ts`](../../../lib/node/pi/bg-bash-prompt.ts) -
   `formatBackgroundJobs(state, { maxChars, now })` renders the active-jobs block (injected via the `context` hook).
 - [`../../../lib/node/pi/bg-bash/nudge.ts`](../../../lib/node/pi/bg-bash/nudge.ts) - `isNudgeWorthy(status)`,

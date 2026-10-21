@@ -44,6 +44,12 @@ test('formatStartResult: error status reports the spawn error', () => {
   expect(formatStartResult(job({ status: 'error', error: undefined }))).toBe('Failed to start: unknown error');
 });
 
+test('formatStartResult: appends a warning line when given', () => {
+  expect(formatStartResult(job({ id: '5', pid: 1 }), 'Warning: bash-only')).toBe(
+    'Started [5] pid 1: echo hi\nWarning: bash-only',
+  );
+});
+
 test('formatLogsHeader: composes bytes summary; no eviction note by default', () => {
   expect(formatLogsHeader({ id: '3', stream: 'merged', totalBytes: 128, droppedBytes: 0, droppedBefore: false })).toBe(
     '--- [3] merged: 128 bytes total, 0 dropped from memory ---',
@@ -53,6 +59,16 @@ test('formatLogsHeader: composes bytes summary; no eviction note by default', ()
 test('formatLogsHeader: droppedBefore adds the cursor-evicted note', () => {
   expect(formatLogsHeader({ id: '3', stream: 'stdout', totalBytes: 9, droppedBytes: 5, droppedBefore: true })).toBe(
     '--- [3] stdout: 9 bytes total, 5 dropped from memory (your cursor was evicted - fall back to logFile) ---',
+  );
+});
+
+test('formatLogsHeader: a running job is marked as a partial snapshot; terminal jobs are not', () => {
+  const base = { id: '3', stream: 'merged', totalBytes: 10, droppedBytes: 0, droppedBefore: false };
+  expect(formatLogsHeader({ ...base, jobStatus: 'running' })).toBe(
+    '--- [3] merged: 10 bytes total, 0 dropped from memory (job still running - output so far) ---',
+  );
+  expect(formatLogsHeader({ ...base, jobStatus: 'exited' })).toBe(
+    '--- [3] merged: 10 bytes total, 0 dropped from memory ---',
   );
 });
 

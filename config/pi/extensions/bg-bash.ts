@@ -77,7 +77,15 @@ import { Type } from 'typebox';
 import { requestBashApproval } from '../../../lib/node/pi/bash/gate.ts';
 import { showModal } from '../../../lib/node/pi/ext/show-modal.ts';
 import { BgBashOverlay, glyphColor } from '../../../lib/node/pi/ext/bg-bash-overlay.ts';
-import { type BgBashConfig, DEFAULT_BG_BASH_CONFIG, loadBgBashConfig } from '../../../lib/node/pi/bg-bash/config.ts';
+import {
+  type BgBashConfig,
+  type BgBashShell,
+  DEFAULT_BG_BASH_CONFIG,
+  loadBgBashConfig,
+} from '../../../lib/node/pi/bg-bash/config.ts';
+import { bashOnlySyntaxWarning, shellSpawnArgs } from '../../../lib/node/pi/bg-bash/shell.ts';
+import { WaitBarrier } from '../../../lib/node/pi/bg-bash/wait-barrier.ts';
+import { attachJobIo } from '../../../lib/node/pi/bg-bash-job-io.ts';
 import {
   BG_BASH_NUDGE_CUSTOM_TYPE,
   type BgBashNudgeDetails,
@@ -163,7 +171,15 @@ const BgBashParams = Type.Object({
   }),
   command: Type.Optional(
     Type.String({
-      description: 'Shell command for `start`. Run via /bin/sh -c.',
+      description: 'Shell command for `start`. Run via /bin/sh -c by default; see `shell`.',
+    }),
+  ),
+  shell: Type.Optional(
+    StringEnum(['sh', 'bash'] as const, {
+      description:
+        '`start` only. `sh` (/bin/sh -c: dash on Linux, POSIX-mode bash on macOS) or `bash` (bash -c). ' +
+        `Default ${DEFAULT_BG_BASH_CONFIG.shell} (overridable via bg-bash.json). ` +
+        'Use `bash` for bash-only syntax such as ${PIPESTATUS[0]}, [[ ]], <(...), arrays.',
     }),
   ),
   cwd: Type.Optional(
@@ -274,7 +290,7 @@ interface LiveJob {
   summary: JobSummary;
   /**
    * The shell process. Undefined if spawn failed (`summary.status === 'error'`)
-   * or once the job has been reaped. We keep the record around for metadata
+   * or once its stdio has closed. We keep the record around for metadata
    * after exit; only the child is released.
    */
   child?: ChildProcess;
@@ -282,9 +298,10 @@ interface LiveJob {
   stderr: RingBuffer;
   logStream?: WriteStream;
   /**
-   * Resolves when the child exits. Multiple `wait` calls can await the same
-   * promise. Always resolves (never rejects) so callers can race it with a
-   * timeout without unhandled rejections.
+   * Resolves when the job is finalized: the child exited AND its stdio
+   * closed, or the post-exit drain deadline passed. Multiple `wait` calls
+   * can await the same promise. Always resolves (never rejects) so callers
+   * can race it with a timeout without unhandled rejections.
    */
   exited: Promise<void>;
   setExited: () => void;
@@ -457,11 +474,13 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
   const pendingNudge: JobSummary[] = [];
   let nudgeTimer: ReturnType<typeof setTimeout> | undefined;
 
-  // Job ids with an in-flight `wait` action, keyed to a reference count
-  // (multiple `wait` calls can await the same job). A job that exits while
-  // a `wait` is active has its completion delivered inline by that wait's
-  // return value, so the unsolicited nudge would be redundant - skip it.
-  const waitingOn = new Map<string, number>();
+  // In-flight `wait` actions per job id (multiple `wait` calls can await
+  // the same job). Two uses: (1) a job that exits while a `wait` is active
+  // has its completion delivered inline by that wait's return value, so
+  // the unsolicited nudge would be redundant - skip it; (2) a sibling
+  // `logs` / `status` in the same parallel tool batch awaits the wait so
+  // it reports the post-wait state instead of a stale mid-run snapshot.
+  const waits = new WaitBarrier();
 
   const isIdle = (): boolean => currentCtx?.isIdle() ?? true;
 
@@ -486,7 +505,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
     if (summary.nudge !== true || !isNudgeWorthy(summary.status)) return;
     // The agent is actively `wait`ing on this job; its return delivers the
     // exit inline, so a separate nudge would just duplicate it.
-    if ((waitingOn.get(summary.id) ?? 0) > 0) return;
+    if (waits.count(summary.id) > 0) return;
     pendingNudge.push(cloneSummary(summary));
     nudgeTimer ??= setTimeout(flushNudge, NUDGE_COALESCE_MS);
   };
@@ -602,13 +621,15 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
   const startJob = (args: {
     command: string;
     /**
-     * Command actually handed to `/bin/sh -c`. When the sandbox extension
+     * Command actually handed to the shell's `-c`. When the sandbox extension
      * is active this is the `srt`-wrapped form returned by
      * `requestSandboxWrap`; the JobSummary still records `command` as the
      * original user-typed string so `list`/`status`/the overlay show what
      * the model asked for, not the wrap shape.
      */
     spawnCommand?: string;
+    /** `sh` (`/bin/sh -c`) or `bash` (`bash -c`). */
+    shell: BgBashShell;
     cwd: string;
     label?: string;
     env?: Record<string, string>;
@@ -661,7 +682,8 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
     const stdinMode: 'ignore' | 'pipe' = args.interactiveStdin ? 'pipe' : 'ignore';
 
     try {
-      child = spawn('/bin/sh', ['-c', args.spawnCommand ?? args.command], {
+      const { file, args: argv } = shellSpawnArgs(args.shell, args.spawnCommand ?? args.command);
+      child = spawn(file, argv, {
         cwd: args.cwd,
         env: args.env ? { ...process.env, ...args.env } : process.env,
         stdio: [stdinMode, 'pipe', 'pipe'],
@@ -672,7 +694,8 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
     }
 
     // Build the exited promise up front so `wait` callers can await it
-    // even before we've wired up the 'exit' listener.
+    // even before the job I/O is wired up. It resolves when the job is
+    // finalized (stdio closed, or the post-exit drain deadline passed).
     let setExited!: () => void;
     const exited = new Promise<void>((resolve) => {
       setExited = resolve;
@@ -726,98 +749,79 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
     // explicitly do NOT `unref()` because we want to keep observing
     // them until they exit (otherwise pi could exit before them).
 
-    const decoderOut = new TextDecoder('utf-8', { fatal: false });
-    const decoderErr = new TextDecoder('utf-8', { fatal: false });
-
-    child.stdout?.on('data', (buf: Buffer) => {
-      const s = decoderOut.decode(buf, { stream: true });
-      if (!s) return;
-      stdout.append(s);
-      logStream?.write(s);
-      const cur = live.get(id);
-      if (!cur) return;
-      cur.summary = {
-        ...cur.summary,
-        stdoutBytes: stdout.byteLengthTotal,
-        stdoutTail: stdout.tailPreview(TAIL_PREVIEW_BYTES),
-      };
-      state = upsertJob(state, cur.summary);
+    // Wall-clock end is the shell's exit, not the (possibly later) moment
+    // the stdio pipes finish draining.
+    let exitedAt: number | undefined;
+    child.on('exit', () => {
+      exitedAt = Date.now();
     });
 
-    child.stderr?.on('data', (buf: Buffer) => {
-      const s = decoderErr.decode(buf, { stream: true });
-      if (!s) return;
-      stderr.append(s);
-      logStream?.write(s);
-      const cur = live.get(id);
-      if (!cur) return;
-      cur.summary = {
-        ...cur.summary,
-        stderrBytes: stderr.byteLengthTotal,
-        stderrTail: stderr.tailPreview(TAIL_PREVIEW_BYTES),
-      };
-      state = upsertJob(state, cur.summary);
+    const refreshBytes = (cur: LiveJob): JobSummary => ({
+      ...cur.summary,
+      stdoutBytes: stdout.byteLengthTotal,
+      stderrBytes: stderr.byteLengthTotal,
+      stdoutTail: stdout.tailPreview(TAIL_PREVIEW_BYTES),
+      stderrTail: stderr.tailPreview(TAIL_PREVIEW_BYTES),
     });
 
-    child.on('error', (err) => {
-      finish();
-      const cur = live.get(id);
-      if (!cur) return;
-      cur.summary = { ...cur.summary, status: 'error', error: err.message, endedAt: Date.now() };
-      state = upsertJob(state, cur.summary);
-      try {
-        logStream?.end();
-      } catch {
-        /* ignore */
-      }
-      setExited();
-      persist();
-      updateStatusline();
-      enqueueNudge(cur.summary);
-    });
-
-    child.on('exit', (code, sig) => {
-      finish();
-      const endedAt = Date.now();
-      // Flush the final chunks out of the decoders in case they buffered
-      // a mid-codepoint tail.
-      const tailOut = decoderOut.decode();
-      if (tailOut) {
-        stdout.append(tailOut);
-        logStream?.write(tailOut);
-      }
-      const tailErr = decoderErr.decode();
-      if (tailErr) {
-        stderr.append(tailErr);
-        logStream?.write(tailErr);
-      }
-
-      const cur = live.get(id);
-      if (cur) {
-        const status: JobStatus = sig ? 'signaled' : 'exited';
-        cur.summary = {
-          ...cur.summary,
-          status,
-          exitCode: code ?? undefined,
-          signal: sig ?? undefined,
-          endedAt,
-          stdoutBytes: stdout.byteLengthTotal,
-          stderrBytes: stderr.byteLengthTotal,
-          stdoutTail: stdout.tailPreview(TAIL_PREVIEW_BYTES),
-          stderrTail: stderr.tailPreview(TAIL_PREVIEW_BYTES),
-        };
+    // Decoding, ring + log writes, and the exit/close/drain ordering live in
+    // `attachJobIo`: the job finalizes on 'close' (or `drainMs` after 'exit'
+    // when a background grandchild holds the pipe), never on bare 'exit',
+    // so `wait` / nudges / the summary byte count see every byte. The
+    // summary byte counts are always read from the same ring counters
+    // `logs` reports.
+    attachJobIo(child, {
+      stdout,
+      stderr,
+      log: (text) => logStream?.write(text),
+      drainMs: config.drainMs,
+      onData: () => {
+        const cur = live.get(id);
+        if (!cur) return;
+        cur.summary = refreshBytes(cur);
         state = upsertJob(state, cur.summary);
+      },
+      onFinal: (final) => {
+        finish();
+        const cur = live.get(id);
+        if (cur) {
+          if (final.kind === 'error') {
+            cur.summary = { ...refreshBytes(cur), status: 'error', error: final.error, endedAt: Date.now() };
+          } else {
+            const status: JobStatus = final.signal ? 'signaled' : 'exited';
+            cur.summary = {
+              ...refreshBytes(cur),
+              status,
+              exitCode: final.exitCode,
+              signal: final.signal,
+              endedAt: exitedAt ?? Date.now(),
+              outputOpen: final.outputOpen ? true : undefined,
+            };
+          }
+          state = upsertJob(state, cur.summary);
+        }
+        setExited();
+        persist();
+        updateStatusline();
+        if (cur) enqueueNudge(cur.summary);
+      },
+      onClose: () => {
         try {
-          cur.logStream?.end();
+          logStream?.end();
         } catch {
           /* ignore */
         }
+        const cur = live.get(id);
+        if (!cur) return;
         cur.child = undefined;
-      }
-      setExited();
-      persist();
-      updateStatusline();
-      if (cur) enqueueNudge(cur.summary);
+        if (cur.summary.outputOpen) {
+          // The drain deadline finalized the job earlier; record the final
+          // byte counts now that the background writer let go of the pipe.
+          cur.summary = { ...refreshBytes(cur), outputOpen: undefined };
+          state = upsertJob(state, cur.summary);
+          persist();
+        }
+      },
     });
 
     return summary;
@@ -836,6 +840,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
       env?: Record<string, string>;
       interactiveStdin?: boolean;
       nudge?: boolean;
+      shell?: BgBashShell;
     },
     ctx: ExtensionContext,
   ): Promise<ToolReturn> => {
@@ -861,9 +866,11 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
     }
 
     const cwd = resolveCwd(ctx.cwd, params.cwd, homedir());
+    const shell = params.shell ?? config.shell;
     const summary = startJob({
       command,
       spawnCommand: wrap.wrapped ? wrap.command : undefined,
+      shell,
       cwd,
       label: params.label,
       env: params.env,
@@ -881,7 +888,10 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
       action: 'start',
       job: cloneSummary(summary),
     };
-    const text = formatStartResult(summary);
+    // A sandbox-wrapped command already runs under bash inside the wrapper
+    // (ASRT's default binShell), so only warn for a bare /bin/sh spawn.
+    const warning = wrap.wrapped ? undefined : bashOnlySyntaxWarning(command, shell);
+    const text = formatStartResult(summary, summary.status === 'error' ? undefined : warning);
     return { content: [{ type: 'text', text }], details, isError: summary.status === 'error' };
   };
 
@@ -988,6 +998,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
             droppedBefore,
             content,
             logFile: summary.logFile,
+            jobStatus: summary.status,
           }),
         },
       ],
@@ -1013,10 +1024,12 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
     const timeoutMs = Math.max(0, params.timeoutMs ?? config.timeoutMs);
     let timedOut = false;
     // Mark this job as actively waited so its completion nudge is suppressed
-    // (this wait's return delivers the exit inline). The exit handler runs
-    // `enqueueNudge` synchronously before this `await` resumes, so the
-    // increment must happen before we race on `job.exited`.
-    waitingOn.set(id, (waitingOn.get(id) ?? 0) + 1);
+    // (this wait's return delivers the exit inline) and so sibling `logs` /
+    // `status` calls in the same parallel batch wait for this one. The
+    // finalize handler runs `enqueueNudge` synchronously before this `await`
+    // resumes, and siblings check the barrier at execute entry, so the
+    // registration must happen synchronously, before we race on `job.exited`.
+    const releaseWait = waits.enter(id);
     try {
       await Promise.race([
         job.exited,
@@ -1037,9 +1050,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
         }),
       ]);
     } finally {
-      const remaining = (waitingOn.get(id) ?? 1) - 1;
-      if (remaining > 0) waitingOn.set(id, remaining);
-      else waitingOn.delete(id);
+      releaseWait();
     }
 
     const fresh = findJob(state, id) ?? summary;
@@ -1179,6 +1190,15 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
       sendSignalTo(job, 'SIGKILL');
     }
     state = markLiveJobsTerminated(state, now);
+    // A job finalized by the drain deadline can still have its log open
+    // (a background grandchild holds the pipe); close what is left.
+    for (const job of live.values()) {
+      try {
+        if (job.logStream && !job.logStream.writableEnded) job.logStream.end();
+      } catch {
+        /* ignore */
+      }
+    }
     persist();
     updateStatusline();
   });
@@ -1251,6 +1271,9 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
       'remove (drop a terminal job from the registry). ' +
       'Stdin defaults to /dev/null; pass interactiveStdin=true on start to feed input via action stdin. ' +
       'Pass nudge=true on start to be auto-messaged on exit (wakes you when idle). ' +
+      'Commands run under /bin/sh by default; pass shell="bash" for bash-only syntax (PIPESTATUS, [[ ]], arrays). ' +
+      'A logs/status call in the same batch as a wait on that job runs after the wait returns; ' +
+      'other tools in that batch (e.g. read of a file the job writes) run concurrently with the wait, so issue them in a later turn. ' +
       'Jobs live only for the current pi session; on shutdown every live job is terminated.',
     promptSnippet:
       'Run long-lived or latency-hiding commands (test suites, dev servers, watchers, builds) in the background and check on them later.',
@@ -1271,9 +1294,14 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
           return await actStart(params, ctx);
         case 'list':
           return actList(params.action);
+        // A `wait` on the same job earlier in this parallel tool batch is
+        // still in flight: report the post-wait state, matching the order
+        // the calls were written in (see WaitBarrier).
         case 'status':
+          if (params.id) await waits.settled(params.id);
           return actStatus(params);
         case 'logs':
+          if (params.id) await waits.settled(params.id);
           return actLogs(params);
         case 'wait':
           return await actWait(params, sig);

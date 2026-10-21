@@ -46,6 +46,11 @@ describe('coerceBgBashConfigLayer', () => {
     expect(coerceBgBashConfigLayer({ nudge: false }).nudge).toBe(false);
   });
 
+  test('keeps a supported shell and a non-negative drainMs', () => {
+    expect(coerceBgBashConfigLayer({ shell: 'bash', drainMs: 0 })).toEqual({ shell: 'bash', drainMs: 0 });
+    expect(coerceBgBashConfigLayer({ shell: 'zsh', drainMs: -1 })).toEqual({});
+  });
+
   test('rejects an unknown stream and out-of-range numbers', () => {
     expect(coerceBgBashConfigLayer({ stream: 'both' }).stream).toBeUndefined();
     expect(coerceBgBashConfigLayer({ maxBytes: 0 }).maxBytes).toBeUndefined();
@@ -66,13 +71,14 @@ describe('coerceBgBashConfigLayer', () => {
 });
 
 describe('bgBashEnvLayer', () => {
-  test('reads the three operational knobs from env', () => {
+  test('reads the operational knobs from env', () => {
     const out = bgBashEnvLayer({
       PI_BG_BASH_MAX_BUFFER_BYTES: '4096',
       PI_BG_BASH_KILL_GRACE_MS: '1000',
+      PI_BG_BASH_DRAIN_MS: '500',
       PI_BG_BASH_MAX_INJECTED_CHARS: '900',
     });
-    expect(out).toEqual({ maxBufferBytes: 4096, killGraceMs: 1000, maxInjectedChars: 900 });
+    expect(out).toEqual({ maxBufferBytes: 4096, killGraceMs: 1000, drainMs: 500, maxInjectedChars: 900 });
   });
 
   test('drops invalid / below-floor env values', () => {
@@ -89,6 +95,7 @@ describe('bgBashEnvLayer', () => {
 describe('mergeBgBashConfigLayers', () => {
   test('no layers returns the built-in defaults', () => {
     expect(mergeBgBashConfigLayers()).toEqual(DEFAULT_BG_BASH_CONFIG);
+    expect(DEFAULT_BG_BASH_CONFIG).toMatchObject({ shell: 'sh', drainMs: 2000 });
   });
 
   test('higher layers override lower ones field by field', () => {

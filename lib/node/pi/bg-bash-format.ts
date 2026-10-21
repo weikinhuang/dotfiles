@@ -78,13 +78,14 @@ export function formatJobLine(job: JobSummary, now: number): string {
   const cmd = truncate(job.command.replace(/\s+/g, ' '), 80);
   const bytes = formatBytes(job.stdoutBytes + job.stderrBytes);
   const head = `[${job.id}]${label} ${statusIcon(job.status)} ${cmd}`;
+  const open = job.outputOpen ? ' (output pipe still held open by a background process)' : '';
   switch (job.status) {
     case 'running':
       return `${head} - running ${dur}, ${bytes}`;
     case 'exited':
-      return `${head} - exited ${job.exitCode ?? '?'} after ${dur}, ${bytes}`;
+      return `${head} - exited ${job.exitCode ?? '?'} after ${dur}, ${bytes}${open}`;
     case 'signaled':
-      return `${head} - ${job.signal ?? 'signal'} after ${dur}, ${bytes}`;
+      return `${head} - ${job.signal ?? 'signal'} after ${dur}, ${bytes}${open}`;
     case 'error':
       return `${head} - error: ${job.error ?? 'unknown'}`;
     case 'terminated':
@@ -197,7 +198,7 @@ export interface JobRow {
   cmd: string;
 }
 
-const ROW_FIXED_COLS = 1 /* marker */ + 1 /* space */ + 1 /* glyph */ + 3 /* spaces */;
+const ROW_FIXED_COLS = 1 /* marker */ + 1 /* space */ + 1 /* glyph */ + 3; /* spaces */
 
 export function formatJobRow(job: JobSummary, now: number, opts: { width?: number } = {}): JobRow {
   const ended = job.endedAt ?? now;

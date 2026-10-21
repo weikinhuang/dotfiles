@@ -6,15 +6,18 @@ in; see [`../AGENTS.md`](../AGENTS.md) for the subtree-wide pi-import policy.
 
 ## Engine (top-level `lib/node/pi/bg-bash-*.ts`) vs adapters (this `bg-bash/` subdir)
 
-- **Top-level `bg-bash-*.ts` = the per-job engine (the data path).** The bounded in-memory ring buffer
+- **Top-level `bg-bash-*.ts` = the per-job engine (the data path).** Child stdio wiring and the exit / close / drain
+  finalize ordering ([`../bg-bash-job-io.ts`](../bg-bash-job-io.ts)) -> the bounded in-memory ring buffer
   ([`../bg-bash-ring.ts`](../bg-bash-ring.ts)) -> stream read semantics ([`../bg-bash-stream.ts`](../bg-bash-stream.ts))
   -> pure state reducer ([`../bg-bash-reducer.ts`](../bg-bash-reducer.ts)) -> its renderers
   ([`../bg-bash-format.ts`](../bg-bash-format.ts) job/overlay lines, [`../bg-bash-prompt.ts`](../bg-bash-prompt.ts)
   system-prompt block).
 - **This `bg-bash/` subdir = leaf adapters the extension shell composes around the engine.** Config coercion
-  ([`config.ts`](./config.ts)), start-cwd resolution ([`resolve-cwd.ts`](./resolve-cwd.ts)), the accepted signal set
-  ([`signals.ts`](./signals.ts)), tool-result text ([`results.ts`](./results.ts)), the completion nudge
-  ([`nudge.ts`](./nudge.ts)), and the `/bg-bash` usage string ([`usage.ts`](./usage.ts)).
+  ([`config.ts`](./config.ts)), start-cwd resolution ([`resolve-cwd.ts`](./resolve-cwd.ts)), shell selection and the
+  bash-only syntax warning ([`shell.ts`](./shell.ts)), in-flight `wait` tracking
+  ([`wait-barrier.ts`](./wait-barrier.ts)), the accepted signal set ([`signals.ts`](./signals.ts)), tool-result text
+  ([`results.ts`](./results.ts)), the completion nudge ([`nudge.ts`](./nudge.ts)), and the `/bg-bash` usage string
+  ([`usage.ts`](./usage.ts)).
 
 Rule of thumb: a change touching buffering, stream reads, or reducer state belongs in the engine (top-level); a change
 to config, cwd, signals, or result/nudge/usage text belongs in a `bg-bash/` leaf.

@@ -6,14 +6,16 @@
  */
 
 import { formatJobLine } from '../bg-bash-format.ts';
-import { type JobSummary } from '../bg-bash-reducer.ts';
+import { type JobStatus, type JobSummary } from '../bg-bash-reducer.ts';
 import { truncate } from '../shared.ts';
 
-/** Lead line for a `start` tool result. */
-export function formatStartResult(summary: JobSummary): string {
-  return summary.status === 'error'
-    ? `Failed to start: ${summary.error ?? 'unknown error'}`
-    : `Started [${summary.id}] pid ${summary.pid ?? '?'}: ${truncate(summary.command, 120)}`;
+/** Lead line for a `start` tool result, plus an optional warning line. */
+export function formatStartResult(summary: JobSummary, warning?: string): string {
+  const lead =
+    summary.status === 'error'
+      ? `Failed to start: ${summary.error ?? 'unknown error'}`
+      : `Started [${summary.id}] pid ${summary.pid ?? '?'}: ${truncate(summary.command, 120)}`;
+  return warning ? `${lead}\n${warning}` : lead;
 }
 
 export interface LogsTextInput {
@@ -24,13 +26,18 @@ export interface LogsTextInput {
   droppedBefore: boolean;
   content: string;
   logFile?: string;
+  /**
+   * Job status when the snapshot was taken. A `running` job gets a note so a
+   * partial snapshot is never mistaken for the job's complete output.
+   */
+  jobStatus?: JobStatus;
 }
 
 /** Header line for a `logs` tool result. */
 export function formatLogsHeader(opts: Omit<LogsTextInput, 'content' | 'logFile'>): string {
   return `--- [${opts.id}] ${opts.stream}: ${opts.totalBytes} bytes total, ${opts.droppedBytes} dropped from memory${
     opts.droppedBefore ? ' (your cursor was evicted - fall back to logFile)' : ''
-  } ---`;
+  }${opts.jobStatus === 'running' ? ' (job still running - output so far)' : ''} ---`;
 }
 
 /** Full text body for a `logs` tool result: header + content + optional log-file note. */
