@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { DEFAULT_CHARS_PER_TOKEN } from '../../../../../lib/node/pi/roleplay/context-window.ts';
 import {
+  anchorAfterCompaction,
   armForcedRecap,
   createWindowState,
   invalidateRecap,
@@ -27,6 +28,8 @@ function dirty(abort: AbortController): WindowState {
     lastSentEstChars: 1234,
     projectedFloorAnchor: 'anchor',
     forceRecap: true,
+    postCompaction: false,
+    timelineSeedBase: 'seed',
   };
 }
 
@@ -45,6 +48,8 @@ describe('window state', () => {
       charsPerToken: DEFAULT_CHARS_PER_TOKEN,
       lastSentEstChars: 0,
       projectedFloorAnchor: undefined,
+      postCompaction: false,
+      timelineSeedBase: null,
       forceRecap: false,
     });
   });
@@ -71,7 +76,20 @@ describe('window state', () => {
       recapInFlight: false,
       recapAbort: null,
       lastSentEstChars: 0,
+      postCompaction: true,
     });
+  });
+
+  it('anchorAfterCompaction anchors committedCutoff at natural once, keeping recapCutoff 0', () => {
+    const win = createWindowState();
+    expect(anchorAfterCompaction(win, 30)).toBe(false);
+    expect(win.committedCutoff).toBe(0);
+    resetWindowCoverage(win);
+    expect(anchorAfterCompaction(win, 30)).toBe(true);
+    expect(win).toMatchObject({ committedCutoff: 30, recapCutoff: 0, postCompaction: false });
+    // No roll due on the anchored pass: the stride gate sees no new aged messages.
+    expect(planRoll(win, 30, 1)).toEqual({ roll: false, forced: false });
+    expect(anchorAfterCompaction(win, 40)).toBe(false);
   });
 
   it('invalidateRecap tolerates a missing or throwing controller', () => {

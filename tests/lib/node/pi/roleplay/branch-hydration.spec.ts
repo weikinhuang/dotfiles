@@ -73,7 +73,15 @@ test('scanBranchForRecap ignores non-custom and empty-recap entries', () => {
 
 test('scanBranchForRecap resets coveredTo to 0 when a compaction follows the recap, keeping the text', () => {
   const entries = [recapEntry({ recap: 'kept text', coveredTo: 30, applied: true }), { type: 'compaction' }];
-  expect(scanBranchForRecap(entries, 50)).toEqual({ recap: 'kept text', coveredTo: 0 });
+  expect(scanBranchForRecap(entries, 50)).toEqual({ recap: 'kept text', coveredTo: 0, compacted: true });
+});
+
+test('scanBranchForRecap treats a trivial-span coverage advance as committed', () => {
+  const entries = [
+    recapEntry({ recap: 'prior', coveredTo: 4, applied: true }),
+    recapEntry({ recap: 'prior', coveredTo: 9, applied: false, trivial: true }),
+  ];
+  expect(scanBranchForRecap(entries, 50)).toEqual({ recap: 'prior', coveredTo: 9 });
 });
 
 test('scanBranchForRecap keeps the normal coveredTo when the compaction precedes the recap', () => {
@@ -122,4 +130,27 @@ test('scanBranchForTimeline: a newscene marker drops deltas and legacy snapshots
   const entries = [timelineEntry('- old'), deltaEntry('- old delta'), newscene(), deltaEntry('- fresh')];
   expect(scanBranchForTimeline(entries)).toBe('- fresh');
   expect(scanBranchForTimeline([deltaEntry('- old'), newscene()])).toBeNull();
+});
+
+const baseEntry = (base: string, beats: string): Record<string, unknown> => ({
+  type: 'custom',
+  customType: 'roleplay-timeline',
+  data: { version: 2, base, beats },
+});
+
+test('scanBranchForTimeline uses a v2 carry-over base, then its own beats, then later deltas', () => {
+  const entries = [
+    deltaEntry('- shadowed'),
+    baseEntry('- seed one\n- seed two', '- first roll'),
+    deltaEntry('- second roll'),
+  ];
+  expect(scanBranchForTimeline(entries)).toBe('- seed one\n- seed two\n- first roll\n- second roll');
+});
+
+test('scanBranchForTimeline: the latest base wins (v2 base vs legacy snapshot) and newscene still shadows', () => {
+  expect(scanBranchForTimeline([baseEntry('- old seed', ''), timelineEntry('- legacy'), deltaEntry('- d')])).toBe(
+    '- legacy\n- d',
+  );
+  expect(scanBranchForTimeline([timelineEntry('- legacy'), baseEntry('- seed', '- b')])).toBe('- seed\n- b');
+  expect(scanBranchForTimeline([baseEntry('- seed', '- b'), newscene(), deltaEntry('- fresh')])).toBe('- fresh');
 });

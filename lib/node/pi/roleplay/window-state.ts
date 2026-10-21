@@ -41,6 +41,21 @@ export interface WindowState {
    * there is nothing uncovered to summarize, and on every full reset.
    */
   forceRecap: boolean;
+  /**
+   * Set by {@link resetWindowCoverage} (pi compaction). The first context pass
+   * afterwards anchors `committedCutoff` at `natural` WITHOUT rolling, so the
+   * compaction summary + already-recapped kept messages are not re-summarized
+   * immediately (compaction already bounded the size). Cleared by that pass.
+   */
+  postCompaction: boolean;
+  /**
+   * Timeline text seeded from the per-cast carry-over (`timeline/auto.md`) on
+   * a fresh tree whose branch carries no timeline base yet. The next v2
+   * `roleplay-timeline` entry stamps it as `base` (v2 entries otherwise hold
+   * only deltas de-duped against this seed, so a resume would lose it), then
+   * it is cleared. `null` when there is nothing pending.
+   */
+  timelineSeedBase: string | null;
 }
 
 export function createWindowState(): WindowState {
@@ -58,6 +73,8 @@ export function createWindowState(): WindowState {
     lastSentEstChars: 0,
     projectedFloorAnchor: undefined,
     forceRecap: false,
+    postCompaction: false,
+    timelineSeedBase: null,
   };
 }
 
@@ -95,6 +112,8 @@ export function resetWindowState(win: WindowState): void {
   win.lastSentEstChars = 0;
   win.projectedFloorAnchor = undefined;
   win.forceRecap = false;
+  win.postCompaction = false;
+  win.timelineSeedBase = null;
   invalidateRecap(win);
 }
 
@@ -102,7 +121,9 @@ export function resetWindowState(win: WindowState): void {
  * Post-compaction reset: the message array is new and shorter, so every
  * index-valued cutoff is stale. Keep the recap / timeline TEXT (still the
  * scene memory) and the floor anchor, but zero coverage and invalidate any
- * in-flight recap (its `spanTo` indexes the old array).
+ * in-flight recap (its `spanTo` indexes the old array). Arms
+ * `postCompaction` so the next pass re-anchors the condense boundary at
+ * `natural` instead of rolling (see {@link anchorAfterCompaction}).
  */
 export function resetWindowCoverage(win: WindowState): void {
   invalidateRecap(win);
@@ -110,6 +131,23 @@ export function resetWindowCoverage(win: WindowState): void {
   win.committedCutoff = 0;
   win.frozenFloorCutoff = 0;
   win.lastSentEstChars = 0;
+  win.postCompaction = true;
+}
+
+/**
+ * First pass after a compaction: anchor `committedCutoff` at `natural` so the
+ * stride gate does not fire on the whole post-compaction array, keep
+ * `recapCutoff` at 0 (nothing in the new array is recap-covered), and clear
+ * the flag. A later stride roll then summarizes only genuinely new aged
+ * messages (the caller strips pi's compaction-summary message from the span).
+ * Returns whether it anchored. No-op when not armed.
+ */
+export function anchorAfterCompaction(win: WindowState, natural: number): boolean {
+  if (!win.postCompaction) return false;
+  win.postCompaction = false;
+  win.committedCutoff = Math.max(win.committedCutoff, natural);
+  win.recapCutoff = 0;
+  return true;
 }
 
 /** Arm the one-shot forced roll (`/roleplay recap force`). */
@@ -129,6 +167,8 @@ export interface RollDecision {
  * {@link planRecap}; an armed force additionally rolls when there are aged
  * messages the recap does not cover yet (`natural > recapCutoff`). A force
  * with nothing to cover is dropped (cleared) so it cannot linger.
+ *
+ * Not pure: that clear mutates `win.forceRecap` in place.
  */
 export function planRoll(win: WindowState, natural: number, stride: number): RollDecision {
   const strideRoll = planRecap(natural, win.committedCutoff, stride);

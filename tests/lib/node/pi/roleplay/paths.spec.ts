@@ -4,9 +4,9 @@
  * Exercises the disk layer against an explicit temp root (no env, no pi).
  */
 
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { appendFileSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import { afterEach, beforeEach, expect, test } from 'vitest';
 
@@ -448,7 +448,29 @@ test('appendTimelineCarryOver rotates the older half into archive/ once over the
   appendTimelineCarryOver('pl', '- beat one\n- beat two', opts, root);
   const res = appendTimelineCarryOver('pl', '- beat three\n- beat four\n- beat five\n- beat six', opts, root);
   expect(res).toStrictEqual({ appended: 4, rotated: true });
-  const archived = archiveFile('pl', 'timeline', '20260101T000000Z-rotated', root);
-  expect(readFileSync(archived, 'utf8')).toContain('- beat one\n- beat two\n- beat three\n');
+  const archiveDirPath = dirname(archiveFile('pl', 'timeline', 'x', root));
+  const rotated = readdirSync(archiveDirPath).filter((f) => f.endsWith('-rotated.md'));
+  expect(rotated).toHaveLength(1);
+  // Collision-proof stamp: `<ts>-<pid>-<rand>-rotated.md`.
+  expect(rotated[0]).toMatch(new RegExp(`^20260101T000000Z-${process.pid}-[0-9a-f]{6}-rotated\\.md$`));
+  expect(readFileSync(join(archiveDirPath, rotated[0]), 'utf8')).toContain('- beat one\n- beat two\n- beat three\n');
   expect(readEntryBody('pl', timelineEntry, root)?.trim()).toBe('- beat four\n- beat five\n- beat six');
+});
+
+test('appendTimelineCarryOver rotation keeps out-of-band lines and same-second rotations never collide', () => {
+  const opts = { maxChars: 120, ts: '20260101T000000Z', description: 'd' };
+  appendTimelineCarryOver('pl', '- beat one\n- beat two', opts, root);
+  const path = fileFor('pl', 'timeline', 'auto', root);
+  // A line another session appended lands in the rotated result (archive or live half).
+  appendFileSync(path, '- other session beat\n');
+  appendTimelineCarryOver('pl', '- beat three\n- beat four\n- beat five', opts, root);
+  const live = readEntryBody('pl', timelineEntry, root) ?? '';
+  const archiveDirPath = dirname(archiveFile('pl', 'timeline', 'x', root));
+  const archived = readdirSync(archiveDirPath)
+    .map((f) => readFileSync(join(archiveDirPath, f), 'utf8'))
+    .join('\n');
+  expect(`${archived}\n${live}`).toContain('- other session beat');
+  // Second rotation with the SAME `ts` stamp: a distinct archive file, not an overwrite.
+  appendTimelineCarryOver('pl', '- beat six\n- beat seven\n- beat eight\n- beat nine', opts, root);
+  expect(readdirSync(archiveDirPath).filter((f) => f.endsWith('-rotated.md')).length).toBe(2);
 });

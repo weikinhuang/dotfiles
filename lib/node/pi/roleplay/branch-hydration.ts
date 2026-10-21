@@ -14,6 +14,12 @@
 export interface BranchRecap {
   recap: string;
   coveredTo: number;
+  /**
+   * A pi compaction lies on the branch after the recap entry, so `coveredTo`
+   * was reset to 0. The caller anchors its condense boundary at `natural`
+   * (no immediate re-summarize of the compaction summary + kept messages).
+   */
+  compacted?: boolean;
 }
 
 /**
@@ -34,6 +40,11 @@ export interface BranchRecap {
  * compaction summary + kept messages. The recap text is kept (it is still
  * the scene's narrative memory) but coverage resets to 0, so nothing in the
  * new, shorter array is dropped on the stale index; normal rolls re-anchor it.
+ * Such a result carries `compacted: true`.
+ *
+ * A roll whose span was too trivial to summarize (`trivial: true`) still
+ * advanced coverage, so it is treated as committed too (its `recap` is the
+ * prior recap held in force).
  */
 export function scanBranchForRecap(entries: readonly Record<string, unknown>[], natural: number): BranchRecap | null {
   let compactedAfter = false;
@@ -47,11 +58,13 @@ export function scanBranchForRecap(entries: readonly Record<string, unknown>[], 
     if (e.customType === 'roleplay-newscene') return null;
     const ct = e.customType;
     if (ct !== 'roleplay-context-recap' && ct !== 'rp-context-recap') continue;
-    const data = e.data as { recap?: unknown; coveredTo?: unknown; applied?: unknown; forced?: unknown } | undefined;
-    if (data?.applied === false && data?.forced !== true) continue;
+    const data = e.data as
+      | { recap?: unknown; coveredTo?: unknown; applied?: unknown; forced?: unknown; trivial?: unknown }
+      | undefined;
+    if (data?.applied === false && data?.forced !== true && data?.trivial !== true) continue;
     const text = typeof data?.recap === 'string' ? data.recap.trim() : '';
     if (!text) continue;
-    if (compactedAfter) return { recap: text, coveredTo: 0 };
+    if (compactedAfter) return { recap: text, coveredTo: 0, compacted: true };
     const coveredTo = typeof data?.coveredTo === 'number' ? data.coveredTo : 0;
     return { recap: text, coveredTo: Math.max(0, Math.min(coveredTo, natural)) };
   }
@@ -60,14 +73,17 @@ export function scanBranchForRecap(entries: readonly Record<string, unknown>[], 
 
 /**
  * Recover this branch's cumulative timeline text from the session branch
- * (the `roleplay-timeline` custom audit entries). Two entry shapes:
+ * (the `roleplay-timeline` custom audit entries). Entry shapes:
  *   - legacy (no `version`): `timeline` carries the FULL cumulative text,
- *   - v2 (`version: 2`): `beats` carries only the lines added by that roll.
- * Scans newest-first collecting v2 deltas until it reaches the newest
- * non-empty legacy snapshot (the base) or a `roleplay-newscene` marker,
- * then returns base + deltas in branch order. A newscene marker shadows
- * every older entry the same way {@link scanBranchForRecap} handles the
- * recap. Returns `null` when nothing on the branch carries beats.
+ *   - v2 (`version: 2`): `beats` carries only the lines added by that roll,
+ *     and the first v2 entry of a session seeded from the per-cast carry-over
+ *     also carries `base` (the seed text the deltas were de-duped against).
+ * Scans newest-first collecting v2 deltas until it reaches the newest base
+ * (a non-empty legacy snapshot or a v2 `base`) or a `roleplay-newscene`
+ * marker, then returns base + deltas in branch order (a v2 base entry's own
+ * `beats` follow its base). A newscene marker shadows every older entry the
+ * same way {@link scanBranchForRecap} handles the recap. Returns `null` when
+ * nothing on the branch carries beats.
  */
 export function scanBranchForTimeline(entries: readonly Record<string, unknown>[]): string | null {
   const deltas: string[] = [];
@@ -77,10 +93,15 @@ export function scanBranchForTimeline(entries: readonly Record<string, unknown>[
     if (e?.type !== 'custom') continue;
     if (e.customType === 'roleplay-newscene') break;
     if (e.customType !== 'roleplay-timeline') continue;
-    const data = e.data as { timeline?: unknown; beats?: unknown; version?: unknown } | undefined;
+    const data = e.data as { timeline?: unknown; beats?: unknown; version?: unknown; base?: unknown } | undefined;
     if (data?.version === 2) {
       const beats = typeof data.beats === 'string' ? data.beats.trim() : '';
       if (beats) deltas.push(beats);
+      const v2Base = typeof data.base === 'string' ? data.base.trim() : '';
+      if (v2Base) {
+        base = v2Base;
+        break;
+      }
       continue;
     }
     const text = typeof data?.timeline === 'string' ? data.timeline.trim() : '';

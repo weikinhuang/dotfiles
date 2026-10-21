@@ -17,6 +17,7 @@
  * a sibling and is never touched by this extension.
  */
 
+import { randomBytes } from 'node:crypto';
 import { appendFileSync, existsSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 
@@ -31,7 +32,7 @@ import {
   type RoleplayState,
   serializeEntry,
 } from './store.ts';
-import { appendBeatBody, dedupeNewBeats, splitBeatLogHalves } from './timeline.ts';
+import { dedupeNewBeats, splitBeatLogHalves } from './timeline.ts';
 
 export { atomicWriteFile, ensureDirSync };
 
@@ -144,10 +145,13 @@ export interface TimelineCarryOverResult {
  * missing file is created atomically with frontmatter; an existing file
  * only gets the new lines appended (`appendFileSync`), so concurrent
  * same-cast sessions interleave lines instead of clobbering each other.
- * When the file then exceeds `maxChars` the older half of its beats moves
- * to `timeline/archive/<ts>-rotated.md` and `auto.md` is atomically
- * rewritten with the newer half (rare). Throws on I/O failure; callers
- * treat the carry-over as best-effort.
+ * When the file then exceeds `maxChars` it is RE-READ (so lines another
+ * session appended since the de-dup read are kept), the older half of its
+ * beats moves to `timeline/archive/<ts>-<pid>-<rand>-rotated.md` (suffix
+ * keeps two same-second rotations from colliding), and `auto.md` is
+ * atomically rewritten with the newer half (rare). New lines are de-duped
+ * against the live log only, not the archived half. Throws on I/O failure;
+ * callers treat the carry-over as best-effort.
  */
 export function appendTimelineCarryOver(
   cast: string,
@@ -173,10 +177,16 @@ export function appendTimelineCarryOver(
   appendFileSync(path, chunk);
   const appended = fresh.split('\n').length;
   if (raw.length + chunk.length <= opts.maxChars) return { appended, rotated: false };
-  const { older, newer } = splitBeatLogHalves(appendBeatBody(existing, fresh));
+  // Re-read right before rotating: a concurrent same-cast session may have
+  // appended lines since the de-dup read above, and rewriting from the stale
+  // snapshot would silently drop them.
+  const latest = readTextFile(path) ?? `${raw}${chunk}`;
+  const latestBody = parseFrontmatter(latest)?.body ?? latest;
+  const { older, newer } = splitBeatLogHalves(latestBody);
   if (older.length === 0) return { appended, rotated: false };
   ensureDirSync(archiveDir(cast, 'timeline', root));
-  atomicWriteFile(archiveFile(cast, 'timeline', `${opts.ts}-rotated`, root), compose(older));
+  const suffix = `${process.pid}-${randomBytes(3).toString('hex')}`;
+  atomicWriteFile(archiveFile(cast, 'timeline', `${opts.ts}-${suffix}-rotated`, root), compose(older));
   atomicWriteFile(path, compose(newer));
   return { appended, rotated: true };
 }

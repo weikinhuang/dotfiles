@@ -368,21 +368,29 @@ export function freezeFloorCutoff(opts: { frozen: number; rawFloor: number; over
  * user-message index (the same boundary semantics as {@link computeCutoff}):
  * a raw `recapCutoff + maxAdvance` can split an assistant tool call from its
  * result or open the kept list on an assistant turn. The bounded value snaps
- * DOWN to the last user message in `(recapCutoff, bound]`; when that range
- * holds none (a single long turn), it falls FORWARD to the first user message
- * in `(bound, natural]`. Never exceeds `natural` (itself a user boundary).
+ * DOWN to the last user message in `(recapCutoff, bound]` that still leaves
+ * a span of at least `minSpan` messages; when that range holds none (a single
+ * long turn, or only a too-short first turn), it falls FORWARD to the first
+ * user message in `(bound, natural]`. Never exceeds `natural` (itself a user
+ * boundary).
+ *
+ * `minSpan` (the caller passes `summarizeMinMessages`) prevents a wedge: a
+ * short first turn followed by a turn longer than `maxAdvance` would
+ * otherwise snap down to a span the summarizer refuses as trivial, so no
+ * candidate is ever produced and coverage never advances.
  */
 export function boundRollSpanTo(
   messages: readonly Msg[],
   recapCutoff: number,
   natural: number,
   maxAdvance: number,
+  minSpan = 0,
 ): number {
   if (maxAdvance <= 0) return natural;
   const bound = Math.min(natural, recapCutoff + maxAdvance);
   if (bound >= natural) return natural;
   for (let i = bound; i > recapCutoff; i--) {
-    if (messages[i]?.role === 'user') return i;
+    if (messages[i]?.role === 'user' && i - recapCutoff >= minSpan) return i;
   }
   for (let i = bound + 1; i < natural; i++) {
     if (messages[i]?.role === 'user') return i;
@@ -538,4 +546,18 @@ export function deriveKeepTurns(
     }
   }
   return Math.max(minTurns, Math.min(maxTurns, turns));
+}
+
+/**
+ * Effective scene-fold refresh cadence under the rolling window. A
+ * name-triggered sheet is delivered once inside a `roleplay-scene-fold`
+ * reminder on one turn; once that turn ages out of the last `keepTurns`
+ * verbatim user-turns it is condensed or dropped, taking the sheet with it.
+ * Clamping the refresh to at most `keepTurns - 1` (min 1) re-sends a
+ * still-active sheet before the turn carrying it leaves the verbatim window.
+ * With the window disabled nothing ages out, so `refreshTurns` is returned as is.
+ */
+export function effectiveFoldRefreshTurns(refreshTurns: number, keepTurns: number, windowEnabled: boolean): number {
+  if (!windowEnabled) return refreshTurns;
+  return Math.max(1, Math.min(refreshTurns, keepTurns - 1));
 }

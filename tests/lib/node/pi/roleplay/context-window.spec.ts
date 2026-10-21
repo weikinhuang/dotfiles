@@ -11,6 +11,7 @@ import {
   DEFAULT_CHARS_PER_TOKEN,
   deriveKeepTurns,
   deriveMaxSpanChars,
+  effectiveFoldRefreshTurns,
   estimateChars,
   freezeFloorCutoff,
   injectRecap,
@@ -326,6 +327,26 @@ describe('boundRollSpanTo', () => {
       expect(boundRollSpanTo(msgs, 0, 8, adv)).toBeLessThanOrEqual(8);
     }
   });
+
+  it('refuses a downward snap shorter than minSpan and falls forward instead (wedge)', () => {
+    // Short first turn (u0, a0) then a tool-heavy turn longer than maxAdvance:
+    // snapping down to index 2 yields a 2-message span the summarizer rejects.
+    const msgs: Msg[] = [U, A, U];
+    for (let i = 0; i < 15; i++) msgs.push(A, T);
+    for (let t = 0; t < 10; t++) msgs.push(U, A);
+    const natural = computeCutoff(msgs, 4);
+    expect(boundRollSpanTo(msgs, 0, natural, 24)).toBe(2); // legacy: the wedge
+    const spanTo = boundRollSpanTo(msgs, 0, natural, 24, 4);
+    expect(spanTo).toBe(33);
+    expect(msgs[spanTo].role).toBe('user');
+    expect(spanTo).toBeLessThanOrEqual(natural);
+  });
+
+  it('still snaps down when the shorter span meets minSpan', () => {
+    const msgs: Msg[] = [U, A, T, A, U, A, T, A, U, A, U];
+    expect(boundRollSpanTo(msgs, 0, 10, 6, 4)).toBe(4);
+    expect(boundRollSpanTo(msgs, 0, 10, 6, 5)).toBe(8);
+  });
 });
 
 describe('snapDropToUserBoundary', () => {
@@ -515,5 +536,18 @@ describe('deriveKeepTurns', () => {
   it('respects the min and max clamps', () => {
     expect(deriveKeepTurns(transcript(20, 5000), 10, DEFAULT_CHARS_PER_TOKEN, 3, 64)).toBe(3);
     expect(deriveKeepTurns(transcript(4, 1), 1_000_000, DEFAULT_CHARS_PER_TOKEN, 2, 64)).toBe(4);
+  });
+});
+
+describe('effectiveFoldRefreshTurns', () => {
+  it('clamps the refresh below the verbatim window when the rolling window is on', () => {
+    expect(effectiveFoldRefreshTurns(6, 8, true)).toBe(6);
+    expect(effectiveFoldRefreshTurns(12, 8, true)).toBe(7);
+    expect(effectiveFoldRefreshTurns(6, 2, true)).toBe(1);
+    expect(effectiveFoldRefreshTurns(6, 1, true)).toBe(1);
+  });
+
+  it('leaves the refresh untouched when the rolling window is off', () => {
+    expect(effectiveFoldRefreshTurns(12, 2, false)).toBe(12);
   });
 });

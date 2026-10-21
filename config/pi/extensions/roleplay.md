@@ -57,7 +57,7 @@ ${PI_ROLEPLAY_ROOT:-~/.pi/agent/roleplay}/
     │   ├── auto.md              ← carry-over timeline (append-only log of dated beats)
     │   └── archive/
     │       ├── <ts>.md          ← `/roleplay newscene` archive
-    │       └── <ts>-rotated.md  ← older half rotated out once auto.md passes timelineFileMaxChars
+    │       └── <ts>-<pid>-<rand>-rotated.md ← older half rotated out past timelineFileMaxChars
     └── facts/                   ← captured-facts carry-over sidecar (NOT a record kind; unscanned)
         ├── <slug>.md            ← one carry-over fact each (frontmatter name + description)
         └── archive/<ts>/        ← newscene-archived facts
@@ -301,8 +301,10 @@ block. Name-triggered sheets go to a separate `roleplay-scene-fold` reminder (`#
 so NPCs entering and leaving the window do not rewrite the cached system prompt. A sheet already in the head is never
 sent again in the reminder. A name-triggered sheet is (re)sent when it enters the active set, has never been delivered,
 or was last delivered `sceneFoldRefreshTurns` (default 6) or more narrative turns ago; otherwise the earlier reminder
-snapshot still carries it. Set `sceneFoldDelivery: "system"` to restore the legacy behavior of folding name-triggered
-sheets into the head block; the same fallback applies automatically when reminders are globally disabled.
+snapshot still carries it. With the rolling context window on, the refresh is clamped to at most `keepTurns - 1` so a
+sheet is re-sent before the turn carrying it ages out of the verbatim window, and a compaction re-sends every active
+sheet. Set `sceneFoldDelivery: "system"` to restore the legacy behavior of folding name-triggered sheets into the head
+block; the same fallback applies automatically when reminders are globally disabled.
 
 **Rendering.** Each sheet renders under a `### <Name>` heading (deduped). The head block announces
 `The user plays **<pov>**.` and renders the POV sheet last, tagged `(player character)`. Names resolve by record id,
@@ -383,12 +385,12 @@ session seeds its recap text from that carry-over without treating any of its ow
 normally); manual `/compact` and overflow recovery still run. On those paths the evicted span is folded into the current
 branch recap and stamped on the branch as a `compact` audit entry, without resetting lorebook timing. After any
 successful compaction, recap coverage resets to 0 (the old message indices no longer apply) while the recap and timeline
-text are kept.
+text are kept, and the next turn does not roll: the compaction summary is never fed back into the recap.
 
 **Timeline** (opt-in, `timeline: true` or `PI_ROLEPLAY_TIMELINE=1`, requires recap mode) appends dated story beats
 extracted from each rolled span. Beats are never re-summarized, so they do not drift. Beats append to `timeline/auto.md`
-(rotating its older half into `timeline/archive/<ts>-rotated.md` past `timelineFileMaxChars`), and a compact
-recent-beats block capped at `timelineMaxInjectChars` is injected as its own prefix beside the recap.
+(rotating its older half into `timeline/archive/<ts>-<pid>-<rand>-rotated.md` past `timelineFileMaxChars`), and a
+compact recent-beats block capped at `timelineMaxInjectChars` is injected as its own prefix beside the recap.
 
 **Fact capture** (opt-in, `capture: true` or `PI_ROLEPLAY_CAPTURE=1`, requires recap mode and a session id) extracts
 self-contained facts from each rolled span into `memory`'s session (`note`) tier and mirrors them to `facts/<slug>.md`,

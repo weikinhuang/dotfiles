@@ -129,6 +129,7 @@ import {
   computeCutoff,
   DEFAULT_CHARS_PER_TOKEN,
   deriveMaxSpanChars,
+  effectiveFoldRefreshTurns,
   estimateChars,
   shouldForceRecap,
   updateCharsPerToken,
@@ -136,6 +137,7 @@ import {
 } from '../../../lib/node/pi/roleplay/context-window.ts';
 import { applyWindowPass, planWindowFloor } from '../../../lib/node/pi/roleplay/window-pass.ts';
 import {
+  anchorAfterCompaction,
   armForcedRecap,
   createWindowState,
   planRoll,
@@ -492,6 +494,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   const resetWindowState = (): void => {
     resetWindowStateFields(win);
     capturedFacts.clear();
+    lastWindowSnapshot = null;
   };
 
   /**
@@ -739,7 +742,8 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         priorActiveIds: timing.sceneFoldPriorActive,
         lastDelivered: timing.sceneFoldDelivered,
         turn: timing.turnCount,
-        refreshTurns: cfg.sceneFoldRefreshTurns,
+        // Re-send before the carrying turn leaves the verbatim window.
+        refreshTurns: effectiveFoldRefreshTurns(cfg.sceneFoldRefreshTurns, cfg.keepTurns, contextWindowEnabled),
       });
       timing.sceneFoldPriorActive = new Set(active);
       if (deliver.length > 0) {
@@ -1096,6 +1100,12 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
      */
     raw: string | null;
     applied: boolean;
+    /**
+     * The span was non-empty but too trivial to summarize (planning returned
+     * null: fewer than `summarizeMinMessages` text messages). The caller
+     * advances coverage over it anyway so a roll can never stall on it.
+     */
+    trivial?: boolean;
     spanLen: number;
     priorLen: number;
     startedAt: number;
@@ -1125,7 +1135,9 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       charsPerToken: win.charsPerToken,
     });
     const plan = planSummarization(span, { minMessages: cfg.summarizeMinMessages, maxSpanChars });
-    if (!plan) return { next: null, raw: null, applied: false, spanLen: 0, priorLen, startedAt };
+    if (!plan) {
+      return { next: null, raw: null, applied: false, trivial: span.length > 0, spanLen: 0, priorLen, startedAt };
+    }
     let next: string | null = null;
     let raw: string | null = null;
     try {
@@ -1186,6 +1198,9 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     mode: 'sync' | 'async' | 'compact';
     forced?: boolean;
   }): void => {
+    // A trivial-span skip still advanced coverage; flag it so branch hydration
+    // (scanBranchForRecap) treats the boundary as committed.
+    const trivial = o.result.trivial === true;
     try {
       pi.appendEntry('roleplay-context-recap', {
         ts: o.result.startedAt,
@@ -1199,6 +1214,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         ok: o.result.next !== null,
         applied: o.result.applied,
         forced: o.forced ?? false,
+        ...(trivial ? { trivial: true } : {}),
         candidateChars: o.result.next?.length ?? 0,
         recapChars: win.recapText.length,
         // The actual recap text, so drift is inspectable from the audit log
@@ -1518,8 +1534,12 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       beats: '' as string,
     };
     const emit = (): void => {
+      // The first v2 entry of a carry-over-seeded session also carries the
+      // seed as `base` (deltas are de-duped against it, so hydration needs it).
+      const base = win.timelineSeedBase;
       try {
-        pi.appendEntry('roleplay-timeline', { ts: Date.now(), ...audit });
+        pi.appendEntry('roleplay-timeline', { ts: Date.now(), ...audit, ...(base ? { base } : {}) });
+        win.timelineSeedBase = null;
       } catch {
         /* audit write is best-effort */
       }
@@ -1582,6 +1602,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     span: SummarizableMessage[],
     sid: string | null,
     signal: AbortSignal | undefined,
+    isCurrent: () => boolean,
   ): Promise<void> => {
     if (!captureEnabled()) return;
     // Auditable outcome (custom entry, never sent to the LLM). Emitted on
@@ -1637,6 +1658,9 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         buildFactExtractionTask(plan.spanText, resolvePromptGuidance('facts', { cwd })),
         signal,
       );
+      // Stale (reset / branch change while extracting) or aborted: discard
+      // silently, before any session-memory / sidecar write or audit entry.
+      if (!isCurrent() || signal?.aborted) return;
       if (raw === null) {
         audit.skip = 'extractor-null';
         emit();
@@ -1768,10 +1792,15 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
             if (branchRecap) {
               win.recapText = branchRecap.recap;
               win.recapCutoff = branchRecap.coveredTo;
-              win.committedCutoff = branchRecap.coveredTo;
+              // A compaction after the recap zeroed coverage: anchor the
+              // condense boundary at `natural` (as the live session_compact
+              // path does) so the resume does not immediately re-summarize
+              // the compaction summary + kept messages.
+              win.committedCutoff = branchRecap.compacted ? natural : branchRecap.coveredTo;
               // Timeline: prefer this branch's cumulative timeline (same
               // active-path guarantee); fall back to the per-cast carry-over
-              // log when the branch carries no timeline entry.
+              // log when the branch carries no timeline entry (then the next
+              // v2 entry must stamp that seed as its `base`).
               const branchTimeline = hydrateTimelineFromBranch(ctx);
               const priorTimeline =
                 branchTimeline ??
@@ -1782,6 +1811,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
                   priorTimeline.trim(),
                   loadRoleplayConfig(cwd, envCharBudget).timelineMemoryMaxChars,
                 );
+                if (branchTimeline === null) win.timelineSeedBase = win.timelineText;
               }
             } else {
               // 2. New tree (genuinely fresh session, or a fork with no recap
@@ -1801,7 +1831,10 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
               const priorEntry = state.entries.find((e) => e.kind === 'summary' && e.id === 'auto');
               const prior = priorEntry ? (readEntryBody(state.cast, priorEntry) ?? '') : '';
               if (prior.trim()) win.recapText = prior.trim();
-              // Seed the timeline from the per-cast carry-over log (C5).
+              // Seed the timeline from the per-cast carry-over log (C5). The
+              // first v2 `roleplay-timeline` entry stamps this seed as its
+              // `base`: later entries hold only deltas de-duped against it,
+              // so without the base a resume would lose the seed lines.
               const priorTimeline =
                 readEntryBody(state.cast, { id: 'auto', kind: 'timeline', name: '', description: '' }) ?? '';
               if (priorTimeline.trim()) {
@@ -1809,6 +1842,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
                   priorTimeline.trim(),
                   loadRoleplayConfig(cwd, envCharBudget).timelineMemoryMaxChars,
                 );
+                win.timelineSeedBase = win.timelineText;
               }
               // B2: seed the per-cast carry-over facts (facts/*.md) into this
               // session's memory note tier so a fresh session inherits the
@@ -1823,6 +1857,11 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         // aged messages. Between rolls the condensed prefix + recap are frozen
         // (byte-identical), so the prompt-prefix cache is reused.
         // An armed `/roleplay recap force` rolls off-stride (see planRoll).
+        // First pass after a pi compaction: anchor committedCutoff at natural
+        // (no immediate roll; compaction already bounded the size), keeping
+        // recapCutoff 0, so the compaction summary + already-recapped kept
+        // messages are not re-summarized right away.
+        anchorAfterCompaction(win, natural);
         const { roll: rollFired } = planRoll(win, natural, strideValue());
         if (rollFired) {
           /** True once this roll actually started (sync) or launched (async) a recap. */
@@ -1842,10 +1881,24 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
             // 190 turns in the field). The lag circuit-breaker below guarantees
             // coverage can never wedge permanently even if an increment is still
             // rejected.
-            const spanTo = boundRollSpanTo(messages, win.recapCutoff, natural, rollCfg.recapMaxAdvance);
+            // `minSpan` keeps a short first turn from snapping the span below
+            // what the summarizer will plan (which would wedge coverage).
+            const spanTo = boundRollSpanTo(
+              messages,
+              win.recapCutoff,
+              natural,
+              rollCfg.recapMaxAdvance,
+              rollCfg.summarizeMinMessages,
+            );
             const lag = natural - win.recapCutoff;
             const lagCeiling = rollCfg.recapLagCeiling;
-            const span = messages.slice(spanFrom, spanTo).map(toSummarizable);
+            // pi's `compactionSummary` message is already a summary of
+            // pre-compaction history (largely what the recap covers); never
+            // feed it back into the summarizer / extractors.
+            const span = messages
+              .slice(spanFrom, spanTo)
+              .filter((m) => m.role !== 'compactionSummary')
+              .map(toSummarizable);
             if (wantAsync) {
               // Non-blocking: at most one background recap; return on the PRIOR
               // recap. The floor keeps the not-yet-covered span present until
@@ -1879,6 +1932,10 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
                       win.recapText = commit;
                       win.recapCutoff = spanTo;
                       writeRecapRecord(commit, sid);
+                    } else if (result.trivial) {
+                      // Backstop: a span too trivial to summarize still
+                      // advances coverage, so it can never stall the roll.
+                      win.recapCutoff = spanTo;
                     }
                     writeRecapAudit({ result, model: info.model, spanFrom, spanTo, mode: 'async', forced });
                     if (commit) {
@@ -1892,7 +1949,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
                       // extractors run under the recap's own AbortController
                       // (cancelled by resetWindowState, immune to a turn
                       // abort) and re-check staleness after every await.
-                      await captureFacts(ctx, span, sid, abort.signal);
+                      await captureFacts(ctx, span, sid, abort.signal, isCurrent);
                       if (!isCurrent()) return;
                       // Timeline runs AFTER capture, sequential + awaited, for
                       // the same single-endpoint reason (C4).
@@ -1914,18 +1971,28 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
               // cannot serve the recap and the main turn concurrently.
               recapStarted = true;
               const gen = win.recapGen;
+              const isCurrent = (): boolean => gen === win.recapGen;
               const result = await doRecap(ctx, span, win.recapText, info, ctx.signal);
-              const salvaged = result.applied ? result.next : clampSummary(result.raw ?? '', rollCfg.summarizeMaxChars);
-              const forced = !result.applied && shouldForceRecap({ candidate: salvaged, lag, lagCeiling });
-              const commit = result.applied ? result.next : forced ? salvaged : null;
-              if (commit) {
-                win.recapText = commit;
-                win.recapCutoff = spanTo;
-                writeRecapRecord(commit, sid);
-                await captureFacts(ctx, span, sid, ctx.signal);
-                await captureTimeline(ctx, span, sid, ctx.signal, () => gen === win.recapGen);
+              // A reset / branch change / compaction during the await made
+              // `spanTo` (and this pass's coverage) stale: commit nothing.
+              if (isCurrent()) {
+                const salvaged = result.applied
+                  ? result.next
+                  : clampSummary(result.raw ?? '', rollCfg.summarizeMaxChars);
+                const forced = !result.applied && shouldForceRecap({ candidate: salvaged, lag, lagCeiling });
+                const commit = result.applied ? result.next : forced ? salvaged : null;
+                if (commit) {
+                  win.recapText = commit;
+                  win.recapCutoff = spanTo;
+                  writeRecapRecord(commit, sid);
+                  await captureFacts(ctx, span, sid, ctx.signal, isCurrent);
+                  await captureTimeline(ctx, span, sid, ctx.signal, isCurrent);
+                } else if (result.trivial) {
+                  // Backstop: see the async path.
+                  win.recapCutoff = spanTo;
+                }
+                writeRecapAudit({ result, model: info.model, spanFrom, spanTo, mode: 'sync', forced });
               }
-              writeRecapAudit({ result, model: info.model, spanFrom, spanTo, mode: 'sync', forced });
             }
           }
           // Advance the condense boundary to `natural`, so the planRecap gate
@@ -2262,9 +2329,15 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   // array (compaction summary + kept messages), so every index-valued cutoff
   // is stale. Keep the recap / timeline TEXT (still the scene memory) but
   // reset coverage to 0 and invalidate any in-flight async recap (its
-  // `spanTo` indexes the old array). Normal rolls re-anchor coverage.
+  // `spanTo` indexes the old array). The next pass anchors the condense
+  // boundary at `natural` without rolling (anchorAfterCompaction). Scene-fold
+  // delivery memory is reset too: the turns that carried sheets were
+  // compacted away, so still-active sheets must be re-sent.
   if (contextWindowEnabled) {
-    pi.on('session_compact', () => resetWindowCoverage(win));
+    pi.on('session_compact', () => {
+      resetWindowCoverage(win);
+      resetSceneFoldDelivery(timing);
+    });
   }
 
   // ── Scene events (/roleplay event) ──────────────────────────────────

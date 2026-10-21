@@ -40,7 +40,10 @@ Name-triggered sheets moved off the head because NPC churn (a character entering
 the system prompt every few turns. In reminder delivery a sheet is re-sent only when it re-enters the active set, was
 never delivered, or its last delivery is `sceneFoldRefreshTurns` old
 ([`selectFoldDeliveries`](../../../lib/node/pi/roleplay/scene-fold.ts)); otherwise the earlier snapshot still carries
-it. A sheet counts as delivered only when its reminder actually reaches the run's request.
+it. With the rolling window on, the effective refresh is clamped to at most `keepTurns - 1` (min 1,
+`effectiveFoldRefreshTurns`) so a still-active sheet is re-sent before the turn carrying it ages out of the verbatim
+window. `session_compact` also resets the delivery memory (`resetSceneFoldDelivery`), so active sheets are re-sent after
+a compaction. A sheet counts as delivered only when its reminder actually reaches the run's request.
 `sceneFoldDelivery: "system"`, or globally disabled reminders, restores head delivery so folds never silently vanish.
 
 Volatile macros would also churn the head. Head sheets therefore resolve against the session header's start timestamp
@@ -180,12 +183,20 @@ tool result.
 reused and only the new turn is prefilled - one reprocess spike per roll.
 
 A roll summarizes `[recapCutoff, spanTo)` where
-`spanTo = boundRollSpanTo(messages, recapCutoff, natural, recapMaxAdvance)`: at most `recapMaxAdvance` messages, snapped
-down to the last user message in range (or forward to the first one when a single long turn spans the bound), never past
-`natural`. Bounding the increment keeps the merge digestible; an unbounded span made a stalled recap re-summarize an
-ever-growing span, collapse, and wedge (coverage pinned 190 turns behind in the field). After a roll that started a
-recap, `committedCutoff` advances to `natural`; if an in-flight async recap blocked it, the boundary holds so the
-backlog starts as soon as the in-flight one lands.
+`spanTo = boundRollSpanTo(messages, recapCutoff, natural, recapMaxAdvance, summarizeMinMessages)`: at most
+`recapMaxAdvance` messages, snapped down to the last user message in range that still leaves at least
+`summarizeMinMessages` messages (or forward to the first user message past the bound when none does), never past
+`natural`. The minimum span prevents a wedge: a short first turn followed by a turn longer than `recapMaxAdvance` used
+to snap down to a span the summarizer refuses as trivial, so no candidate was ever produced and coverage never advanced.
+As a backstop, a non-empty span whose summarization planning still returns null advances `recapCutoff` to `spanTo`
+anyway and writes a `roleplay-context-recap` audit with `trivial: true` (hydrated as committed). pi `compactionSummary`
+messages are filtered out of the span before it reaches the summarizer or extractors. Bounding the increment keeps the
+merge digestible; an unbounded span made a stalled recap re-summarize an ever-growing span, collapse, and wedge
+(coverage pinned 190 turns behind in the field). After a roll that started a recap, `committedCutoff` advances to
+`natural`; if an in-flight async recap blocked it, the boundary holds so the backlog starts as soon as the in-flight one
+lands. Both the sync and async paths capture `recapGen` before awaiting the summarizer and commit nothing when a reset /
+branch change / compaction bumped it meanwhile. Fact and timeline capture re-check the same generation (and the abort
+signal) after their extractor resolves, before any write.
 
 The span text cap passed to the summarizer is derived from the recap model's context window (`deriveMaxSpanChars`), with
 the chars/token estimate calibrated against the previous turn's reported usage (`updateCharsPerToken`).
@@ -237,8 +248,11 @@ off and the floor engaged, the oldest turns are hard-dropped; otherwise the cond
   `mode: 'compact'` and `coveredTo: 0`.
 - **After compaction** the message array is new and shorter, so `session_compact` calls `resetWindowCoverage`: recap and
   timeline text are kept; `recapCutoff`, `committedCutoff`, and the frozen floor go to 0; any in-flight async recap is
-  invalidated. `scanBranchForRecap` applies the same rule on reload: a recap entry followed on the branch by a pi
-  `compaction` entry hydrates with `coveredTo: 0`.
+  invalidated. The first pass afterwards (`anchorAfterCompaction`) sets `committedCutoff = natural` without rolling
+  (compaction already bounded the size) and keeps `recapCutoff` at 0, so the compaction summary and already-recapped
+  kept messages are not re-summarized right away. `scanBranchForRecap` applies the same rule on reload: a recap entry
+  followed on the branch by a pi `compaction` entry hydrates with `coveredTo: 0` and `compacted: true`, and the condense
+  boundary anchors at `natural`.
 
 ### Debugging
 
@@ -265,8 +279,8 @@ The recap, captured facts, and timeline each have two jobs, matched to two store
 Hydration runs once per load, on the first context pass:
 
 1. **Branch.** If the branch carries an applied (or forced) recap after the latest `roleplay-newscene` marker, resume
-   from it: `recapCutoff = committedCutoff = min(coveredTo, natural)` (0 when a compaction follows it). The timeline
-   comes from the branch, else the carry-over. No fact reseed.
+   from it: `recapCutoff = committedCutoff = min(coveredTo, natural)` (when a compaction follows it, `recapCutoff = 0`
+   and `committedCutoff = natural`). The timeline comes from the branch, else the carry-over. No fact reseed.
 2. **Carry-over seed.** Otherwise (fresh session, or a fork with no recap on its path) seed the recap **text** from
    `summary/auto.md` and the timeline from `timeline/auto.md`, with coverage left at 0. The carry-over came from another
    session and covers none of this session's messages; claiming `natural` on a resumed long session that never rolled
@@ -318,14 +332,19 @@ the life of the scene. On each roll, after the recap resolves and fact capture f
 
 - **Carry-over file.** `appendTimelineCarryOver` truly appends the new lines to `timeline/auto.md` (`appendFileSync`;
   the file is created atomically with frontmatter on first write), so concurrent same-cast sessions interleave lines
-  rather than clobbering. When the file then exceeds `timelineFileMaxChars`, the older half of its beat lines moves to
-  `timeline/archive/<ts>-rotated.md` and `auto.md` is atomically rewritten with the newer half.
+  rather than clobbering. When the file then exceeds `timelineFileMaxChars`, it is re-read (keeping lines another
+  session appended since the de-dup read), the older half of its beat lines moves to
+  `timeline/archive/<ts>-<pid>-<rand>-rotated.md` (the suffix keeps same-second rotations from colliding), and `auto.md`
+  is atomically rewritten with the newer half. New lines are de-duped against the live log only, not the archived half,
+  so a beat rotated out can be appended again.
 - **In memory.** New lines fold into `timelineText`, capped by `capBeatLog` to the newest whole lines within
   `timelineMemoryMaxChars` (the newest line always survives).
 - **Branch entry.** Each roll appends a `roleplay-timeline` entry `{version: 2, beats, ...audit}` carrying only that
-  roll's new lines, so the session file grows linearly. `scanBranchForTimeline` rebuilds the timeline from the newest
-  legacy entry (no `version`, full cumulative `timeline` text) plus every later v2 delta, stopping at a
-  `roleplay-newscene` marker. Hydration then applies the in-memory cap.
+  roll's new lines, so the session file grows linearly. Deltas are de-duped against the in-memory timeline, which on a
+  fresh tree was seeded from `timeline/auto.md`, so the first v2 entry of such a session also carries `base` (the seed
+  text); otherwise a resume would rebuild only the deltas and lose the seed. `scanBranchForTimeline` rebuilds the
+  timeline from the newest base (a legacy entry's full cumulative `timeline` text, or a v2 `base`) plus every later v2
+  delta, stopping at a `roleplay-newscene` marker. Hydration then applies the in-memory cap.
 
 The injected block (`renderTimelineBlock`, most-recent beats capped at `timelineMaxInjectChars`) is a separate prefix
 from the recap, so a long timeline cannot evict the recap or the cast index. The safety floor reserves against the

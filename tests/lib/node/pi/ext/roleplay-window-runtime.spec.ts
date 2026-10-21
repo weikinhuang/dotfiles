@@ -11,6 +11,8 @@ import { clearActivePersona, setActivePersona } from '../../../../../lib/node/pi
 import { RECAP_PREFIX } from '../../../../../lib/node/pi/roleplay/context-window.ts';
 import { emptyLoreMeta, serializeEntry } from '../../../../../lib/node/pi/roleplay/store.ts';
 import type * as summarizeModule from '../../../../../lib/node/pi/roleplay/summarize.ts';
+import type * as childSessionModule from '../../../../../lib/node/pi/ext/roleplay-child-session.ts';
+import type * as spawnModule from '../../../../../lib/node/pi/subagent/spawn.ts';
 
 // The recap roll runs through `createSummarizer`; stub it so no child model is spawned
 // and each test scripts the summarizer's answers (and their timing).
@@ -24,6 +26,23 @@ const stub = vi.hoisted(() => ({
         prior?: string,
       ) => Promise<{ recap: string | null; raw: string | null }>
     >(),
+}));
+// Extractor children (fact / timeline): scripted per agent name, no model spawned.
+const child = vi.hoisted(() => ({
+  run: vi.fn<(agent: string, signal?: AbortSignal) => Promise<string | null>>(),
+}));
+vi.mock('../../../../../lib/node/pi/ext/roleplay-child-session.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof childSessionModule>()),
+  loadRoleplayAgent: (opts: { name: string }) =>
+    opts.name === 'roleplay-fact-extractor' || opts.name === 'roleplay-timeline-extractor' ? { name: opts.name } : null,
+  runRoleplayChild: async (args: { agent: { name: string }; signal?: AbortSignal }) => ({
+    stopReason: 'completed',
+    finalText: await child.run(args.agent.name, args.signal),
+  }),
+}));
+vi.mock('../../../../../lib/node/pi/subagent/spawn.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof spawnModule>()),
+  resolveChildModel: () => ({ ok: true, model: { id: 'extractor', provider: 'fixture' } }),
 }));
 vi.mock('../../../../../lib/node/pi/roleplay/summarize.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof summarizeModule>()),
@@ -57,6 +76,8 @@ beforeEach(() => {
   vi.stubEnv('PI_ROLEPLAY_CONTEXT_DEBUG', '1');
   stub.summarizeDetailed.mockReset();
   stub.enabled = true;
+  child.run.mockReset();
+  child.run.mockResolvedValue(null);
 });
 
 afterEach(async () => {
@@ -139,7 +160,16 @@ interface Harness {
   compact: () => Promise<void>;
   /** Run `session_before_compact` with `reason` and return the first handler result. */
   beforeCompact: (reason: string) => Promise<unknown>;
-  recaps: () => { coveredFrom: number; coveredTo: number; mode: string; applied: boolean; recap: string }[];
+  recaps: () => {
+    coveredFrom: number;
+    coveredTo: number;
+    mode: string;
+    applied: boolean;
+    recap: string;
+    trivial?: boolean;
+  }[];
+  /** Custom entries of `type` appended so far. */
+  customs: (type: string) => Record<string, unknown>[];
   debug: () => DebugEntry[];
   carryOver: string;
   castDir: string;
@@ -239,6 +269,7 @@ async function harness(config: Record<string, unknown>): Promise<Harness> {
       return undefined;
     },
     recaps: () => customs('roleplay-context-recap'),
+    customs: (type) => customs<Record<string, unknown>>(type),
     debug: () => customs<DebugEntry>('roleplay-context-window-debug'),
     carryOver: join(agentDir, 'roleplay', 'casts', 'window-fixture', 'summary', 'auto.md'),
     castDir: join(agentDir, 'roleplay', 'casts', 'window-fixture'),
@@ -315,15 +346,145 @@ test('session_compact resets index coverage but keeps the recap text', async () 
   await h.compact();
   // The post-compaction array is a NEW list whose natural cutoff (32) is past the old
   // committed boundary, so only session_compact can invalidate the stale indices. The
-  // next roll's recap is rejected so coverage stays where session_compact left it.
-  stub.summarizeDetailed.mockResolvedValueOnce({ recap: null, raw: null });
-  const compacted = history(10, 6);
+  // first pass afterwards anchors committedCutoff at natural WITHOUT rolling, so the
+  // compaction summary + already-recapped kept messages are not re-summarized.
+  const compacted: Message[] = [
+    { role: 'compactionSummary', summary: 'PI COMPACTION SUMMARY', tokensBefore: 1, timestamp: 1 },
+    ...history(10, 6),
+  ];
   const out = await h.request(compacted);
   const last = h.debug().at(-1)!;
-  expect(last).toMatchObject({ natural: 32, recapCutoff: 0, committedCutoff: 32, recapChars: 'KEPT RECAP'.length });
+  expect(last).toMatchObject({ natural: 33, recapCutoff: 0, committedCutoff: 33, recapChars: 'KEPT RECAP'.length });
   expect(last.messagesOut).toBe(compacted.length); // nothing dropped against stale indices
-  expect(text(out[0]).startsWith(`${RECAP_PREFIX}\nKEPT RECAP\n]`)).toBe(true);
-  expect(h.recaps().at(-1)).toMatchObject({ coveredFrom: 0, applied: false });
+  expect(text(out[1]).startsWith(`${RECAP_PREFIX}\nKEPT RECAP\n]`)).toBe(true);
+  expect(stub.summarizeDetailed).toHaveBeenCalledTimes(1);
+  expect(h.recaps()).toHaveLength(1);
+
+  // A later stride roll summarizes the new aged span, never pi's compaction summary.
+  stub.summarizeDetailed.mockResolvedValueOnce({ recap: 'KEPT RECAP PLUS', raw: 'KEPT RECAP PLUS' });
+  await h.request([...compacted, ...history(1, 16)]);
+  expect(stub.summarizeDetailed).toHaveBeenCalledTimes(2);
+  const span = stub.summarizeDetailed.mock.calls[1][1];
+  expect(span).not.toContain('PI COMPACTION SUMMARY');
+  expect(span).toContain('turn 6 prompt');
+});
+
+test('a short first turn before a long tool turn never wedges coverage (minSpan + trivial backstop)', async () => {
+  // u0 a0 | u1 + 15 tool call/result pairs | 10 short turns. keepTurns 4, recapMaxAdvance 24:
+  // the legacy snap-down landed on index 2 (a 2-message span below summarizeMinMessages 4),
+  // so planning returned null forever and recapCutoff stayed 0.
+  const h = await harness({
+    recapAsync: false,
+    recapStride: 1,
+    recapMaxAdvance: 24,
+    keepTurns: 4,
+    summarizeMinMessages: 4,
+  });
+  stub.summarizeDetailed.mockResolvedValue({ recap: 'WEDGE RECAP', raw: 'WEDGE RECAP' });
+  const msgs: Message[] = [
+    { role: 'user', content: 'u0', timestamp: 0 },
+    { role: 'assistant', content: [{ type: 'text', text: 'a0' }], timestamp: 1 } as Message,
+    { role: 'user', content: 'u1 go', timestamp: 2 },
+  ];
+  for (let i = 0; i < 15; i++) {
+    msgs.push(
+      { role: 'assistant', content: [{ type: 'toolCall', id: `c${i}`, name: 'read', arguments: {} }] } as Message,
+      {
+        role: 'toolResult',
+        toolCallId: `c${i}`,
+        toolName: 'read',
+        content: [{ type: 'text', text: `r${i}` }],
+      } as Message,
+    );
+  }
+  for (let t = 0; t < 10; t++) {
+    msgs.push({ role: 'user', content: `u${t + 2}`, timestamp: 100 + t }, {
+      role: 'assistant',
+      content: [{ type: 'text', text: `a${t + 2}` }],
+      timestamp: 200 + t,
+    } as Message);
+  }
+  await h.request(msgs);
+  expect(stub.summarizeDetailed).toHaveBeenCalledTimes(1);
+  expect(h.recaps().at(-1)).toMatchObject({ coveredFrom: 0, coveredTo: 33, applied: true });
+  expect(h.debug().at(-1)).toMatchObject({ recapCutoff: 33 });
+});
+
+test('a non-empty span too trivial to plan still advances coverage (shell backstop)', async () => {
+  // summarizeMinMessages far above any span: planning always returns null (the
+  // minSpan fall-forward still lands the span on a user boundary <= natural).
+  const h = await harness({ recapAsync: false, recapStride: 1, recapMaxAdvance: 6, summarizeMinMessages: 50 });
+  await h.request(history(6));
+  expect(stub.summarizeDetailed).not.toHaveBeenCalled();
+  expect(h.recaps()).toEqual([
+    expect.objectContaining({ coveredFrom: 0, coveredTo: 8, applied: false, trivial: true }),
+  ]);
+  expect(h.debug().at(-1)).toMatchObject({ recapCutoff: 8 });
+});
+
+test('sync recap that resolves after a reset is not committed', async () => {
+  const h = await harness({ recapAsync: false, recapStride: 1, recapMaxAdvance: 6 });
+  const pending = deferred<{ recap: string | null; raw: string | null }>();
+  stub.summarizeDetailed.mockReturnValueOnce(pending.promise);
+  const inFlight = h.request(history(6));
+  await flush();
+  expect(stub.summarizeDetailed).toHaveBeenCalledTimes(1);
+  await h.dispatch('session_tree');
+  pending.resolve({ recap: 'STALE SYNC', raw: 'STALE SYNC' });
+  const out = await inFlight;
+  expect(h.recaps()).toEqual([]);
+  expect(existsSync(h.carryOver)).toBe(false);
+  expect(JSON.stringify(out)).not.toContain('STALE SYNC');
+});
+
+test('fact capture that resolves after a reset writes nothing', async () => {
+  const h = await harness({ recapAsync: true, recapStride: 1, recapMaxAdvance: 6, capture: true });
+  stub.summarizeDetailed.mockResolvedValue({ recap: 'RECAP', raw: 'RECAP' });
+  const facts = deferred<string | null>();
+  child.run.mockImplementation((agent) =>
+    agent === 'roleplay-fact-extractor' ? facts.promise : Promise.resolve(null),
+  );
+  await h.request(history(6));
+  await flush();
+  expect(child.run).toHaveBeenCalledWith('roleplay-fact-extractor', expect.anything());
+  await h.dispatch('session_tree');
+  facts.resolve('[{"name":"Stale fact","description":"must not be written"}]');
+  await flush();
+  expect(h.customs('roleplay-capture')).toEqual([]);
+  expect(existsSync(join(h.castDir, 'facts'))).toBe(false);
+});
+
+test('a carry-over timeline seed survives a resume via the first v2 entry base', async () => {
+  const h = await harness({ recapAsync: false, recapStride: 1, recapMaxAdvance: 6, timeline: true });
+  mkdirSync(join(h.castDir, 'timeline'), { recursive: true });
+  writeFileSync(
+    join(h.castDir, 'timeline', 'auto.md'),
+    serializeEntry({ name: 'Auto timeline', description: 'd', kind: 'timeline', body: '- [day 1] seed beat\n' }),
+  );
+  stub.summarizeDetailed.mockResolvedValue({ recap: 'RECAP', raw: 'RECAP' });
+  child.run.mockImplementation((agent) =>
+    Promise.resolve(agent === 'roleplay-timeline-extractor' ? '[{"when":"day 2","summary":"new beat"}]' : null),
+  );
+  await h.request(history(6));
+  const entries = h.customs('roleplay-timeline');
+  expect(entries).toEqual([expect.objectContaining({ version: 2, beats: '- [day 2] new beat' })]);
+  expect(entries[0].base).toContain('seed beat');
+
+  // Resume: the branch carries a recap, so hydration reads the branch timeline.
+  await h.dispatch('session_start');
+  const resumed = await h.request(history(6));
+  const head = text(resumed[0]);
+  expect(head).toContain('seed beat');
+  expect(head).toContain('new beat');
+});
+
+test('session_tree clears the /roleplay context snapshot', async () => {
+  const h = await harness({ recapAsync: false, recapStride: 1, recapMaxAdvance: 6 });
+  stub.summarizeDetailed.mockResolvedValue({ recap: 'RECAP', raw: 'RECAP' });
+  await h.request(history(6));
+  expect(await h.command('context')).toContain('snapshot of last turn');
+  await h.dispatch('session_tree');
+  expect(await h.command('context')).toContain('has not engaged yet');
 });
 
 test('async recap result lands on a later turn when still current', async () => {
