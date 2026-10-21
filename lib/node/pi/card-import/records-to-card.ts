@@ -21,9 +21,16 @@
  *   - `probability` / `sticky` / `cooldown` / `delay` / `group` /
  *     `groupWeight` -> `extensions.{probability, sticky, cooldown, delay,
  *     group, group_weight}` (`useProbability: true`).
+ *   - Every entry sets `extensions.match_whole_words: true` and
+ *     `case_sensitive: false` (our matcher's fixed semantics); depth
+ *     entries add `extensions.role: 0` (system).
+ *
+ * {@link planCardExport} wraps the mapper and reports record data a V2
+ * card cannot carry (character fold metadata, lore `recurse`, lore
+ * descriptions, preserved unknown frontmatter keys).
  */
 
-import { type LoreMeta, type SecondaryMode } from '../roleplay/store.ts';
+import { emptyCharacterMeta, type CharacterMeta, type LoreMeta, type SecondaryMode } from '../roleplay/store.ts';
 
 export interface CardBookEntryV2 {
   id: number;
@@ -69,6 +76,10 @@ export interface ExportCharacter {
   name: string;
   description: string;
   body: string;
+  /** Fold metadata; card V2 has no slot for it (reported by {@link planCardExport}). */
+  character?: CharacterMeta;
+  /** Preserved unknown frontmatter keys; not exported (reported by {@link planCardExport}). */
+  extra?: Readonly<Record<string, unknown>>;
 }
 
 export interface ExportLore {
@@ -76,6 +87,8 @@ export interface ExportLore {
   description: string;
   body: string;
   lore: LoreMeta;
+  /** Preserved unknown frontmatter keys; not exported (reported by {@link planCardExport}). */
+  extra?: Readonly<Record<string, unknown>>;
 }
 
 /** Text fields the importer writes as labelled body sections, in its order. */
@@ -183,8 +196,15 @@ function loreEntry(rec: ExportLore, id: number): CardBookEntryV2 {
     group: m.group,
     group_weight: m.groupWeight,
     position: m.depth === undefined ? 0 : 4,
+    // Our matcher is always whole-word + case-insensitive; say so explicitly.
+    match_whole_words: true,
+    case_sensitive: false,
   };
-  if (m.depth !== undefined) extensions.depth = m.depth;
+  if (m.depth !== undefined) {
+    extensions.depth = m.depth;
+    // ST at-depth role: 0 = system (1 = user, 2 = assistant).
+    extensions.role = 0;
+  }
   return {
     id,
     keys: [...m.triggers],
@@ -230,4 +250,91 @@ export function recordsToCard(character: ExportCharacter, lore: readonly ExportL
     };
   }
   return { spec: 'chara_card_v2', spec_version: '2.0', data };
+}
+
+/** Character fold-metadata fields that differ from the defaults (V2 cards cannot carry them). */
+function droppedCharacterMeta(m: CharacterMeta): string[] {
+  const d = emptyCharacterMeta();
+  const out: string[] = [];
+  if (m.aliases.length > 0) out.push(`aliases (${m.aliases.join(', ')})`);
+  if (m.triggers.length > 0) out.push(`triggers (${m.triggers.join(', ')})`);
+  if (m.pinned) out.push('pinned');
+  if (m.order !== d.order) out.push(`order ${m.order}`);
+  if (m.sticky !== d.sticky) out.push(`sticky ${m.sticky}`);
+  if (m.cooldown !== d.cooldown) out.push(`cooldown ${m.cooldown}`);
+  if (m.probability !== d.probability) out.push(`probability ${m.probability}`);
+  if (m.delay !== d.delay) out.push(`delay ${m.delay}`);
+  return out;
+}
+
+/** True when the importer would re-derive `description` from the exported entry (so nothing is lost). */
+function loreDescriptionDerivable(rec: ExportLore): boolean {
+  const d = rec.description.trim();
+  if (d.length === 0 || d === rec.name.trim() || d === 'imported lore') return true;
+  return d === `triggers: ${rec.lore.triggers.join(', ')}`;
+}
+
+/**
+ * Export a character + lore as a Card V2 (see {@link recordsToCard}) and
+ * list the record data the card cannot carry, so the caller can warn:
+ * character fold metadata (aliases / triggers / pinned / fold knobs), lore
+ * `recurse` (ST has no per-entry opt-in), lore descriptions the importer
+ * would not re-derive, and preserved unknown frontmatter keys.
+ */
+export function planCardExport(
+  character: ExportCharacter,
+  lore: readonly ExportLore[],
+): { card: CardV2; warnings: string[] } {
+  const warnings: string[] = [];
+  const charDropped = character.character ? droppedCharacterMeta(character.character) : [];
+  if (charDropped.length > 0) {
+    warnings.push(`character "${character.name}": card has no field for ${charDropped.join(', ')}; dropped`);
+  }
+  const charExtra = Object.keys(character.extra ?? {});
+  if (charExtra.length > 0) {
+    warnings.push(`character "${character.name}": custom frontmatter keys dropped: ${charExtra.join(', ')}`);
+  }
+  for (const rec of lore) {
+    const dropped: string[] = [];
+    if (rec.lore.recurse) dropped.push('recurse: true (ST has no per-entry recursion opt-in)');
+    if (!loreDescriptionDerivable(rec)) dropped.push(`description "${rec.description}"`);
+    const extra = Object.keys(rec.extra ?? {});
+    if (extra.length > 0) dropped.push(`custom frontmatter keys ${extra.join(', ')}`);
+    if (dropped.length > 0) warnings.push(`lore "${rec.name}": dropped ${dropped.join('; ')}`);
+  }
+  return { card: recordsToCard(character, lore), warnings };
+}
+
+/**
+ * Parse `/roleplay export [character] [path]` arguments. The longest
+ * leading run of whitespace-separated words that equals a character's
+ * name or id (case-insensitively, inner whitespace collapsed) selects it,
+ * so multi-word names (`Mary Jane out.json`) and punctuated ones
+ * (`Dr. Who`) work; the remainder is the path. With no match, `character`
+ * is absent and the whole input is the path. Empty parts are omitted.
+ * Returns the matched character's `id`.
+ */
+export function parseExportArgs(
+  raw: string,
+  characters: readonly { id: string; name: string }[],
+): { character?: string; path?: string } {
+  const norm = (s: string): string => s.trim().replace(/\s+/g, ' ').toLowerCase();
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return {};
+  const tokens = [...trimmed.matchAll(/\S+/g)];
+  for (let k = tokens.length; k >= 1; k -= 1) {
+    const candidate = norm(
+      tokens
+        .slice(0, k)
+        .map((m) => m[0])
+        .join(' '),
+    );
+    const hit = characters.find((c) => norm(c.name) === candidate || c.id.toLowerCase() === candidate);
+    if (hit) {
+      const last = tokens[k - 1];
+      const path = trimmed.slice(last.index + last[0].length).trim();
+      return path.length > 0 ? { character: hit.id, path } : { character: hit.id };
+    }
+  }
+  return { path: trimmed };
 }

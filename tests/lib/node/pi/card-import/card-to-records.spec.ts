@@ -322,3 +322,43 @@ test('non-selective entry ignores secondary keys', () => {
   const lore = cardToRecords(card).records.find((r) => r.kind === 'lore')!;
   expect(lore.lore!.secondaryKeys).toStrictEqual([]);
 });
+
+// ── Dropped-field warnings ────────────────────────────────────────────────
+
+test('warns once, listing every dropped card field that has content', () => {
+  const card = normalizeCard({
+    spec: 'chara_card_v2',
+    data: {
+      name: 'X',
+      description: 'd',
+      creator_notes: 'First line.\nMore notes we drop.',
+      tags: ['fantasy', 'elf'],
+      creator: 'someone',
+      character_version: '1.2',
+      extensions: { depth_prompt: { prompt: 'Stay grim.', depth: 4, role: 'system' }, fav: false, world: '' },
+      character_book: { scan_depth: 4, token_budget: 500, recursive_scanning: false, entries: [] },
+    },
+  });
+  if ('error' in card) throw new Error(card.error);
+  const dropped = cardToRecords(card).warnings.filter((w) => w.startsWith('card fields not imported'));
+  expect(dropped).toEqual([
+    'card fields not imported: creator_notes (only the first line is kept); tags (fantasy, elf); creator (someone); character_version (1.2); extensions (depth_prompt); character_book settings (scan_depth 4, token_budget 500)',
+  ]);
+});
+
+test('no dropped-field warning for empty defaults (blank depth_prompt, one-line notes)', () => {
+  const card = normalizeCard({
+    spec: 'chara_card_v2',
+    data: {
+      name: 'X',
+      description: 'd',
+      creator_notes: 'Just one line.',
+      tags: [],
+      creator: '',
+      character_version: '',
+      extensions: { depth_prompt: { prompt: '', depth: 4, role: 'system' }, fav: false },
+    },
+  });
+  if ('error' in card) throw new Error(card.error);
+  expect(cardToRecords(card).warnings).toStrictEqual([]);
+});

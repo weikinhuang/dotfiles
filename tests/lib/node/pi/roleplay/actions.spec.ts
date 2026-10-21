@@ -1,7 +1,14 @@
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { planRemove, planSave, planSearch, planUpdate } from '../../../../../lib/node/pi/roleplay/actions.ts';
+import type { ImportPlan } from '../../../../../lib/node/pi/card-import/card-to-records.ts';
+import {
+  planCardImport,
+  planRemove,
+  planSave,
+  planSearch,
+  planUpdate,
+} from '../../../../../lib/node/pi/roleplay/actions.ts';
 import {
   emptyLoreMeta,
   emptyRelationshipMeta,
@@ -249,5 +256,90 @@ describe('planSearch', () => {
       ok: false,
       error: '`query` is required for `search`',
     });
+  });
+});
+
+describe('case-insensitive ids + on-disk collisions', () => {
+  const foo: RoleplayEntry = { id: 'Foo', kind: 'character', name: 'Foo', description: 'd' };
+
+  it('treats a case-only name change on a mixed-case id as no rename (no remove of the same file)', () => {
+    const plan = planUpdate(state([foo]), { action: 'update', id: 'Foo', name: 'foo', description: 'new' }, () => 'b');
+    if (!plan.ok) throw new Error(plan.error);
+    expect(plan.writes.map((w) => w.path)).toEqual([castPath('character', 'Foo.md')]);
+    expect(plan.removes).toEqual([]);
+    expect(plan.entry.id).toBe('Foo');
+  });
+
+  it('never removes a path equal (case-insensitively) to the write path on a real rename', () => {
+    const foo2: RoleplayEntry = { id: 'Foo-2', kind: 'character', name: 'Foo two', description: 'd' };
+    const plan = planUpdate(state([foo, foo2]), { action: 'update', id: 'Foo-2', name: 'Foo' }, () => 'b');
+    if (!plan.ok) throw new Error(plan.error);
+    expect(plan.writes.map((w) => w.path)).toEqual([castPath('character', 'Foo-2.md')]);
+    expect(plan.removes).toEqual([]);
+  });
+
+  it('save dodges mixed-case in-memory ids', () => {
+    const plan = planSave(state([foo]), { action: 'save', name: 'foo', description: 'd', body: 'b' });
+    expect(plan.ok && plan.writes[0].path).toBe(castPath('character', 'foo-2.md'));
+  });
+
+  it('save dodges files the state does not know about via `exists`', () => {
+    const onDisk = new Set([castPath('character', 'bar.md'), castPath('character', 'bar-2.md')]);
+    const exists = (p: string): boolean => onDisk.has(p);
+    const plan = planSave(state([]), { action: 'save', name: 'Bar', description: 'd', body: 'b' }, exists);
+    expect(plan.ok && plan.writes[0].path).toBe(castPath('character', 'bar-3.md'));
+  });
+
+  it('rename dodges unknown files but ignores its own file', () => {
+    const exists = (p: string): boolean =>
+      p === castPath('character', 'kai.md') || p === castPath('character', 'mira.md');
+    const plan = planUpdate(state([mira]), { action: 'update', id: 'mira', name: 'Kai' }, () => 'b', exists);
+    if (!plan.ok) throw new Error(plan.error);
+    expect(plan.writes[0].path).toBe(castPath('character', 'kai-2.md'));
+    expect(plan.removes).toEqual([castPath('character', 'mira.md')]);
+  });
+});
+
+describe('reserved carry-over records', () => {
+  it.each(['summary', 'timeline'] as const)('rejects update / remove of %s/auto', (kind) => {
+    const auto: RoleplayEntry = { id: 'auto', kind, name: 'Carry-over', description: 'd' };
+    const upd = planUpdate(state([auto]), { action: 'update', id: 'auto', kind, body: 'x' }, noBody);
+    expect(!upd.ok && upd.error).toContain('/roleplay newscene');
+    const ren = planUpdate(state([auto]), { action: 'update', id: 'auto', kind, name: 'Other', body: 'x' }, noBody);
+    expect(ren.ok).toBe(false);
+    const rm = planRemove(state([auto]), { action: 'remove', id: 'auto', kind });
+    expect(!rm.ok && rm.error).toContain('/roleplay newscene');
+  });
+
+  it('still allows update / remove of a non-carry-over `auto`', () => {
+    const lore: RoleplayEntry = { ...reef, id: 'auto' };
+    expect(planRemove(state([lore]), { action: 'remove', id: 'auto' }).ok).toBe(true);
+  });
+});
+
+describe('planCardImport', () => {
+  const plan: ImportPlan = {
+    characterName: 'Mira',
+    records: [
+      { kind: 'character', name: 'Mira', description: 'd', body: 'b' },
+      { kind: 'lore', name: 'Reef', description: 'r', body: 'coral', lore: emptyLoreMeta() },
+    ],
+    warnings: ['w1'],
+  };
+
+  it('chooses slugs up front against state + disk and returns writes and next state', () => {
+    const exists = (p: string): boolean => p === castPath('lore', 'reef-2.md');
+    const out = planCardImport(state([reef]), plan, exists);
+    expect(out.writes.map((w) => w.path)).toEqual([castPath('character', 'mira.md'), castPath('lore', 'reef-3.md')]);
+    expect(out.state.entries.map((e) => `${e.kind}/${e.id}`)).toEqual(['character/mira', 'lore/reef', 'lore/reef-3']);
+    expect(out.written).toEqual(['  [character] mira - Mira', '  [lore] reef-3 - Reef']);
+    expect(out.warnings).toEqual(['w1']);
+  });
+
+  it('warns on a re-import (same character name already in the cast)', () => {
+    const out = planCardImport(state([{ ...mira, name: 'MIRA' }]), plan);
+    expect(out.writes[0].path).toBe(castPath('character', 'mira-2.md'));
+    expect(out.warnings[0]).toContain('re-import');
+    expect(out.warnings).toContain('w1');
   });
 });

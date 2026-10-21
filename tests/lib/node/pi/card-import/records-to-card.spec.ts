@@ -7,11 +7,13 @@ import {
 } from '../../../../../lib/node/pi/card-import/card-to-records.ts';
 import {
   parseCharacterSections,
+  parseExportArgs,
+  planCardExport,
   recordsToCard,
   splitGreetings,
   type ExportLore,
 } from '../../../../../lib/node/pi/card-import/records-to-card.ts';
-import { emptyLoreMeta, type LoreMeta } from '../../../../../lib/node/pi/roleplay/store.ts';
+import { emptyCharacterMeta, emptyLoreMeta, type LoreMeta } from '../../../../../lib/node/pi/roleplay/store.ts';
 
 function importCard(card: unknown): ImportRecord[] {
   const normalized = normalizeCard(card);
@@ -163,5 +165,70 @@ describe('recordsToCard', () => {
       lore.map((r) => ({ name: r.name, description: r.description, body: r.body, lore: r.lore ?? emptyLoreMeta() })),
     );
     expect(importCard(card)).toEqual(first);
+  });
+});
+
+describe('planCardExport', () => {
+  it('marks entries whole-word / case-insensitive and depth entries as system role', () => {
+    const { card } = planCardExport({ name: 'Mira', description: 'A diver', body: 'x' }, loreFixtures);
+    const [depthEntry, plainEntry] = card.data.character_book!.entries;
+    expect(depthEntry.extensions).toMatchObject({ match_whole_words: true, case_sensitive: false, role: 0 });
+    expect(plainEntry.extensions).toMatchObject({ match_whole_words: true, case_sensitive: false });
+    expect(plainEntry.extensions.role).toBeUndefined();
+  });
+
+  it('reports dropped character meta, lore recurse / description, and unknown keys', () => {
+    const { warnings } = planCardExport(
+      {
+        name: 'Mira',
+        description: 'A diver',
+        body: 'x',
+        character: { ...emptyCharacterMeta(), aliases: ['Mi'], pinned: true, triggers: ['diver'] },
+        extra: { mood: 'calm' },
+      },
+      [
+        {
+          name: 'Reef',
+          description: 'A long custom summary',
+          body: 'b',
+          lore: { ...emptyLoreMeta(), triggers: ['reef'], recurse: true },
+          extra: { source: 'wiki' },
+        },
+        { name: 'Kelp', description: 'triggers: kelp', body: 'b', lore: { ...emptyLoreMeta(), triggers: ['kelp'] } },
+      ],
+    );
+    expect(warnings).toEqual([
+      'character "Mira": card has no field for aliases (Mi), triggers (diver), pinned; dropped',
+      'character "Mira": custom frontmatter keys dropped: mood',
+      'lore "Reef": dropped recurse: true (ST has no per-entry recursion opt-in); description "A long custom summary"; custom frontmatter keys source',
+    ]);
+  });
+
+  it('has no warnings for a lossless export', () => {
+    expect(planCardExport({ name: 'Mira', description: 'A diver', body: 'x' }, loreFixtures).warnings).toEqual([]);
+  });
+});
+
+describe('parseExportArgs', () => {
+  const chars = [
+    { id: 'mary-jane', name: 'Mary Jane' },
+    { id: 'mary', name: 'Mary' },
+    { id: 'dr-who', name: 'Dr. Who' },
+  ];
+
+  it('matches the longest leading run of words against names / ids, case-insensitively', () => {
+    expect(parseExportArgs('Mary Jane out.json', chars)).toEqual({ character: 'mary-jane', path: 'out.json' });
+    expect(parseExportArgs('mary out.json', chars)).toEqual({ character: 'mary', path: 'out.json' });
+    expect(parseExportArgs('dr. who', chars)).toEqual({ character: 'dr-who' });
+    expect(parseExportArgs('DR-WHO  ~/cards/my card.json', chars)).toEqual({
+      character: 'dr-who',
+      path: '~/cards/my card.json',
+    });
+  });
+
+  it('treats unmatched input as the path and empty input as nothing', () => {
+    expect(parseExportArgs(' ./out.json ', chars)).toEqual({ path: './out.json' });
+    expect(parseExportArgs('Nobody', chars)).toEqual({ path: 'Nobody' });
+    expect(parseExportArgs('   ', chars)).toEqual({});
   });
 });

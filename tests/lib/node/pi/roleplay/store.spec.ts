@@ -12,7 +12,6 @@ import {
   cloneState,
   emptyLoreMeta,
   emptyState,
-  findEntry,
   formatRoleplayBlock,
   formatText,
   isIsoDate,
@@ -398,7 +397,7 @@ test('upsertEntry inserts, replaces, and sorts by id', () => {
   expect(entries.map((e) => e.id)).toEqual(['exusiai', 'texas']);
   entries = upsertEntry(entries, char('exusiai', 'Exusiai Renamed'));
   expect(entries).toHaveLength(2);
-  expect(findEntry(entries, 'exusiai')!.name).toBe('Exusiai Renamed');
+  expect(entries.find((e) => e.id === 'exusiai')!.name).toBe('Exusiai Renamed');
 });
 
 test('removeEntry drops the matching id', () => {
@@ -555,4 +554,126 @@ test('formatRoleplayBlock honors the char budget and emits a truncation trailer'
   const block = formatRoleplayBlock({ cast: 'pl', entries }, { maxChars: 500 })!;
   expect(block.length).toBeLessThan(700);
   expect(block).toMatch(/more entry\(ies\) not shown/);
+});
+
+// ── Slug collisions (case-insensitive + on-disk) ──────────────────────────
+
+test('chooseSlug compares ids case-insensitively', () => {
+  expect(chooseSlug([char('Exusiai')], 'exusiai')).toBe('exusiai-2');
+  expect(chooseSlug([char('Exusiai')], 'exusiai', 'Exusiai')).toBe('exusiai');
+  expect(uniqueSlug('a', new Set(['A', 'a-2']))).toBe('a-3');
+});
+
+test('chooseSlug skips slugs whose file exists on disk, except the excluded id', () => {
+  const onDisk = new Set(['bar', 'bar-2']);
+  const exists = (s: string): boolean => onDisk.has(s);
+  expect(chooseSlug([], 'Bar', undefined, exists)).toBe('bar-3');
+  expect(chooseSlug([], 'Bar', 'Bar', exists)).toBe('bar');
+});
+
+test('isReservedSlug is case-insensitive', () => {
+  expect(isReservedSlug('summary', 'Auto')).toBe(true);
+});
+
+// ── YAML quoting round trips ──────────────────────────────────────────────
+
+const TRICKY = [
+  '[Redacted]',
+  '{x}',
+  '*Star',
+  '&Co',
+  '!Bang',
+  '| pipe',
+  '> quote',
+  '@at',
+  '`tick`',
+  '- Bob',
+  '%yaml',
+  '#hash',
+  "'single'",
+  '"double"',
+  'Null',
+  'NULL',
+  '~',
+  'yes',
+  'No',
+  'ON',
+  'off',
+  'True',
+  'false',
+  'y',
+  '1e3',
+  '0x10',
+  '.5',
+  '42',
+  '-1',
+  '+1',
+  '.inf',
+  'a: b',
+  'a #b',
+  'ends:',
+  'C:\\x',
+  'tab\there',
+  'caf\u00e9',
+  'he said "hi"',
+  "it's",
+  '? q',
+  ', comma',
+];
+
+test.each(TRICKY)('known string fields round-trip %j through the real parser', (s) => {
+  const raw = serializeEntry({
+    name: s,
+    description: s,
+    kind: 'relationship',
+    body: 'b',
+    relationship: { affinity: 50, trust: s, lastInteraction: s, openThreads: [s, 'x'] },
+  });
+  const parsed = parseFrontmatter(raw);
+  expect(parsed).not.toBeNull();
+  expect(parsed!.frontmatter.name).toBe(s);
+  expect(parsed!.frontmatter.description).toBe(s);
+  expect(parsed!.frontmatter.relationship).toMatchObject({ trust: s, lastInteraction: s, openThreads: [s, 'x'] });
+
+  const lore = parseFrontmatter(
+    serializeEntry({
+      name: 'L',
+      description: 'd',
+      kind: 'lore',
+      body: 'b',
+      lore: { ...emptyLoreMeta(), triggers: [s], secondaryKeys: [s], group: s },
+    }),
+  );
+  expect(lore!.frontmatter.lore).toMatchObject({ triggers: [s], secondaryKeys: [s], group: s });
+  const extra = parseFrontmatter(
+    serializeEntry({ name: 'N', description: 'd', kind: 'summary', body: 'b', extra: { k: s } }),
+  );
+  expect(extra!.frontmatter.extra).toEqual({ k: s });
+});
+
+test('known string fields collapse newlines and trim padding; extras keep them verbatim', () => {
+  const raw = serializeEntry({
+    name: '  padded  ',
+    description: 'line1\nline2',
+    kind: 'summary',
+    body: 'b',
+    extra: { pad: ' lead', nl: 'a\nb' },
+  });
+  const parsed = parseFrontmatter(raw)!;
+  expect(parsed.frontmatter.name).toBe('padded');
+  expect(parsed.frontmatter.description).toBe('line1 line2');
+  expect(parsed.frontmatter.extra).toEqual({ pad: ' lead', nl: 'a\nb' });
+});
+
+test('plain-safe strings and ISO dates stay unquoted', () => {
+  const raw = serializeEntry({
+    name: 'Mira Vale',
+    description: "Lemon-loving, it's fine",
+    kind: 'relationship',
+    body: 'b',
+    relationship: { affinity: 50, trust: 'high', lastInteraction: '2024-01-02', openThreads: [] },
+  });
+  expect(raw).toContain('name: Mira Vale\n');
+  expect(raw).toContain("description: Lemon-loving, it's fine\n");
+  expect(raw).toContain('lastInteraction: 2024-01-02\n');
 });

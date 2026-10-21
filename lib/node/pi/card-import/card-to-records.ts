@@ -103,6 +103,14 @@ export interface NormalizedCard {
   creatorNotes: string;
   alternateGreetings: string[];
   characterBook: NormalizedLore[];
+  /** Card fields we do not map, kept only so the importer can warn they were dropped. */
+  tags: string[];
+  creator: string;
+  characterVersion: string;
+  /** Card-level `extensions` (e.g. `depth_prompt`, `talkativeness`, `world`). */
+  extensions: Record<string, unknown>;
+  /** Book-level settings that are set (`scan_depth 4`, `token_budget 500`, `recursive_scanning`, ...). */
+  bookSettings: string[];
 }
 
 // ── Coercion helpers ──────────────────────────────────────────────────────
@@ -129,6 +137,27 @@ function bool(v: unknown, fallback: boolean): boolean {
   return typeof v === 'boolean' ? v : fallback;
 }
 
+/**
+ * True when a dropped card value carries something worth warning about:
+ * a non-blank string, a number, `true`, or a list / map holding any such
+ * value. (`false`, `null`, `''`, `[]`, `{}` are defaults, not content.)
+ */
+function hasContent(v: unknown): boolean {
+  if (typeof v === 'string') return v.trim().length > 0;
+  if (typeof v === 'number') return Number.isFinite(v);
+  if (typeof v === 'boolean') return v;
+  if (Array.isArray(v)) return (v as unknown[]).some(hasContent);
+  if (isRecord(v)) return Object.values(v).some(hasContent);
+  return false;
+}
+
+/** Card-level extension keys with content; `depth_prompt` counts only when its `prompt` is non-blank. */
+function extensionKeysWithContent(ext: Record<string, unknown>): string[] {
+  return Object.keys(ext).filter((k) =>
+    k === 'depth_prompt' ? str(asRecord(ext[k]).prompt).trim().length > 0 : hasContent(ext[k]),
+  );
+}
+
 function firstLine(s: string, max = 120): string {
   const line =
     s
@@ -139,6 +168,18 @@ function firstLine(s: string, max = 120): string {
 }
 
 // ── Normalization ─────────────────────────────────────────────────────────
+
+/** Book-level settings with a value, rendered for the dropped-fields warning. */
+function bookSettings(book: Record<string, unknown>): string[] {
+  const out: string[] = [];
+  for (const key of ['scan_depth', 'token_budget']) {
+    if (typeof book[key] === 'number') out.push(`${key} ${String(book[key])}`);
+  }
+  if (book.recursive_scanning === true) out.push('recursive_scanning');
+  const ext = Object.keys(asRecord(book.extensions)).filter((k) => hasContent(asRecord(book.extensions)[k]));
+  if (ext.length > 0) out.push(`extensions (${ext.join(', ')})`);
+  return out;
+}
 
 function normalizeLoreEntry(raw: unknown): NormalizedLore {
   const e = asRecord(raw);
@@ -202,6 +243,11 @@ export function normalizeCard(input: unknown): NormalizedCard | { error: string 
     creatorNotes: str(d.creator_notes),
     alternateGreetings: strArray(d.alternate_greetings),
     characterBook: entries,
+    tags: strArray(d.tags),
+    creator: str(d.creator).trim(),
+    characterVersion: str(d.character_version).trim(),
+    extensions: asRecord(d.extensions),
+    bookSettings: bookSettings(book),
   };
 
   if (card.name.length === 0) return { error: 'card has no `name`' };
@@ -299,6 +345,25 @@ function loreFromEntry(entry: NormalizedLore, index: number): ImportRecord {
 }
 
 /**
+ * Warnings for card fields with content that the store has no place for,
+ * so the user knows the import is lossy. `description` is the character
+ * record description actually kept (the first line of `creator_notes`
+ * when present).
+ */
+function droppedFieldWarnings(card: NormalizedCard, description: string): string[] {
+  const dropped: string[] = [];
+  const notes = card.creatorNotes.trim();
+  if (notes.length > 0 && notes !== description) dropped.push('creator_notes (only the first line is kept)');
+  if (card.tags.length > 0) dropped.push(`tags (${card.tags.join(', ')})`);
+  if (card.creator.length > 0) dropped.push(`creator (${card.creator})`);
+  if (card.characterVersion.length > 0) dropped.push(`character_version (${card.characterVersion})`);
+  const ext = extensionKeysWithContent(card.extensions);
+  if (ext.length > 0) dropped.push(`extensions (${ext.join(', ')})`);
+  if (card.bookSettings.length > 0) dropped.push(`character_book settings (${card.bookSettings.join(', ')})`);
+  return dropped.length > 0 ? [`card fields not imported: ${dropped.join('; ')}`] : [];
+}
+
+/**
  * Map a normalized card to an import plan: one `character` record plus a
  * `lore` record per non-empty `character_book` entry. Disabled entries are
  * kept with `enabled: false`; empty-content entries are skipped with a
@@ -325,6 +390,7 @@ export function cardToRecords(card: NormalizedCard): ImportPlan {
     charRec.character = { ...emptyCharacterMeta(), aliases: [card.nickname] };
   }
   records.push(charRec);
+  warnings.push(...droppedFieldWarnings(card, description));
 
   card.characterBook.forEach((entry, i) => {
     if (entry.content.trim().length === 0) {

@@ -220,7 +220,7 @@ export const CARRY_OVER_SLUG = 'auto';
 
 /** True when `kind`/`slug` names a reserved carry-over record a tool write must not clobber. */
 export function isReservedSlug(kind: RoleplayKind, slug: string): boolean {
-  return slug === CARRY_OVER_SLUG && (kind === 'summary' || kind === 'timeline');
+  return slug.toLowerCase() === CARRY_OVER_SLUG && (kind === 'summary' || kind === 'timeline');
 }
 
 export function emptyRelationshipMeta(): RelationshipMeta {
@@ -307,25 +307,51 @@ export function slugifyName(name: string): string {
   return slugify(name, 'entry');
 }
 
-/** Pick a slug that doesn't collide with any existing entry id. */
-export function uniqueSlug(base: string, taken: ReadonlySet<string>): string {
-  if (!taken.has(base)) return base;
+/**
+ * True when a candidate slug's file already exists on disk (a file the
+ * in-memory state does not know about: malformed, kind mismatch, a base
+ * record hidden by a bundle). Injected by the shell (e.g. wrapping
+ * `existsSync`) so slug choice stays pure.
+ */
+export type SlugExists = (slug: string) => boolean;
+
+/**
+ * Pick a slug that doesn't collide with any `taken` id (compared
+ * case-insensitively, since macOS / Windows filesystems are) nor with a
+ * file `exists` reports.
+ */
+export function uniqueSlug(base: string, taken: ReadonlySet<string>, exists?: SlugExists): string {
+  const lowered = new Set([...taken].map((s) => s.toLowerCase()));
+  const free = (s: string): boolean => !lowered.has(s.toLowerCase()) && !(exists?.(s) ?? false);
+  if (free(base)) return base;
   for (let i = 2; i < 1000; i++) {
     const candidate = `${base}-${i}`;
-    if (!taken.has(candidate)) return candidate;
+    if (free(candidate)) return candidate;
   }
   return `${base}-${Date.now()}`;
 }
 
+/** Every entry id, lowercased (ids are file stems; compare case-insensitively). */
 export function takenSlugs(entries: readonly RoleplayEntry[]): Set<string> {
-  return new Set(entries.map((e) => e.id));
+  return new Set(entries.map((e) => e.id.toLowerCase()));
 }
 
-/** Choose a non-colliding slug for a new or renamed entry. */
-export function chooseSlug(entries: readonly RoleplayEntry[], name: string, excludeId?: string): string {
+/**
+ * Choose a non-colliding slug for a new or renamed entry. `excludeId` (the
+ * entry being renamed) is neither treated as taken nor probed via `exists`
+ * (its own file is about to move).
+ */
+export function chooseSlug(
+  entries: readonly RoleplayEntry[],
+  name: string,
+  excludeId?: string,
+  exists?: SlugExists,
+): string {
   const taken = takenSlugs(entries);
-  if (excludeId !== undefined) taken.delete(excludeId);
-  return uniqueSlug(slugifyName(name), taken);
+  const excluded = excludeId?.toLowerCase();
+  if (excluded !== undefined) taken.delete(excluded);
+  const probe: SlugExists | undefined = exists ? (s): boolean => s.toLowerCase() !== excluded && exists(s) : undefined;
+  return uniqueSlug(slugifyName(name), taken, probe);
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -538,40 +564,61 @@ export function parseFrontmatter(raw: string): ParsedRoleplayFile | null {
   return { frontmatter, body };
 }
 
-function yamlValue(raw: string): string {
-  const s = raw.replace(/\r?\n/g, ' ').trim();
-  if (s.length === 0) return '""';
-  if (/^[^"':#\\][^:#\n\\]*$/.test(s) && !s.endsWith(' ')) return s;
-  return `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+/** Scalars YAML (1.1 or 1.2) may resolve to a bool / null rather than a string. */
+const YAML_RESERVED_SCALAR = /^(?:true|false|null|yes|no|on|off|y|n|~)$/i;
+
+/**
+ * True when `s` may be emitted as a plain (unquoted) YAML scalar and
+ * reparse to the identical string. Conservative: rejects empty / padded
+ * strings, control characters and line breaks, any leading indicator or
+ * numeric-looking start (`- ? : , [ ] { } # & * ! | > ' " % @ \` . + \\`
+ * and digits), the `: ` / ` #` sequences and a trailing `:`, and the
+ * bool / null words. `flow` (inline-list items) additionally rejects the
+ * flow-collection metacharacters `, [ ] { }` anywhere.
+ */
+function isPlainSafe(s: string, flow: boolean): boolean {
+  if (s.length === 0 || s !== s.trim()) return false;
+  if (/[\p{Cc}\u2028\u2029]/u.test(s)) return false;
+  if (/^[-?:,[\]{}#&*!|>'"%@`.+\d\\]/.test(s)) return false;
+  if (s.includes(': ') || s.includes(' #') || s.endsWith(':')) return false;
+  if (flow && /[,[\]{}]/.test(s)) return false;
+  return !YAML_RESERVED_SCALAR.test(s);
+}
+
+/** Emit `s` bare when {@link isPlainSafe}, else as a JSON (= YAML double-quoted) string. */
+function yamlString(s: string, flow: boolean): string {
+  return isPlainSafe(s, flow) ? s : JSON.stringify(s);
 }
 
 /**
- * Serialize one inline-list item. Same bare-scalar rule as {@link yamlValue}
- * but also quotes the inline-list metacharacters (comma and brackets) so an
- * item that contains a comma round-trips through {@link asStringArray}
- * instead of being split into two.
+ * Serialize a known single-line string field (`name`, `description`,
+ * `trust`, ...). Line breaks collapse to spaces and the ends are trimmed
+ * (the parser trims these fields anyway); the result is quoted unless
+ * plain-safe.
+ */
+function yamlValue(raw: string): string {
+  return yamlString(raw.replace(/\r?\n/g, ' ').trim(), false);
+}
+
+/**
+ * Serialize one inline-list item. Same rule as {@link yamlValue} but also
+ * quotes the inline-list metacharacters (comma and brackets) so an item
+ * that contains a comma round-trips through {@link asStringArray} instead
+ * of being split into two.
  */
 function yamlListItem(raw: string): string {
-  const s = raw.replace(/\r?\n/g, ' ').trim();
-  if (s.length === 0) return '""';
-  if (/^[^"':#\\,[\]][^:#\n\\,[\]]*$/.test(s) && !s.endsWith(' ')) return s;
-  return `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+  return yamlString(raw.replace(/\r?\n/g, ' ').trim(), true);
 }
 
 /**
- * Render a preserved unknown frontmatter value as YAML. Plain identifier-
- * like strings stay bare; everything else (other strings, numbers,
- * booleans, null, lists, maps) is emitted as JSON, which is valid YAML
- * flow syntax and reparses to the same value. Returns `null` for
- * unrepresentable values (e.g. `undefined`).
+ * Render a preserved unknown frontmatter value as YAML. Plain-safe strings
+ * stay bare; everything else (other strings, numbers, booleans, null,
+ * lists, maps) is emitted as JSON, which is valid YAML flow syntax and
+ * reparses to the same value. Returns `null` for unrepresentable values
+ * (e.g. `undefined`).
  */
 function yamlExtraValue(value: unknown): string | null {
-  if (
-    typeof value === 'string' &&
-    /^[A-Za-z][\w ./-]*$/.test(value) &&
-    !value.endsWith(' ') &&
-    !/^(?:true|false|null|yes|no|on|off|y|n)$/i.test(value)
-  ) {
+  if (typeof value === 'string' && isPlainSafe(value, false)) {
     return value;
   }
   const json: string | undefined = JSON.stringify(value);
@@ -630,7 +677,10 @@ export function serializeEntry(input: {
     const m = input.relationship;
     lines.push(`affinity: ${m.affinity}`);
     if (m.trust.length > 0) lines.push(`trust: ${yamlValue(m.trust)}`);
-    if (m.lastInteraction !== undefined) lines.push(`lastInteraction: ${m.lastInteraction}`);
+    if (m.lastInteraction !== undefined) {
+      const li = m.lastInteraction;
+      lines.push(`lastInteraction: ${isIsoDate(li) ? li : yamlValue(li)}`);
+    }
     if (m.openThreads.length > 0) lines.push(`openThreads: [${m.openThreads.map(yamlListItem).join(', ')}]`);
   }
   if (input.extra) {
@@ -648,10 +698,6 @@ export function serializeEntry(input: {
 // ──────────────────────────────────────────────────────────────────────
 // Pure index operations
 // ──────────────────────────────────────────────────────────────────────
-
-export function findEntry(entries: readonly RoleplayEntry[], id: string): RoleplayEntry | undefined {
-  return entries.find((e) => e.id === id);
-}
 
 /**
  * Resolve an entry by `id`, optionally disambiguating by `kind` when the

@@ -12,6 +12,7 @@
  * time, same as the shell). No pi imports.
  */
 
+import type { ImportPlan } from '../card-import/card-to-records.ts';
 import { entryFilePath, fileFor } from './paths.ts';
 import {
   chooseSlug,
@@ -27,6 +28,7 @@ import {
   type RoleplayKind,
   type RoleplayState,
   serializeEntry,
+  type SlugExists,
   slugifyName,
   upsertEntry,
 } from './store.ts';
@@ -56,13 +58,29 @@ export type ActionPlan =
 /** Reads an entry's stored body, `null` when unreadable. */
 export type ReadEntryBody = (entry: RoleplayEntry) => string | null;
 
+/**
+ * True when a file already exists at `path` (the shell passes
+ * `existsSync`). Lets slug choice dodge files the in-memory state does not
+ * know about (malformed, kind mismatch, base hidden by a bundle) instead of
+ * overwriting them. Omitted = only in-memory ids are considered.
+ */
+export type PathExists = (path: string) => boolean;
+
 const fail = (error: string): ActionPlan => ({ ok: false, error });
 
 const reservedError = (kind: RoleplayKind, slug: string): string =>
   `slug "${slug}" is reserved for the ${kind} carry-over record; choose a different \`name\``;
 
+const reservedRecordError = (kind: RoleplayKind, id: string): string =>
+  `"${kind}/${id}" is the scene carry-over record, managed by the extension; it cannot be updated or removed via the tool (use \`/roleplay newscene\` to archive it and start fresh)`;
+
+/** Adapt a path predicate to a slug predicate probing `pathOf(slug)`. */
+function slugProbe(exists: PathExists | undefined, pathOf: (slug: string) => string): SlugExists | undefined {
+  return exists ? (slug): boolean => exists(pathOf(slug)) : undefined;
+}
+
 /** `save`: create a new entry (default kind `character`). */
-export function planSave(state: RoleplayState, params: RoleplayToolParams): ActionPlan {
+export function planSave(state: RoleplayState, params: RoleplayToolParams, exists?: PathExists): ActionPlan {
   const kind: RoleplayKind = params.kind ?? 'character';
   if (!params.name || params.name.trim().length === 0) return fail('`name` is required for `save`');
   const description = (params.description ?? '').trim();
@@ -73,7 +91,12 @@ export function planSave(state: RoleplayState, params: RoleplayToolParams): Acti
   const lastInteractionErr = lastInteractionError(params.lastInteraction);
   if (lastInteractionErr) return fail(lastInteractionErr);
 
-  const slug = chooseSlug(state.entries, params.name);
+  const slug = chooseSlug(
+    state.entries,
+    params.name,
+    undefined,
+    slugProbe(exists, (s) => fileFor(state.cast, kind, s)),
+  );
   if (isReservedSlug(kind, slug)) return fail(reservedError(kind, slug));
   const lore = kind === 'lore' ? buildLoreMeta(params) : undefined;
   const character = kind === 'character' ? buildCharacterMeta(params) : undefined;
@@ -141,9 +164,15 @@ function kindParamGiven(kind: RoleplayKind, params: RoleplayToolParams): boolean
  * after); bundle lore stays in its bundle dir; unknown frontmatter
  * (`extra`) is preserved. An omitted `body` is preserved via `readBody`.
  */
-export function planUpdate(state: RoleplayState, params: RoleplayToolParams, readBody: ReadEntryBody): ActionPlan {
+export function planUpdate(
+  state: RoleplayState,
+  params: RoleplayToolParams,
+  readBody: ReadEntryBody,
+  exists?: PathExists,
+): ActionPlan {
   const resolved = resolveEntry(state, params);
   if ('error' in resolved) return fail(resolved.error);
+  if (isReservedSlug(resolved.kind, resolved.id)) return fail(reservedRecordError(resolved.kind, resolved.id));
   if (
     params.name === undefined &&
     params.description === undefined &&
@@ -172,12 +201,21 @@ export function planUpdate(state: RoleplayState, params: RoleplayToolParams, rea
     if (nextBody.length === 0) return fail(`existing body for "${resolved.id}" is empty - pass \`body\` explicitly`);
   }
 
-  const renamed = params.name !== undefined && slugifyName(params.name) !== resolved.id;
+  // Ids are file stems and may be mixed case (`character/Foo.md`) while
+  // slugs are lowercase: a case-only difference is NOT a rename (on a
+  // case-insensitive FS the "new" and "old" paths are the same file).
+  const renamed = params.name !== undefined && slugifyName(params.name) !== resolved.id.toLowerCase();
   let entries = state.entries;
   let nextId = resolved.id;
   if (renamed) {
     entries = removeEntry(entries, resolved.kind, resolved.id);
-    nextId = chooseSlug(entries, params.name!);
+    nextId = chooseSlug(
+      entries,
+      params.name!,
+      resolved.id,
+      slugProbe(exists, (s) => entryFilePath(state.cast, { ...resolved, id: s })),
+    );
+    if (nextId.toLowerCase() === resolved.id.toLowerCase()) nextId = resolved.id;
     if (isReservedSlug(resolved.kind, nextId)) return fail(reservedError(resolved.kind, nextId));
   }
   const lore = resolved.kind === 'lore' ? buildLoreMeta(params, resolved.lore ?? emptyLoreMeta()) : undefined;
@@ -207,8 +245,9 @@ export function planUpdate(state: RoleplayState, params: RoleplayToolParams, rea
   if (renamed) {
     const oldPath = entryFilePath(state.cast, resolved);
     // chooseSlug can hand back the old stem (e.g. `foo-2` renamed to `Foo`
-    // while `foo` exists); never delete the file just written.
-    if (oldPath !== newPath) removes.push(oldPath);
+    // while `foo` exists); never delete the file just written, even when
+    // the paths differ only in case (same file on macOS / Windows).
+    if (oldPath.toLowerCase() !== newPath.toLowerCase()) removes.push(oldPath);
   }
   const entry: RoleplayEntry = {
     id: nextId,
@@ -236,6 +275,7 @@ export function planUpdate(state: RoleplayState, params: RoleplayToolParams, rea
 export function planRemove(state: RoleplayState, params: RoleplayToolParams): ActionPlan {
   const resolved = resolveEntry(state, params);
   if ('error' in resolved) return fail(resolved.error);
+  if (isReservedSlug(resolved.kind, resolved.id)) return fail(reservedRecordError(resolved.kind, resolved.id));
   const next: RoleplayState = { cast: state.cast, entries: removeEntry(state.entries, resolved.kind, resolved.id) };
   return {
     ok: true,
@@ -269,4 +309,68 @@ export function planSearch(
   if (matches.length === 0) return { ok: true, matches, content: `No entries in cast "${state.cast}" match "${q}".` };
   const lines = matches.map((e) => `  [${e.kind}] ${e.id} - ${e.name}: ${e.description}`);
   return { ok: true, matches, content: `Matches for "${q}" (${matches.length}):\n${lines.join('\n')}` };
+}
+
+/** Pre-computed writes for a card import (see {@link planCardImport}). */
+export interface CardImportWritePlan {
+  /** Files to write, in order; slugs already chosen against state + disk. */
+  writes: ActionWrite[];
+  /** Next in-memory state (commit after the writes, then rebuild the index / rescan). */
+  state: RoleplayState;
+  /** One `  [kind] slug - name` line per record, for the summary. */
+  written: string[];
+  /** The mapper's warnings plus any re-import warning. */
+  warnings: string[];
+}
+
+/**
+ * Plan the file writes for an imported card: one write per record with a
+ * slug chosen up front against the in-memory state (case-insensitively)
+ * and, via `exists`, files on disk the state does not know about, so an
+ * import never overwrites an existing file. Warns when the cast already
+ * holds a character of the same name (likely a re-import; the new records
+ * land beside the old ones under suffixed slugs).
+ */
+export function planCardImport(state: RoleplayState, plan: ImportPlan, exists?: PathExists): CardImportWritePlan {
+  const warnings = [...plan.warnings];
+  const needle = plan.characterName.trim().toLowerCase();
+  const dup = state.entries.find((e) => e.kind === 'character' && e.name.trim().toLowerCase() === needle);
+  if (dup) {
+    warnings.unshift(
+      `cast "${state.cast}" already has a character named "${dup.name}" (${dup.id}); this looks like a re-import, so the new records are saved alongside the existing ones under suffixed slugs (remove the duplicates if unwanted)`,
+    );
+  }
+  let entries = state.entries;
+  const writes: ActionWrite[] = [];
+  const written: string[] = [];
+  for (const rec of plan.records) {
+    const slug = chooseSlug(
+      entries,
+      rec.name,
+      undefined,
+      slugProbe(exists, (s) => fileFor(state.cast, rec.kind, s)),
+    );
+    writes.push({
+      path: fileFor(state.cast, rec.kind, slug),
+      content: serializeEntry({
+        name: rec.name,
+        description: rec.description,
+        kind: rec.kind,
+        body: rec.body,
+        lore: rec.lore,
+        character: rec.character,
+      }),
+    });
+    const entry: RoleplayEntry = {
+      id: slug,
+      kind: rec.kind,
+      name: rec.name,
+      description: rec.description,
+      ...(rec.lore ? { lore: rec.lore } : {}),
+      ...(rec.character ? { character: rec.character } : {}),
+    };
+    entries = upsertEntry(entries, entry);
+    written.push(`  [${rec.kind}] ${slug} - ${rec.name}`);
+  }
+  return { writes, state: { cast: state.cast, entries }, written, warnings };
 }
