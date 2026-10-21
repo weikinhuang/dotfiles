@@ -13,6 +13,13 @@
  * message via `pi.sendMessage({ deliverAs: 'steer' })` that tells
  * the model to change approach.
  *
+ * Calls are observed on `tool_execution_start`, not `tool_call`: pi
+ * stops the `tool_call` chain at the first handler that blocks, and
+ * argument-validation failures never reach `tool_call` at all, so a
+ * model retrying a command that `bash-permissions` (or any other gate)
+ * keeps blocking was invisible here. `tool_execution_start` fires for
+ * every model-issued call before validation and gating.
+ *
  * Design notes:
  *
  *   - We DO NOT block the tool call. Blocking interacts badly with
@@ -82,14 +89,17 @@ export default function loopBreaker(pi: ExtensionAPI): void {
     reset(ctx, 'user input');
   });
 
-  pi.on('tool_call', (event, ctx) => {
-    if (isNestedToolEvent(event)) return undefined;
-    const key = makeKey(event.toolName, event.input);
+  // `tool_execution_start` (not `tool_call`) so calls blocked by an
+  // earlier `tool_call` handler or rejected by argument validation still
+  // count - see the header comment.
+  pi.on('tool_execution_start', (event, ctx) => {
+    if (isNestedToolEvent(event)) return;
+    const key = makeKey(event.toolName, event.args);
     const check = pushAndCheck(history, key, windowSize, threshold);
 
     if (check.kind !== 'repeat') {
       notify(ctx, `loop-breaker: ok (${event.toolName}, window=${history.length})`);
-      return undefined;
+      return;
     }
 
     const nudge = buildNudge(event.toolName, check.count);
@@ -115,8 +125,6 @@ export default function loopBreaker(pi: ExtensionAPI): void {
       // failure is visible.
       ctx.ui.notify(`loop-breaker: failed to deliver nudge: ${String(e)}`, 'error');
     }
-
-    return undefined;
   });
 
   pi.on('session_shutdown', () => {

@@ -7,8 +7,9 @@ asking the user.
 
 ## What it does
 
-1. On every direct model-issued `tool_call`, compute a stable key for `(toolName, input)` via
-   [`makeKey`](../../../lib/node/pi/loop-breaker.ts) and push it onto an in-memory ring buffer of recent calls.
+1. On every direct model-issued tool call (observed on `tool_execution_start`), compute a stable key for
+   `(toolName, args)` via [`makeKey`](../../../lib/node/pi/loop-breaker.ts) and push it onto an in-memory ring buffer of
+   recent calls.
 2. [`pushAndCheck`](../../../lib/node/pi/loop-breaker.ts) returns `{ kind: 'repeat', count }` as soon as the same key
    has occurred `threshold` times inside the last `window` calls.
 3. On trigger, the extension sends a synthesized steering message via
@@ -24,6 +25,15 @@ with different inputs" escape hatch.
 
 Calls made by another tool through `ctx.executeTool()` carry `parentToolCallId` and are ignored. A codemode script may
 legitimately call the same tool repeatedly or in parallel; those calls must not look like a model reasoning loop.
+
+### Why `tool_execution_start`, not `tool_call`
+
+Pi runs `tool_call` handlers in extension load order and stops at the first one that returns `{ block: true }`, and
+argument-validation failures are rejected before `tool_call` fires at all. A loop of calls that
+[`bash-permissions`](./bash-permissions.md), [`filesystem`](./filesystem.md), or [`sandbox`](./sandbox.md) keeps
+blocking - for example a headless `pi -p` run retrying the same unapproved `ai-fetch-web search` hundreds of times - was
+therefore invisible to a `tool_call` hook. `tool_execution_start` fires for every model-issued call before validation
+and gating, so blocked and invalid repeats count too.
 
 ## Reset triggers
 
