@@ -3,14 +3,23 @@
 A cast-keyed durable store for roleplay scenarios, deliberately **separate** from the coding-agent
 [`memory`](./memory.md) extension so it can be turned off wholesale without touching the coding surface. Where `memory`
 keys durable notes on cwd / session, `roleplay` keys on **cast** - a character or ensemble that travels with you across
-workspaces. This implements Phases 1-5 + 7A-B of the roleplay design: the store + `character` records (Phase 1), the
-keyword-triggered **lorebook** (`lore` records, Phase 2), the **SillyTavern card importer** (Phase 3), **depth
-injection** (author's note + depth-tagged lore via the `context` event, Phase 4), persona **scene fold** (`characters` /
-`pov`, Phase 5), the **relationship / summary / timeline** record kinds with affinity decay (Phase 7A), and
-**auto-summarization** of evicted history at compaction (Phase 7B), now generalized into a **rolling bounded context
-window** that owns threshold compaction on a small model (see below). The remaining phase adds avatar sprites (Phase 6).
-Two additive, non-destructive features sit alongside the phase plan: a multi-turn **repetition / anti-slop nudge** and a
-**scene-event system** (`/roleplay event`), both described below.
+workspaces.
+
+The extension provides:
+
+- a store of `character`, `lore`, `relationship`, `summary`, and `timeline` records per cast, with a `roleplay` tool and
+  a `/roleplay` command;
+- a keyword-triggered **lorebook** (SillyTavern "World Info") with timed effects, inclusion groups, optional recursion,
+  and optional named lore bundles;
+- **depth injection** of an author's note and depth-tagged lore near the live turn;
+- **scene folds** that put whole character sheets in front of the model;
+- **macros** (`{{user}}`, `{{char}}`, `{{roll}}`, ...);
+- a **rolling bounded context window** with a narrative recap, opt-in fact capture, and an opt-in anti-drift timeline;
+- a multi-turn **repetition nudge** and one-shot **scene events**;
+- **SillyTavern card import and export**, and a **scene image** interface built on [`comfyui`](./comfyui.md).
+
+This file is the user-facing reference. Design rationale, cache-stability notes, the recap/window mechanics, and the
+pure helper module index live in [roleplay-internals.md](./roleplay-internals.md).
 
 ## Activation gate
 
@@ -19,24 +28,22 @@ The roleplay tool, cast scan, and `## Roleplay` system-prompt block are **dorman
 and for personas used as subagent implementations - you opt a persona in explicitly. With no qualifying persona active:
 
 - the `roleplay` tool returns an error (`roleplay is inactive: activate a persona with roleplay: true …`);
-- the `roleplay` tool is removed from the active-tools set, so its `promptSnippet` (the **Available tools** line) and
-  `promptGuidelines` (the **Guidelines** bullets) are kept out of the system prompt entirely - not just made
-  non-callable. This gate runs at `session_start` / `session_tree` (not only `before_agent_start`): `setActiveTools`
-  rebuilds the base prompt, and doing it at session-lifecycle time keeps even the **first** turn's prompt clean.
-  Removing the tool inside `before_agent_start` alone would leak the lines on turn 1, because other autoinject
-  extensions (memory / scratchpad / todo) compose their additions off the pre-removal prompt snapshot the runner takes
-  before handlers run;
+- the `roleplay` tool is removed from the active-tools set, so its **Available tools** line and **Guidelines** bullets
+  are kept out of the system prompt entirely, starting with the first turn (see
+  [roleplay-internals.md](./roleplay-internals.md#tool-gate-timing) for why the gate runs at session-lifecycle time);
 - nothing is injected into the system prompt;
-- `/roleplay` reports the dormant state.
+- `/roleplay` reports the dormant state, and the cast-scoped verbs (`lore`, `recap`, `relationships`, `import`,
+  `export`, `event`, `newscene`) refuse to run.
 
 The active cast slug is resolved as: `/roleplay cast <name>` override → the persona's `cast:` frontmatter →
-`castSlug(persona.name)`. The resolved cast + the (future) POV character are published on a `globalThis` singleton
+`castSlug(persona.name)`. The resolved cast + POV character are published on a `globalThis` singleton
 ([`lib/node/pi/roleplay/active.ts`](../../../lib/node/pi/roleplay/active.ts)) so `persona` / `avatar` can read them.
 
 ## Store layout
 
 ```text
 ${PI_ROLEPLAY_ROOT:-~/.pi/agent/roleplay}/
+├── prompts/<name>.md         ← optional user-scope prompt-guidance overrides
 └── casts/<cast-slug>/
     ├── INDEX.md            ← one-line-per-record index, tool-rebuilt; don't hand-edit
     ├── character/<slug>.md
@@ -44,249 +51,235 @@ ${PI_ROLEPLAY_ROOT:-~/.pi/agent/roleplay}/
     ├── lore/<bundle>/<slug>.md  ← optional NAMED lore bundle (inert unless activated)
     ├── relationship/<slug>.md
     ├── summary/
-    │   ├── auto.md              ← carry-over recap (scanned entry; cross-session seed for new trees)
+    │   ├── auto.md              ← carry-over recap (cross-session seed for new trees)
     │   └── archive/<ts>.md      ← `/roleplay newscene`-archived prior carry-overs
     ├── timeline/
-    │   ├── auto.md              ← carry-over timeline (append-log of dated beats)
-    │   └── archive/<ts>.md
+    │   ├── auto.md              ← carry-over timeline (append-only log of dated beats)
+    │   └── archive/
+    │       ├── <ts>.md          ← `/roleplay newscene` archive
+    │       └── <ts>-rotated.md  ← older half rotated out once auto.md passes timelineFileMaxChars
     └── facts/                   ← captured-facts carry-over sidecar (NOT a record kind; unscanned)
         ├── <slug>.md            ← one carry-over fact each (frontmatter name + description)
         └── archive/<ts>/        ← newscene-archived facts
 ```
 
-The `summary` and `timeline` kinds are **branch-primary** (see
-[Branch-primary scene memory](#branch-primary-scene-memory) below): the within-session / resume / fork store is pi's
-**session log** (custom recap + timeline audit entries that travel with the conversation tree and carry the exact
-coverage boundary), while the top-level `auto.md` is the scanned per-cast **carry-over** - the cross-session seed a
-genuinely new tree inherits - and `archive/` holds newscene archives. `scanCast` reads only top-level `*.md` per kind,
-so the `archive/` subdir - and the whole `facts/` sidecar - are skipped by the scan and never appear in
-`formatRoleplayBlock`. The one exception is `lore/`, which additionally supports optional named **bundle** subfolders
-(see [Optional lore bundles](#optional-lore-bundles) below); a bundle is only read when its name is in the launch-time
-activation selection, so unactivated bundle subfolders stay inert exactly like `archive/`.
+Each record is a markdown file with three required frontmatter keys (`name`, `description`, `kind`) plus a markdown
+body; `lore`, `character`, and `relationship` records carry extra fields described below. The coding `memory` tree
+(`~/.pi/agent/memory`) is a sibling and is never touched. Disk is the source of truth: on `session_start` /
+`session_tree` the extension scans the active cast and rebuilds its in-memory index; tool writes go straight to disk,
+then re-emit `INDEX.md`.
 
-Each record is a markdown file with strict three-key frontmatter (`name`, `description`, `kind`) plus a markdown body;
-`lore` records carry extra keyword/injection fields and `relationship` records carry affinity/trust fields (see below).
-The coding `memory` tree (`~/.pi/agent/memory`) is a sibling and is never touched. Disk is the source of truth: on
-`session_start` / `session_tree` the extension scans the active cast and rebuilds its in-memory index; tool writes go
-straight to disk, then re-emit `INDEX.md`.
+`scanCast` reads only top-level `*.md` per kind, so `archive/` subdirs and the whole `facts/` sidecar never appear in
+the injected index. The exception is `lore/`, which also reads activated **bundle** subfolders (see
+[Optional lore bundles](#optional-lore-bundles)).
 
-A `character` body holds voice, appearance, speech tics, hard constraints, first message, and example dialogue - the
-SillyTavern character-card fields. A `lore` body holds the world detail injected when its keywords fire. `summary` and
-`timeline` records are plain note records (a recap, a dated list of beats) with no extra frontmatter; `relationship`
-records are described below.
+Store identity and write rules:
 
-## Lorebook (`lore` kind)
+- **Records are keyed on kind + id.** The same slug may exist under two kinds (for example `character/mira.md` and
+  `lore/mira.md`, both hand-authored); both load and both appear in the index. `read` / `update` / `remove` need an
+  explicit `kind` when the id is ambiguous. New slugs chosen by `save` and import never collide with any existing id.
+- **Unknown frontmatter keys survive rewrites.** Keys a kind does not consume are carried through and re-emitted after
+  the known keys on `update`, so hand-authored or future fields are not dropped.
+- **Renames write before deleting.** An `update` whose new `name` slugifies differently writes the new file first, then
+  removes the old one. Bundle lore stays inside its bundle directory on rename.
+- **`auto` is reserved** for the `summary` and `timeline` carry-over files; `save` / `update` reject a name that would
+  slugify to `auto` in those kinds.
 
-The SillyTavern "World Info" equivalent and the main scaling lever: instead of one giant always-injected blob, world
-detail lives in `lore` records that inject **when their keywords appear in the latest narrative prompt**, or in the
-frozen recent window for depth-tagged records (below). This lets a large canon stay on disk and surface relevance-gated,
-a few entries at a time.
+The `summary` and `timeline` carry-over files serve cross-session continuity only. Within a session, resume, or fork,
+scene memory lives on pi's session branch (see [Recap, timeline, and captured facts](#recap-timeline-and-captured-facts)
+and [roleplay-internals.md](./roleplay-internals.md#branch-primary-scene-memory)).
 
-Lore frontmatter (all optional beyond the core three keys):
+## Record kinds
 
-| Field           | Type             | Meaning                                                                                              |
-| --------------- | ---------------- | ---------------------------------------------------------------------------------------------------- |
-| `triggers`      | `[a, b, …]`      | Primary keywords, OR-combined. Any whole-word, case-insensitive hit fires the entry.                 |
-| `secondaryKeys` | `[x, y, …]`      | Optional gate applied after a primary hit.                                                           |
-| `secondaryMode` | `AND`/`OR`/`NOT` | How `secondaryKeys` combine: all present / any present / none present. Default `AND`.                |
-| `constant`      | `true`/`false`   | Always inject (budget permitting), ignoring triggers. Default `false`.                               |
-| `order`         | integer          | Priority; higher wins when the char budget forces eviction. Default `0`.                             |
-| `depth`         | integer          | Insert this many messages from the end at the narrative boundary; keep placement fixed during tools. |
-| `recurse`       | `true`/`false`   | Opt in to having this entry's body re-scanned to trigger further lore. Default `false`.              |
-| `probability`   | `0`-`100`        | Chance the entry fires even when matched. Default `100` (always).                                    |
-| `sticky`        | integer          | Once fired, stay active this many further turns without a re-match. Default `0`.                     |
-| `cooldown`      | integer          | After its active window ends, cannot fire again for this many turns. Default `0`.                    |
-| `delay`         | integer          | Not eligible to fire until this many turns into the chat. Default `0`.                               |
-| `group`         | string           | Inclusion-group name; among fired members of a group only ONE survives per turn. Default `''`.       |
-| `groupWeight`   | integer          | Relative weight for the group's weighted-random pick. Default `100`.                                 |
-| `enabled`       | `true`/`false`   | Author kill-switch. `false` silences the entry (never fires, never injects). Default `true`.         |
+### `character`
 
-Keyword matching is **whole-word** (`RI` matches `RI` / `(RI)` but not `spring`) and case-insensitive; multi-word and
-punctuation-bearing keys (`Northern Outpost`, `Dr. Vance`) match literally between token boundaries. Fired entries are
-ranked by `order` (then name) and kept until `loreCharBudget` is reached - the single highest-priority entry is always
-kept even if it alone exceeds the budget. Recursion is **off by default**, opt-in per entry, and hard-capped at
-`maxRecursion` (ceiling 2) passes.
+The body holds voice, appearance, speech tics, hard constraints, first message, and example dialogue - the SillyTavern
+character-card fields. Optional frontmatter controls how the sheet folds into the scene (see
+[Scene folds](#scene-folds-characters--pov--pinned)):
 
-`enabled: false` is an author kill-switch to silence an entry in place (never fires, never injects) without deleting or
-moving the file - useful for parking a draft or muting canon for a scene. It is **file-authored only**; unlike the core
-`save` / `update` fields it is deliberately not a `roleplay` tool parameter, so the model cannot toggle canon on or off.
-Injected bodies are also whitespace-normalized (per-line trailing whitespace stripped, blank-line runs collapsed), and
-an entry whose body is empty after normalization is dropped **before** the match + timing pass, so it can never win an
-inclusion group and starve a real sibling.
+| Field         | Example              | Meaning                                                                                               |
+| ------------- | -------------------- | ----------------------------------------------------------------------------------------------------- |
+| `pinned`      | `true`/`false`       | Always fold this sheet (budget permitting), ignoring triggers - the card analogue of lore `constant`. |
+| `aliases`     | `[Kal'tsit, Doctor]` | Extra names/nicknames the fold keys on (the entry `name` is always an implicit key).                  |
+| `triggers`    | `[the surgeon]`      | Extra keywords (OR'd with name + aliases) that also fold the sheet in.                                |
+| `order`       | `10`                 | Stored and round-tripped. Fold eviction does not currently read it (see note below).                  |
+| `sticky`      | `3`                  | Once folded, stay folded this many further turns without a re-match (anti-flicker). Default `3`.      |
+| `cooldown`    | `0`                  | After the sticky window ends, cannot fold again for this many turns. Default `0`.                     |
+| `probability` | `100`                | 0-100 chance the fold fires on a fresh match. Default `100`.                                          |
+| `delay`       | `0`                  | Not eligible to fold until this many turns into the chat. Default `0`.                                |
 
-### Timed effects + inclusion groups
+These fields are read from disk on every scan (hand-authored values take effect after `/roleplay rescan` or the next
+session start), and `save` / `update` can set `aliases`, `pinned`, `triggers`, and `order`. A bare card with no metadata
+still folds on its own **name**. Matching reuses the lorebook rules (whole-word, case-insensitive, no-space scripts
+matched without word boundaries) and timing machinery.
 
-Keyword matching decides which entries _could_ fire; a timing pass
-([`timing.ts`](../../../lib/node/pi/roleplay/timing.ts)) then decides what actually does, so World Info feels organic
-instead of firing every time a keyword appears. The extension keeps a monotonic per-turn counter and a small in-memory
-state map (reset on a cast switch), and applies, in order: `delay` (ineligible until turn N), `cooldown` (blocked for N
-turns after the active window), `probability` (an rng gate on each fresh activation), `sticky` (force-active for N
-further turns once fired, no re-roll), and `group` (among fired members of a named group, keep one, weighted by
-`groupWeight`). A fresh fire arms the sticky+cooldown window in one shot; group losers do not arm any window. State is
-in-memory only - it resets when pi restarts or the cast switches (chat-metadata persistence is deferred). The timing
-pass applies to keyword-fired lore, computed once per narrative turn in `before_agent_start` (see below). Depth-tagged
-lore retains plain recent-window matching, without the keyword timing pass.
+> Note: name-triggered sheets are ordered by cast id, and both fold budgets evict from the end of that order. The
+> `order` field is persisted but does not change eviction today.
 
-> **Narrative boundary:** matching runs against the initiating user prompt or a `scheduled-prompt` custom message.
-> Timing advances once per narrative run, not once per provider request. Background completions, guardrail nudges, and
-> retry notices do not select fresh lore, advance scene/lore timing, or consume queued scene events.
+Author list fields with **inline** arrays (`[a, b]`) - pi's frontmatter parser does not accept block (`- item`) lists.
 
-### Optional lore bundles
+### `lore`
+
+The SillyTavern "World Info" equivalent and the main scaling lever: world detail lives in `lore` records that inject
+**when their keywords appear in the latest narrative prompt**, or in the frozen recent window for depth-tagged records.
+A large canon stays on disk and surfaces relevance-gated, a few entries at a time.
+
+| Field           | Type                       | Meaning                                                                                                     |
+| --------------- | -------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `triggers`      | `[a, b, …]`                | Primary keywords, OR-combined. Any whole-word, case-insensitive hit fires the entry.                        |
+| `secondaryKeys` | `[x, y, …]`                | Optional gate applied after a primary hit.                                                                  |
+| `secondaryMode` | `AND`/`OR`/`NOT`/`NOT_ALL` | All present / any present / none present / not every one present (fires unless all are). Default `AND`.     |
+| `constant`      | `true`/`false`             | Always inject (budget permitting), ignoring triggers. Default `false`.                                      |
+| `order`         | integer                    | Priority; higher wins when the char budget forces eviction. Default `0`.                                    |
+| `depth`         | integer                    | Insert this many messages from the end at the narrative boundary (see [Depth injection](#depth-injection)). |
+| `recurse`       | `true`/`false`             | Opt in to having this entry's body re-scanned to trigger further lore. Default `false`.                     |
+| `probability`   | `0`-`100`                  | Chance the entry fires when matched. Default `100`.                                                         |
+| `sticky`        | integer                    | Once fired, stay active this many further turns without a re-match. Default `0`.                            |
+| `cooldown`      | integer                    | After its active window ends, cannot fire again for this many turns. Default `0`.                           |
+| `delay`         | integer                    | Not eligible to fire until this many turns into the chat. Default `0`.                                      |
+| `group`         | string                     | Inclusion-group name; among fired members of a group only ONE survives per turn. Default `''`.              |
+| `groupWeight`   | integer                    | Relative weight for the group's weighted-random pick. Default `100`.                                        |
+| `enabled`       | `true`/`false`             | Author kill-switch. `false` silences the entry (never fires, never injects). Default `true`.                |
+
+**Keyword matching.** Matching is whole-word and case-insensitive: `RI` matches `RI` / `(RI)` but not `spring`, and
+multi-word or punctuation-bearing keys (`Northern Outpost`, `Dr. Vance`) match literally between token boundaries.
+Letters, digits, and combining marks count as word characters. Scripts written without spaces (Han, Hiragana, Katakana,
+Thai, Lao, Khmer, Myanmar) have no token boundaries, so the boundary is not required on a keyword edge whose character
+is in one of those scripts (`阿米娅` fires in `阿米娅说`), and such a neighbor also counts as a boundary for other
+keywords (`RI` fires in `罗德岛RI基地`). Hangul uses spaces and keeps strict boundaries.
+
+**Selection.** Each narrative turn runs keyword matching, then optional recursion, then the timing pass, then the
+budget:
+
+1. **Recursion** (off by default, opt-in per entry with `recurse: true`, capped at `maxRecursion` passes, ceiling 2)
+   re-scans matched bodies for further keyword hits. It runs **before** timing, so recursively matched entries obey
+   `delay`, `cooldown`, `probability`, `sticky`, and inclusion groups exactly like direct matches.
+2. **Timing** decides which matched entries actually fire: `delay` (ineligible until turn N), `cooldown` (blocked for N
+   turns after the active window), `probability` (a roll on each fresh activation), `sticky` (stay active N further
+   turns without a re-roll), and `group` (keep one fired member per group). A sticky entry still inside its window is
+   the **incumbent** in its inclusion group and wins without a roll (several incumbents: highest `groupWeight`, then
+   id); otherwise the winner is a `groupWeight`-weighted random pick. Group losers do not arm sticky or cooldown
+   windows.
+3. **Budget** ranks fired entries by `order` (then name) and keeps them until `loreCharBudget` is reached. The budget is
+   measured against the whole rendered block, including its heading and the "lore budget reached" trailer. The single
+   highest-priority entry is always kept even if it alone exceeds the budget.
+
+Timing state is in memory only: it resets when pi restarts or the cast switches. Depth-tagged lore uses plain recent
+window matching without the timing pass. Matching runs against the initiating user prompt or a `scheduled-prompt` custom
+message; background completions, guardrail nudges, and retry notices do not select lore or advance timing.
+
+`enabled: false` silences an entry in place without deleting or moving the file. It is **file-authored only**: it is not
+a `roleplay` tool parameter, so the model cannot toggle canon on or off. Injected bodies are whitespace-normalized
+(trailing whitespace stripped, blank-line runs collapsed), and an entry whose body is empty after normalization is
+dropped before matching, so it can never win an inclusion group and starve a real sibling.
+
+### `relationship`
+
+A `relationship` record tracks how a pair feels about each other so a scene can resume where it left off:
+
+```yaml
+kind: relationship
+affinity: 72 # 0-100 warmth/closeness; model-rewritten as scenes evolve
+trust: high # free-form qualitative label
+lastInteraction: 2026-06-07 # YYYY-MM-DD of the last shared scene; the decay anchor
+openThreads: [the unanswered dinner invite, her curiosity about the Doctor's past]
+```
+
+Affinity **drifts toward a neutral baseline** (`relationshipBaseline`, default 50) while idle:
+`relationshipDecayPerDay * whole-days-since(lastInteraction)`, clamped to `[0, 100]` and never overshooting the
+baseline. No decay applies when `lastInteraction` is missing, unparseable, or in the future. Decay is a read-time
+projection ([`relationship.ts`](../../../lib/node/pi/roleplay/relationship.ts)); the stored `affinity` only changes when
+the record is rewritten. `/roleplay relationships` shows stored and projected values.
+
+Through the tool, `affinity` clamps to 0-100 and `lastInteraction` must be a real calendar date in `YYYY-MM-DD` form, or
+`""` to clear it; any other value is rejected.
+
+### `summary` and `timeline`
+
+Plain note records with no extra frontmatter: a `summary` body is a recap of a span, a `timeline` body is a dated list
+of beats. The `auto` slug in each kind is the reserved carry-over file written by the recap and timeline machinery.
+Every kind surfaces in the cast index and loads on demand via `roleplay read <id>`.
+
+## Optional lore bundles
 
 A cast's `lore/` dir is a two-tier store. Top-level `lore/*.md` is the always-on **base** lore. Alongside it, `lore/`
 may hold any number of **named bundles** as subfolders (`lore/<bundle-name>/*.md`) - interchangeable groups of lore for
-alternate settings, seasons, story arcs, or any other variant axis. This is a generic organizational primitive: a bundle
-is just a named group of lore records, with **no** hardcoded domain (e.g. a cast might keep an `apartment-loft` and an
-`apartment-cabin` bundle and swap which is live per playthrough, but that is only one application). Bundles may be flat
-(`lore/<name>/*.md` -> `<name>`) or **nested under grouping dirs** to arbitrary depth (`lore/<group>/<name>/*.md` ->
-`<group>/<name>`); a bundle is any dir under `lore/` that directly holds `*.md`, named by its `/`-separated path
-relative to `lore/`. A pure grouping dir with no `*.md` of its own (e.g. `lore/home/`) is not itself a bundle.
+alternate settings, seasons, story arcs, or any other variant axis. A bundle is a generic named group with no hardcoded
+domain (a cast might keep `apartment-loft` and `apartment-cabin` bundles and swap which is live per playthrough).
+Bundles may be flat (`lore/<name>/*.md` -> `<name>`) or nested under grouping dirs to arbitrary depth
+(`lore/<group>/<name>/*.md` -> `<group>/<name>`); a bundle is any dir under `lore/` that directly holds `*.md`. A pure
+grouping dir with no `*.md` of its own is not itself a bundle.
 
-**A bundle is inert unless activated.** Activation happens once at launch via the `PI_ROLEPLAY_LORE_BUNDLES` env var - a
-comma-separated list of bundle names, e.g. `PI_ROLEPLAY_LORE_BUNDLES=apartment-loft,winter-arc`. (A launch flag in an RP
-wrapper sets that env var; this extension only defines the env-var contract.) The extension parses it once with
+**A bundle is inert unless activated.** Activation happens once at launch via `PI_ROLEPLAY_LORE_BUNDLES`, a
+comma-separated list of bundle names (e.g. `PI_ROLEPLAY_LORE_BUNDLES=apartment-loft,winter-arc`). It is parsed with
 [`parseLoreBundleSelection`](../../../lib/node/pi/roleplay/paths.ts) (split on commas, trim, drop blanks, dedupe keeping
-first occurrence) and passes the resolved list into `rebuildCast` / `scanCast` as `options.loreBundles`. The scanner
-itself stays env-agnostic - it takes the already-resolved selection, so the disk layer remains pure and unit-testable.
+the first occurrence).
 
-**Precedence is deterministic and documented.** Every record is keyed on `<kind>/<id>`; the scanner loads base lore
-first, then each activated bundle in listed order, letting later writes win:
+**Precedence is deterministic.** Base lore loads first, then each activated bundle in listed order; later writes win on
+the same id:
 
 ```text
 base lore/*.md  <  bundles[0]  <  bundles[1]  <  …
 ```
 
-So an activated bundle file **overrides** a base file that shares its id (`lore/setting.md` vs
-`lore/apartment-loft/setting.md`), and a bundle later in the selection overrides an earlier one on the same id. A bundle
-adds its own non-colliding records on top of base. Only the explicitly-selected bundle subfolders are read, so a
-NOT-activated bundle never bleeds in, and an incidental subfolder is never scanned. An activated name with no matching
-subfolder is reported as a scan warning (surfaced once via `ctx.ui.notify`) and skipped - the rest of the cast still
-loads. A record read from a bundle carries a runtime-only `bundle` annotation on its `RoleplayEntry` so body reads
-(`readEntryBody`) resolve to the bundle file rather than the base path; the annotation is never serialized (it is a
-function of on-disk location, not file content).
+An activated bundle file overrides a base file with the same id, and a later bundle overrides an earlier one. Bundles
+add their non-colliding records on top of base. Unlisted bundles and incidental subfolders are never read. An activated
+name with no matching subfolder is reported once as a scan warning and skipped.
 
-**`INDEX.md` is a complete, bundle-aware map.** The generated `INDEX.md` is a human/agent-facing artifact only (never
-read at runtime), so it reflects the **complete** on-disk inventory - base lore plus **every** bundle present on disk,
-not just whatever selection is active. `writeIndex` builds it from
-[`scanCastComplete`](../../../lib/node/pi/roleplay/paths.ts) (base records for every kind +
-[`listLoreBundles`](../../../lib/node/pi/roleplay/paths.ts)), which - unlike the runtime `scanCast` - does **no**
-cross-tier dedup, so a base `lore/setting.md` and a bundle's `lore/loft/setting.md` both appear. `listLoreBundles` walks
-`lore/` recursively and returns every leaf bundle (any dir directly holding `*.md`, including nested `<group>/<name>`
-bundles), skipping pure grouping dirs. Base lore lists under `## Lore` (linking `lore/<id>.md`); each bundle gets its
-own `### Lore bundle: <name>` subsection linking the real `lore/<bundle>/<id>.md` path (a bundle record never emits a
-base-path link). Enumerating all bundles for the index does **not** change runtime loading - `scanCast` still loads only
-the active selection into live state; the complete inventory is an index-only concern. Regenerate on demand with
-`/roleplay rescan` (needed for bundles authored by direct on-disk edits rather than the `roleplay` tool), and every tool
-`save` / `update` / `remove` rewrites it too.
+Tool writes are bundle-aware: `read`, `update`, and `remove` on a bundle-sourced record act on `lore/<bundle>/<id>.md`,
+and a rename keeps the file in the same bundle directory.
 
-## Depth injection: author's note + depth-tagged lore
+**`INDEX.md` is a complete map.** The generated index is a human/agent-facing artifact (never read at runtime) and lists
+base lore plus **every** bundle on disk, not just the active selection. Base lore lists under `## Lore`; each bundle
+gets a `### Lore bundle: <name>` subsection linking the real `lore/<bundle>/<id>.md` path. Runtime loading still reads
+only the active selection. Regenerate with `/roleplay rescan` after direct on-disk edits; every tool `save` / `update` /
+`remove` rewrites it too.
 
-The `before_agent_start` block above appends the stable scene + cast index to the **system prompt** and computes the
-turn's keyword-fired lore, which is injected separately as a reminder after the initiating input (see "Injected
-`## Roleplay` block" below) rather than in the cached system prefix. The SillyTavern "insert at depth N" lever is a
-distinct third path: standing instructions are positioned in the **message array** near the live turn. Two things ride
-this path:
+## What gets injected
+
+Under a roleplay persona, each narrative turn delivers:
+
+| Content                                                      | Where                                                 | Budget                  |
+| ------------------------------------------------------------ | ----------------------------------------------------- | ----------------------- |
+| `## Roleplay scene` (persona-declared, `pinned`, POV sheets) | System prompt                                         | `charBudget`            |
+| `## Roleplay — cast: <slug>` index (one line per record)     | System prompt                                         | `charBudget`            |
+| Name-triggered character sheets                              | `roleplay-scene-fold` reminder                        | `charBudget` (separate) |
+| Keyword-fired lore (`## Roleplay lore …`)                    | `roleplay-lore` reminder                              | `loreCharBudget`        |
+| Author's note + depth-tagged lore                            | Messages at their depth, or `roleplay-depth` reminder | `loreCharBudget` (lore) |
+| Repetition nudge                                             | `roleplay-repetition` reminder                        | one line                |
+| Queued scene event                                           | `roleplay-event` reminder                             | `eventMaxChars` (model) |
+| Recap and timeline                                           | Prefix of the reduced conversation                    | see Configuration       |
+
+The scene block and cast index are stable head state; full character bodies beyond the scene are fetched with
+`roleplay read <id>`. Reminder blocks are emitted once per narrative run and captured by the default-on
+[`cache-reminders`](./cache-reminders.md) coordinator, which replays the same snapshot through tool continuations. When
+reminders are globally disabled (`PI_CACHE_REMINDERS_DISABLED=1`), lore, depth injection, repetition, and events are
+off, and name-triggered sheets fall back into the system-prompt scene block. See
+[roleplay-internals.md](./roleplay-internals.md#cache-stability) for why each piece lives where it does.
+
+## Depth injection
+
+The SillyTavern "insert at depth N" lever positions standing instructions in the **message array** near the live turn:
 
 - **Author's note** - a short standing instruction from the active persona's `authorNote` frontmatter, inserted at
   `authorNoteDepth` (default 4) messages from the end. Use it for tone / style / pacing reminders that should sit close
-  to the model's next turn rather than fade at the top of a long system prompt.
-- **Depth-tagged lore** - any `lore` entry with a `depth:` field. These are _excluded_ from the keyword-fired lore block
-  and instead match the **prior `scanDepth` messages** (default 10) plus the initiating narrative prompt, not just the
-  latest prompt. They are budgeted by `loreCharBudget` like keyword-fired lore. Depth lore skips the timing pass (plain
-  `matchLore`, no `applyTiming`), so a `constant` depth record fires on **every narrative turn**, not every tool
-  request.
+  to the model's next turn.
+- **Depth-tagged lore** - any `lore` entry with a `depth:` field. These are excluded from the keyword-fired block and
+  match the **prior `scanDepth` messages** (default 10) plus the initiating narrative prompt. They are budgeted by
+  `loreCharBudget`, skip the timing pass, and a `constant` depth record fires on every narrative turn.
 
-Depth counts from the end of the initial conversation: `depth: 0` appends after the initiating input, `depth: 1` inserts
-just before it, and a depth larger than the history clamps to the start. The first narrative `context` request resolves
-positions after rolling-window reduction. A depth that would split an assistant's tool-call/result batch is moved before
-that batch instead. Disable the whole path with `PI_ROLEPLAY_DISABLE_DEPTH_INJECT=1`.
+`depth: 0` appends after the initiating input, `depth: 1` inserts just before it, and a depth larger than the history
+clamps to the start. A depth that would split an assistant's tool-call/result batch moves before that batch. Placement
+is fixed for the whole run: tool continuations replay it and never select new lore. By default each insertion is its own
+`user`-role message; `depthLoreInlineTail: true` merges everything at depth 0 into one `roleplay-depth` reminder block
+instead. Measurements and tradeoffs for that switch are in
+[roleplay-internals.md](./roleplay-internals.md#depth-injection-delivery-shape). Disable the whole path with
+`PI_ROLEPLAY_DISABLE_DEPTH_INJECT=1`.
 
-### Delivery shape for `depth: 0`: standalone messages (default) or a merged snapshot block (opt-in)
+## Scene folds (`characters` / `pov` / `pinned`)
 
-By default every insertion becomes its **own `user`-role message**. For `depth: 0` that means N instruction-only user
-messages after the user's real message, so the model's immediate stimulus before generation can be a stack of standing
-instructions with the actual user message several messages back. On a chat template with no mid-conversation system role
-that can read as an instruction handoff to acknowledge.
-
-Historical measurements on `llama-cpp/gemma4-31b-fast`, using the earlier per-request standalone transport, found that
-four `constant: true, depth: 0` records (~4.6 KB of second-person imperative prose) drew a `// [OOC: I've absorbed …]`
-compliance preamble on 13.4% of replies; 23 of those 27 preambles named an injected `depth: 0` record. These
-observations explain the delivery-shape option, not a benchmark of the current anchored transport.
-
-Setting `depthLoreInlineTail: true` in `roleplay.json` changes the **message structure**: everything resolving to depth
-0 (the depth-0 lore, in order, plus an author's note whose resolved depth is 0, last) is concatenated into one block
-joined by blank lines in the initiating input's managed snapshot. Per-chunk `[Lore — <name>: …]` framing is unchanged,
-so the lore prose is the same; `depth > 0` keeps the standalone path. Tradeoffs to weigh before opting in:
-
-- The merged block uses `<system-reminder id="roleplay-depth">` framing, like keyword-fired lore. This is a deliberate
-  behavior change: the text is inside a reminder envelope, explained to non-Claude models by
-  [`reminder-primer`](./reminder-primer.md). It also lets [`cache-breakpoint`](./cache-breakpoint.md) distinguish
-  reminder blocks from ordinary conversation content; a bare text block would count as conversation content instead.
-- **Chunk order is deterministic:** selected depth-0 lore first, author's note last. The coordinator sorts reminder
-  block IDs and replays the same rendered snapshot rather than re-appending blocks on every request.
-- Positive-depth chunks retain their own message positions with either setting. Macro substitution and `loreCharBudget`
-  selection stay upstream of the merge; the flag does not change which records match or their budget.
-- `PI_ROLEPLAY_DISABLE_DEPTH_INJECT=1` disables both shapes. Tool continuations do not fall back to a fresh standalone
-  injection; they only replay the existing snapshot.
-- **Re-measure before adopting.** Earlier measurements found a tail-injected instruction reduced one prose tic from 17%
-  to 3% and another from 62% to 19%, while the same wording in the system prompt did nothing. Standalone messages,
-  reminder framing, and position in the rendered template can all change model behavior. Keep this an A/B choice rather
-  than assuming the merged shape preserves those rates under anchored delivery.
-
-### Turn-scoped selection and fixed placement
-
-[`cache-reminders`](./cache-reminders.md) persists the rendered bodies and before/after message anchors alongside the
-run's keyword lore, events, and repetition guidance. Depth-0 placement therefore gives:
-
-```text
-User message -> Lore snapshot -> Assistant tool call -> Tool result -> Assistant reply
-```
-
-Later tool requests only replay that snapshot. Tool-output keywords, changing lore files, and random/time macros cannot
-select new lore or move its placement during the run. Original conversation messages are never rewritten; snapshots are
-stored as branch-local metadata and projected into requests. No snapshot is freshly appended after a tool-result
-continuation, including after recovery.
-
-A new narrative input selects fresh lore and resolves fresh depth positions. Inserting farther back can reduce
-prefix-cache reuse at that boundary; tool continuations do not recalculate positions. Initial request planning may try
-smaller windows before accepting the final placement, without rereading bodies, rerolling macros, or advancing timing.
-Persisted session-entry IDs identify origins and targets rather than mutable text hashes. Queued startup guidance stays
-after the initiating input and its depth-0 content.
-
-Earlier snapshots remain unchanged until their anchors leave the active context. Compaction and branch restore retain
-placements whose initiating input and targets survive; missing targets are omitted, not relocated. Final request sizing
-counts historical and pending snapshot payloads, and final sanitization covers standalone depth messages as well as
-framed blocks. If the latest input plus mandatory context cannot fit, the request aborts instead of sending an oversized
-payload or consuming a queued event.
-
-## Injected `## Roleplay` block
-
-Each turn (under a roleplay persona) the active cast's **index** - one line per record, names + descriptions only - is
-appended to the system prompt under a `## Roleplay — cast: <slug>` header, capped by `charBudget` (default 3000, floor
-500). Full character bodies are fetched on demand via `roleplay read <id>`. Any **keyword-fired lore** for the current
-turn is injected in full under a `## Roleplay lore` header (capped separately by `loreCharBudget`); this is the one case
-where bodies are injected outright, since the point of keyword triggering is to put the relevant detail in-context
-without a tool call. Once a cap is hit the block stops adding entries and emits a trailer.
-
-The scene block and cast index are **stable head state** and stay in the system prompt (cached prefix). The fired-lore
-block, by contrast, is **volatile per-turn state** - its membership shifts on every topic change - so it is NOT placed
-in the system prompt (where each shift would bust the whole prompt-prefix cache, re-prefilling the conversation on
-llama.cpp). Instead `before_agent_start` computes it once (running the timing pass exactly once per turn) and stashes it
-in a `pendingLore` slot; the first narrative `context` request emits that slot via
-[`context-reminder.ts`](../../../lib/node/pi/context-reminder.ts), like `roleplay-depth`, `roleplay-repetition`, and
-`roleplay-event`. Later requests emit no fresh roleplay blocks. The default-on [`cache-reminders`](./cache-reminders.md)
-coordinator captures these standalone blocks once per run, sorts their IDs, and projects a distinct branch-recoverable
-snapshot with byte-stable historical items. Mid-run state updates do not rewrite that snapshot. On later user runs only
-newly firing state is captured; historical event/lore snapshots remain context history, not newly queued events.
-Operational custom runs retain the previous scene block and cast index without advancing narrative timing. Scene folds
-and rolling context reduction remain separate mechanisms and can still change a prefix. See the delivery rule in
-[`AGENTS.md`](./AGENTS.md) § "Cache-safe reminder delivery". Returns nothing when the cast is empty and no lore fired.
-
-## Scene: folding full character sheets (`characters` / `pov` / `pinned`)
-
-The index above is deliberately lightweight (one line per record). To put a character's **whole sheet** in front of the
-model - the SillyTavern "the character card is always in context" behaviour - a sheet folds into a `## Roleplay scene`
-block from any of three sources:
+The cast index is deliberately lightweight. To put a character's **whole sheet** in front of the model, a sheet folds in
+from any of three sources:
 
 1. **Persona-declared** - the active persona lists on-stage members + the player POV:
 
@@ -297,330 +290,158 @@ block from any of three sources:
    openers: ['Yo, Doctor!', '...'] # greeting lines, surfaced via `/persona opener`
    ```
 
-2. **`pinned` character** - a card with `pinned: true` in its frontmatter folds **every turn**, no persona list needed
-   (the character-card analogue of a `constant` lore entry - the "always present" lead, e.g. the player's own card).
-3. **Name-triggered fold** - any character whose **name** (always keyed, zero-config), an authored **alias**, or an
-   extra **trigger** keyword appears in the recent-message window folds in for the scene. This is what lets an NPC
-   introduced mid-scene be voiced correctly on a later turn _without_ a `roleplay read`. Keying is **broad** (any
-   mention, not only the active speaker), bounded by the sticky window + budget below.
+2. **`pinned` character** - a card with `pinned: true` folds every turn, no persona list needed.
+3. **Name-triggered** - any character whose name, alias, or extra trigger appears in the recent window (`scanDepth`
+   messages plus the current prompt) folds in for the scene, kept alive by its `sticky` window. This lets an NPC
+   introduced mid-scene be voiced correctly on a later turn without a `roleplay read`.
 
-Each folded character's body renders under a `### <Name>` heading (deduped), the block announces
-`The user plays **<pov>**.`, and the POV character renders last tagged `(player character)`. Names are matched by record
-id, then case-insensitive name, then name-slug; **unresolved persona names are warn-dropped** (a one-time notice naming
-the missing set). A `pov` that is not in the cast still produces the announcement line (the player may be an off-screen
-character).
+**Delivery.** Persona-declared, `pinned`, and POV sheets are stable and stay in the system-prompt `## Roleplay scene`
+block. Name-triggered sheets go to a separate `roleplay-scene-fold` reminder (`## Roleplay scene: on-stage characters`)
+so NPCs entering and leaving the window do not rewrite the cached system prompt. A sheet already in the head is never
+sent again in the reminder. A name-triggered sheet is (re)sent when it enters the active set, has never been delivered,
+or was last delivered `sceneFoldRefreshTurns` (default 6) or more narrative turns ago; otherwise the earlier reminder
+snapshot still carries it. Set `sceneFoldDelivery: "system"` to restore the legacy behavior of folding name-triggered
+sheets into the head block; the same fallback applies automatically when reminders are globally disabled.
 
-**Precedence + budget.** The block is capped by `charBudget` (shared with the index). When folds exceed the cap they are
-evicted in reverse precedence: **`pov` > `pinned` > name-triggered > index-only**. The POV sheet is never evicted;
-persona-declared and `pinned` sheets are kept ahead of name-triggered ones; the lowest-precedence (name-triggered)
-sheets drop first, reported with a trailer. When there is no POV sheet the first (highest-precedence) sheet is always
-kept so a too-small budget can never blank the block.
+**Rendering.** Each sheet renders under a `### <Name>` heading (deduped). The head block announces
+`The user plays **<pov>**.` and renders the POV sheet last, tagged `(player character)`. Names resolve by record id,
+then case-insensitive name, then name slug. Unresolved persona names are dropped with a one-time warning. A `pov` that
+is not in the cast still produces the announcement line.
 
-### Character-fold metadata
+**Precedence and eviction.** Each block has its own `charBudget` cap.
 
-All fields are optional frontmatter on a `character` record (also settable via the `roleplay` tool's `save` / `update`
-for `aliases` / `pinned` / `triggers` / `order`). A bare card with no metadata still folds on its own **name** - the
-zero-config default. Trigger + timing reuse the same machinery as the lorebook (whole-word case-insensitive matching;
-sticky / cooldown / probability windows).
+- Head block: persona-declared sheets, then `pinned`, then (in `system` delivery only) name-triggered sheets, with POV
+  last. Eviction drops from the tail of that order; the POV sheet is never evicted, and when there is no POV sheet the
+  first sheet is always kept.
+- Reminder block: name-triggered sheets in cast order; the first is always kept, later ones drop with a trailer.
 
-| Field         | Example              | Meaning                                                                                               |
-| ------------- | -------------------- | ----------------------------------------------------------------------------------------------------- |
-| `pinned`      | `true`/`false`       | Always fold this sheet (budget permitting), ignoring triggers - the card analogue of lore `constant`. |
-| `aliases`     | `[Kal'tsit, Doctor]` | Extra names/nicknames the fold keys on (the entry `name` is always an implicit key).                  |
-| `triggers`    | `[the surgeon]`      | Extra keywords (OR'd with name + aliases) that also fold the sheet in.                                |
-| `order`       | `10`                 | Priority; higher survives budget eviction longer. Default `0`.                                        |
-| `sticky`      | `3`                  | Once folded, stay folded this many further turns without a re-match (anti-flicker). Default `3`.      |
-| `cooldown`    | `0`                  | After the sticky window ends, cannot fold again for this many turns. Default `0`.                     |
-| `probability` | `100`                | 0-100 chance the fold fires on a fresh match. Default `100`.                                          |
-| `delay`       | `0`                  | Not eligible to fold until this many turns into the chat. Default `0`.                                |
-
-Author list fields with **inline** arrays (`[a, b]`) - pi's frontmatter parser does not accept block (`- item`) lists.
-The recent-message scan window is controlled by `scanDepth`. Leave everything unset and a character folds only when its
-name is mentioned (or the persona declares it) - backward compatible with pre-`pinned` casts.
+**Macro stability.** Sheets in the system-prompt head resolve macros against a clock frozen for the session and a random
+source seeded per session and entry, so `{{time}}`, `{{random}}`, and `{{roll}}` stay byte-identical across turns.
+Reminder sheets, lore, depth text, and the author's note keep live macros.
 
 `/persona opener [n]` prints the active persona's greeting lines (all numbered, or just entry `n`); see
 [`persona.md`](./persona.md).
 
-## Macros (`{{user}}` / `{{char}}` / ...)
+## Macros
 
-SillyTavern character cards and lorebooks routinely embed `{{user}}` / `{{char}}` placeholders, so injected text is run
-through [`macros.ts`](../../../lib/node/pi/roleplay/macros.ts) at the moment a body is read. Substitution happens before
-the budget math, so the char-count cap sees the resolved text. Macro names are case-insensitive; any argument after the
-first `:` keeps its case.
+SillyTavern cards and lorebooks routinely embed `{{user}}` / `{{char}}`, so injected text runs through
+[`macros.ts`](../../../lib/node/pi/roleplay/macros.ts) when a body is read. Substitution happens before the budget math.
+Macro names are case-insensitive; any argument after the first `:` keeps its case.
 
-| Macro                         | Resolves to                                                                                            |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `{{user}}`                    | the persona `pov` (player character) name                                                              |
-| `{{char}}`                    | the in-context character: a folded sheet uses **that** character, lore/note the primary face character |
-| `{{time}}` / `{{date}}`       | `HH:MM` (24h, local) / `YYYY-MM-DD`                                                                    |
-| `{{weekday}}`                 | e.g. `Sunday`                                                                                          |
-| `{{random:a,b,c}}`            | one comma-separated option, picked at random (options trimmed)                                         |
-| `{{roll:NdM}}` / `{{roll:M}}` | sum of `N` `M`-sided dice (`N` defaults to 1)                                                          |
-| `{{newline}}`                 | a literal newline                                                                                      |
+| Macro                         | Resolves to                                                                                                  |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `{{user}}`                    | the persona `pov` (player character) name                                                                    |
+| `{{char}}`                    | the in-context character: a folded sheet uses **that** character, lore/notes the primary persona character   |
+| `{{time}}` / `{{date}}`       | `HH:MM` (24h, local) / `YYYY-MM-DD`                                                                          |
+| `{{weekday}}`                 | e.g. `Sunday`                                                                                                |
+| `{{random:a,b,c}}`            | one comma-separated option, picked at random (options trimmed)                                               |
+| `{{roll:NdM}}` / `{{roll:M}}` | sum of `N` `M`-sided dice (`N` defaults to 1); more than 100 dice or more than 1,000,000 sides stays literal |
+| `{{newline}}`                 | a literal newline                                                                                            |
 
-Resolution is forgiving: an unknown macro, or `{{user}}` / `{{char}}` with no value in context, is **left literal**
-rather than blanked - a misconfiguration stays visible instead of mangling grammar. Macros are applied to folded
-character sheets, fired lore bodies, and the author's note. They do not nest or recurse (a single left-to-right pass).
-Openers are surfaced by `persona` and are not macro-substituted.
+Resolution is forgiving: an unknown macro, an out-of-range roll, or `{{user}}` / `{{char}}` with no value in context is
+**left literal** rather than blanked. Macros apply to folded sheets, fired lore bodies, and the author's note, in a
+single non-recursive pass. Openers are surfaced by `persona` and are not macro-substituted.
 
-## Relationship state (`relationship` kind)
+## Recap, timeline, and captured facts
 
-A `relationship` record tracks how a pair feels about each other so a scene can resume where it left off. Extra
-frontmatter:
+On a small context window, pi's threshold compaction see-saws: most of the window is a fixed system prompt, so each
+compaction reclaims little. Instead the extension reduces the conversation itself in the `context` hook every turn. The
+reduction is a non-destructive overlay: the full transcript stays in the session file, the model is just sent less.
 
-```yaml
-kind: relationship
-affinity: 72 # 0-100 warmth/closeness; model-rewritten as scenes evolve
-trust: high # free-form qualitative label
-lastInteraction: 2026-06-07 # ISO date of the last shared scene; the decay anchor
-openThreads: [the unanswered dinner invite, her curiosity about the Doctor's past]
-```
+From oldest to newest, the model sees: a narrative **recap** of dropped history, older uncovered messages **condensed**
+head+tail, and the last `keepTurns` user turns (default 8) **verbatim**. Drop boundaries always land on a user message,
+so an assistant tool call is never separated from its result.
 
-Affinity is not static. Left untouched it **drifts toward a neutral baseline** (default 50): a neglected warm bond
-cools, an old grudge softens. The drift is computed deterministically from wall-clock dates by
-[`relationship.ts`](../../../lib/node/pi/roleplay/relationship.ts) - `decayPerDay * whole-days-since(lastInteraction)`,
-clamped to `[0, 100]` and never overshooting the baseline. No decay applies when `lastInteraction` is missing,
-unparseable, or in the future, so the stored value is returned verbatim. The decay is a read-time projection; the stored
-`affinity` on disk only changes when the model rewrites the record.
+| Mode                | When                                         | Behavior                                                                                          |
+| ------------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Bounded recap mode  | summarize on (default) and context window on | Covered history is dropped and replaced by the recap; pi's **threshold** compaction is cancelled. |
+| Condense-only floor | `PI_ROLEPLAY_DISABLE_SUMMARIZE=1`            | Older prose is condensed but kept; pi's compaction remains the backstop.                          |
+| Off                 | `PI_ROLEPLAY_DISABLE_CONTEXT_WINDOW=1`       | No reduction; only the compaction-time side-write below runs.                                     |
 
-`summary` and `timeline` records are plain note records (no extra frontmatter): a `summary` body is a recap of a span; a
-`timeline` body is a dated list of beats. All three kinds surface in the cast index and are loaded on demand via
-`roleplay read <id>` like any other record. The `summary/auto` record is special: it is the rolling recap written by
-auto-summarization (below).
+Recaps are generated only when a summarize model (see [Configuration](#configuration)) and the summarizer agent resolve.
+Without them recap mode still owns threshold compaction but covers nothing. In every mode with the window on, a hard
+safety floor drops the oldest whole turns if the reduced prompt would still overflow the session model's context window.
 
-## Rolling context window + recap (`summary/auto`)
+**The recap** is a thin narrative layer (recent events, mood, open threads) written by the
+[`roleplay-summarizer`](../agents/roleplay-summarizer.md) agent. It rolls every `recapStride` aged messages (default:
+`recapChunk`, 8), merging at most `recapMaxAdvance` messages per roll. Rejected or over-length candidates are held back,
+and once coverage lags `recapLagCeiling` or more messages the best candidate is force-accepted so coverage cannot stall
+forever. `/roleplay recap` shows the current recap and coverage; `/roleplay recap force` makes the next context pass
+roll regardless of the stride. The recap runs synchronously on the session model, or asynchronously when a distinct
+`summarizeModel` is configured (override with `recapAsync` / `PI_ROLEPLAY_RECAP_ASYNC`).
 
-On a small window (the target regime: a model whose context window is largely consumed by a big fixed system prompt,
-leaving only a few thousand tokens of usable conversation space) pi's built-in threshold compaction **see-saws** - most
-of the window is a non-compactible system prompt, so compaction fires on the small slice of conversation it can touch,
-reclaims little, and each shrink resets any positional window. To stop that, the extension does its own **rolling
-in-context reduction** in the `context` hook every turn and owns threshold compaction. Pure logic:
-[`context-window.ts`](../../../lib/node/pi/roleplay/context-window.ts).
+**Persistence.** Each roll stamps the recap and its exact coverage on the session branch, so resume, fork, and tree
+navigation continue the right recap. Each roll also refreshes the per-cast carry-over `summary/auto.md`. A genuinely new
+session seeds its recap text from that carry-over without treating any of its own messages as covered.
+`/roleplay newscene` archives the carry-overs and starts the next turn cold.
 
-The reduction is a **non-destructive ephemeral overlay** - the `context` hook output is never persisted, so the full
-prose stays in the session `.jsonl` and the user scrolls back through everything; the model is just sent less. Three
-zones, oldest -> newest:
+**Compaction.** Threshold compaction is cancelled in recap mode; manual `/compact` and overflow recovery still run. On
+those paths the evicted span is folded into the current branch recap and stamped on the branch as a `compact` audit
+entry, without resetting lorebook timing. After any successful compaction, recap coverage resets to 0 (the old message
+indices no longer apply) while the recap and timeline text are kept.
 
-```text
-[ dropped prefix ] [ condensed boundary (head+tail) ] [ verbatim tail: keepTurns turns ]
- (lives only in the recap)   (recap does not yet cover)      (the recent scene)
-```
+**Timeline** (opt-in, `timeline: true` or `PI_ROLEPLAY_TIMELINE=1`, requires recap mode) appends dated story beats
+extracted from each rolled span. Beats are never re-summarized, so they do not drift. Beats append to `timeline/auto.md`
+(rotating its older half into `timeline/archive/<ts>-rotated.md` past `timelineFileMaxChars`), and a compact
+recent-beats block capped at `timelineMaxInjectChars` is injected as its own prefix beside the recap.
 
-- **Verbatim tail.** The last `keepTurns` user-turns (default 8) and everything after them are sent untouched.
-- **Condensed boundary.** Older messages the recap does not yet cover are condensed HEAD+TAIL (`truncateText`,
-  `HEAD_FRACTION=0.6`) - RP "before I forget ..." facts cluster at the tail, so head-only truncation drops them.
-- **Dropped prefix.** In recap mode the recap-covered prefix is **removed entirely**, so total prompt size is O(1) in
-  scene length (bounded), not O(n). Both cutoffs land on user-message boundaries (`computeCutoff`) so a tool result is
-  never orphaned from its call.
+**Fact capture** (opt-in, `capture: true` or `PI_ROLEPLAY_CAPTURE=1`, requires recap mode and a session id) extracts
+self-contained facts from each rolled span into `memory`'s session (`note`) tier and mirrors them to `facts/<slug>.md`,
+which seeds future sessions.
 
-### Modes (one coherent switch)
+Mechanics (zones, roll cadence, span cap, collapse guard, wedge breaker, hydration ladder, fact taxonomy) are in
+[roleplay-internals.md](./roleplay-internals.md#rolling-context-window).
 
-- **`summarize on` (default) + context window on => bounded recap mode.** The recap is the primary mode because it is
-  the only _size-bounded_ one (drops the covered prefix). The extension also **cancels pi's THRESHOLD auto-compaction**
-  (`session_before_compact`, `reason === 'threshold'`) so it is the sole context manager - manual `/compact` and genuine
-  overflow recovery still run as the safety net.
-- **`summarize off` (`PI_ROLEPLAY_DISABLE_SUMMARIZE=1`) or context window off => condense-only floor.** The head+tail
-  floor still trims attention-diluting old prose but **keeps every message** (not size-bounded), so it does **not** own
-  compaction; pi's compaction stays the backstop. A legitimately lighter mode for a big-window model.
-- **`PI_ROLEPLAY_DISABLE_CONTEXT_WINDOW=1` => no rolling reduction at all.** Defers fully to pi and keeps the legacy
-  compaction-time side-write below.
+## Repetition nudge
 
-### The recap (`summary/auto`)
+The extension scans the recent assistant replies for repeated word n-grams and, when one crosses `repetitionMinCount`,
+injects a one-line "vary your phrasing" `roleplay-repetition` reminder. It never rewrites output. N-grams that appear in
+the cast's `character` bodies (speech tics, canon lines) are excluded, so a signature catchphrase is never flagged. Tune
+with the `repetition*` config keys; disable with `PI_ROLEPLAY_DISABLE_REPETITION=1`.
 
-The recap is a thin **narrative** layer (recent events, mood, open threads), NOT a fact store - durable facts are pinned
-separately (see [fact taxonomy](#fact-taxonomy-durable-facts-vs-narrative) below). It is generated by the
-[`roleplay-summarizer`](../../../config/pi/agents/roleplay-summarizer.md) agent + the
-[`summarize.ts`](../../../lib/node/pi/roleplay/summarize.ts) adapter (RP-native prose, NOT pi's `generateSummary`),
-folded cumulatively into one rolling `summary/auto` record.
-
-- **Roll cadence.** The frozen boundary advances only every `stride` aged messages (`stride` defaults to `recapChunk`,
-  default 8). Between rolls the condensed prefix + recap are byte-identical, so the runtime reuses the prompt-prefix
-  cache and only the new turn is prefilled - one reprocess spike per roll. Raise `recapChunk` to cut churn and
-  re-emissions (less telephone drift); lower it for a fresher recap.
-- **Span cap derived, not hardcoded.** The span fed to the summarizer is capped from the **recap model's context
-  window** (`deriveMaxSpanChars`), not the historic hardcoded 8000 chars - so a large `recapChunk` is summarized
-  losslessly instead of silently dropping its oldest half. The chars/token estimate is calibrated against the last
-  turn's reported `usage`.
-- **Collapse guard.** A degenerate recap (measured in the field: 3456 -> 95 chars) is rejected (`acceptRecap`, keep the
-  candidate only when it retains >= 50% of the prior length or there is no prior), so a bad generation can't erase scene
-  memory now that the recap is the only in-context record of dropped turns.
-- **Coverage can never wedge permanently.** The cumulative recap hovers near `summarizeMaxChars`, so a consolidation can
-  land over the cap; on the **normal path** an over-cap candidate is still _dropped, not truncated_ (`validateSummary`
-  returns `null` - a one-off runaway never commits). The circuit-breaker keeps that safe rule from stalling coverage
-  forever: once the uncovered lag passes `recapLagCeiling` (`shouldForceRecap`), the **forced path only** salvages the
-  candidate by clamping the raw over-cap text at a sentence/word boundary (`clampSummary`, bounded by
-  `summarizeMaxChars`) and advances `recapCutoff`. A persistently over-cap or persistently collapsing summarizer
-  therefore drains a bounded step per roll instead of pinning coverage while the hard floor silently drops the uncovered
-  span.
-- **Neutral sampler pinned.** The summarizer runs at `temperature: 0.3` / `presence_penalty: 0`
-  ([frontmatter `requestOptions`](../../../config/pi/agents/roleplay-summarizer.md), applied via an inline agent-gate
-  factory since the child loads with `noExtensions`). Note: the active persona's `temperature: 1.5` /
-  `presence_penalty: 1.5` does **not** leak into this subagent - the child session never registers persona's
-  `before_provider_request` - so this is the correct default, not a fight against the persona merge.
-- **Sync vs async.** The recap runs **sync** (blocking) when it inherits the session model (a single endpoint can't
-  serve the recap and the main turn at once), and **async** (off the critical path) when a _distinct_ recap model is
-  configured (`roleplay.summarizeModel` pointing at a separate small/fast endpoint => real concurrency). Force either
-  with `PI_ROLEPLAY_RECAP_ASYNC=1|0`. **Caveat:** async only buys anything if the recap model is a genuinely separate
-  endpoint; async on the same single-instance server is pointless or errors. During async lag the not-yet-dropped span
-  stays condensed-but-present (the floor), so nothing is lost; the drop boundary just advances a roll or two later. An
-  in-flight async recap is generation-guarded (`recapGen`) + aborted on reset / branch switch so a stale result can't
-  clobber the current branch's recap.
-- **Persistence + hydrate (branch-primary).** See [Branch-primary scene memory](#branch-primary-scene-memory) below: the
-  within-session / resume / fork store is the **session log** - every roll appends a `roleplay-context-recap` custom
-  entry (the audit) carrying the recap + exact coverage boundary, and that IS the primary store (no extra write). Each
-  roll also refreshes the per-cast carry-over (`summary/auto.md`), the cross-session seed. On (re)load a **resume/fork**
-  hydrates from the branch (`getBranch()`, active-path-only, so it is fork-correct and carries the exact `coveredTo`); a
-  genuinely new tree **seeds** from the carry-over; a cold start begins empty. The `roleplay-context-recap` entry is
-  written on both the sync and async paths.
-
-### Legacy compaction-time side-write
-
-When pi _does_ compact (manual `/compact` or genuine overflow - never cancelled), the `session_before_compact` handler
-still folds the evicted span into `summary/auto` (same summarizer, `acceptRecap`-guarded) so continuity survives the
-safety-net paths. Set `PI_ROLEPLAY_DISABLE_SUMMARIZE=1` to turn the whole recap path off even when a model is
-configured; then only the condense-only floor (if the window is on) applies.
-
-### Branch-primary scene memory
-
-The recap, the captured facts, and the timeline each have two distinct jobs, matched to two stores:
-
-- **Within-session (resume + fork continuity) -> the session log / branch is authoritative.** A recap / timeline / fact
-  set is a pure function of the message prefix along a branch, so the branch is the only correct store for this job. pi
-  stores a conversation as a **tree**; `getBranch()` returns only the entries on the currently active root-to-leaf path.
-  So a recap entry is served to a branch only when it lies on that branch's path - fork-correct by construction (an edit
-  / regenerate / fork continues ITS own recap, never a stale sibling's) - and it carries the exact `coveredTo` instead
-  of guessing. Each roll appends a `roleplay-context-recap` entry (recap + `coveredFrom` + `coveredTo` + `applied`) and,
-  when timeline is on, a `roleplay-timeline` entry stamping the cumulative timeline text; those custom entries are never
-  sent to the LLM but travel with the tree. Captured facts' within-session store is the coding-`memory` session (`note`)
-  tier (already session-keyed).
-- **Cross-session carry-over (a NEW tree inherits the PREVIOUS scene) -> a per-cast file.** A fresh tree's `getBranch()`
-  has nothing to hydrate, so this job needs a store outside any single tree. Every roll refreshes `summary/auto.md`
-  (best-effort, last-writer-wins), appends to `timeline/auto.md`, and mirrors each written fact to a `facts/<slug>.md`
-  sidecar. These are the durable per-cast seed a **future** session inherits; lossy / last-writer-wins by design.
-- **Hydrate precedence (once per load).** 1) **PRIMARY:** if this branch carries an applied recap -> **resume/fork**
-  from it (exact `recapCutoff = min(coveredTo, natural)`), timeline from the branch if present else the carry-over, and
-  NO fact reseed; 2) else (genuinely new tree, or a fork with no recap on its path yet) **seed** from the carry-over
-  (recap + timeline + fact sidecars seeded into this session's `memory` note tier), `recapCutoff = natural` as an
-  accepted approximation; 3) else **cold start**.
-- **`/roleplay newscene`** is the opt-out: it archives the recap / timeline carry-overs to `<kind>/archive/<ts>.md` and
-  the fact sidecars to `facts/archive/<ts>/`, then clears in-memory scene state. The NEW scene runs on a fresh tree
-  whose `getBranch()` carries no recap, so branch hydration finds nothing and the cleared carry-over yields a cold
-  start.
-- **With no session id (`--no-session`)** there is no branch to hydrate; only the carry-over is written and seeded
-  (degraded legacy behavior).
-
-The branch is the only store that is correct for the within-session path, and it adds no write cost (the recap audit was
-already written every roll). The carry-over `auto.md` write still races between concurrent same-cast sessions (last roll
-wins the _seed_); this is accepted as cosmetic because each session's within-session memory is its own branch. Belt: if
-branch hydration finds nothing but `auto.md` exists, the ladder falls to the carry-over seed. Helpers:
-[`paths.ts`](../../../lib/node/pi/roleplay/paths.ts) (`fileFor` / `readEntryBody` / `archiveCarryOver` / `factFile` /
-`listFactSidecars` / `archiveFacts`); branch hydration lives in the extension (`hydrateRecapFromBranch` /
-`hydrateTimelineFromBranch`).
-
-### Fact taxonomy: durable facts vs narrative
-
-Because the recap is thin and lossy by construction, durable facts must NOT live in it. They are routed to three tiers:
-
-| Store                                       | Lifetime                                          | Holds                                           |
-| ------------------------------------------- | ------------------------------------------------- | ----------------------------------------------- |
-| `memory` project / `roleplay` typed records | cross-scene, permanent                            | character + relationship **canon**              |
-| `memory` **session (`note`)** tier          | this scene (survives resume, dies on fresh scene) | facts **established this scene**                |
-| `facts/<slug>.md` carry-over sidecar        | per-cast, seeds new sessions (newscene-archived)  | pinned specifics carried across session bounds  |
-| recap (`summary/auto`)                      | rolling, lossy                                    | recent **narrative / mood / open threads** only |
-
-**Deterministic capture (default OFF, `PI_ROLEPLAY_CAPTURE=1`).** Because owning threshold compaction means `memory`'s
-capture-assist no longer fires on the common path, the extension can capture facts itself on the roll: the
-[`roleplay-fact-extractor`](../../../config/pi/agents/roleplay-fact-extractor.md) subagent reads the aged **span** (not
-the prose recap) and returns a JSON array of self-contained `{name, description}` facts
-([`capture.ts`](../../../lib/node/pi/roleplay/capture.ts) parses tolerantly), which are written **deterministically**
-(no reliance on the model firing a `memory save` tool) to `memory`'s session (`note`) tier. Header-carried: a small
-model won't `memory read` a body and the session tier injects only name + description, so the fact must be
-self-contained in the name (e.g. `"<character> is allergic to shellfish"`). De-dups against session notes on disk
-(fuzzy) + those written this process; degrades to a silent no-op under `--no-session` (no session id). Each written fact
-is also mirrored to the per-cast `facts/<slug>.md` carry-over sidecar (deduped against existing sidecars); a fresh
-session seeds those sidecars back into its `memory` note tier on hydrate (see
-[Branch-primary scene memory](#branch-primary-scene-memory)), so a new session inherits the pinned specifics, not just
-the narrative recap. **Known gap (validate before relying):** `memory.ts` injects from its cached index within a live
-session, so a fact captured mid-scene surfaces in the injected index only after `memory` rebuilds (next session / a
-`memory` tool call), not necessarily the same turn; cross-session resume picks it up on `memory`'s `session_start`
-rescan. Default-OFF pending a small-window smoke that validates extraction quality and this coherence question.
-
-### Timeline: additive anti-drift beats (default OFF, `PI_ROLEPLAY_TIMELINE=1`)
-
-The timeline is the **anti-drift complement** to the recap. The recap is CONSOLIDATIVE
-(`recap_n = summarize(span_n, recap_{n-1})`) and therefore drifts and sheds specifics; the timeline is ADDITIVE
-(`timeline += extract(span_n)`) - dated beats are appended once and **never re-fed to a model**, so a beat's text is
-byte-stable for the life of the scene. The recap answers "where are we now"; the timeline answers "what happened, in
-order". On each roll (same span as the recap + capture, run **after** the recap resolves and **awaited** - it shares the
-recap endpoint, so it must not run concurrently) the
-[`roleplay-timeline-extractor`](../../../config/pi/agents/roleplay-timeline-extractor.md) subagent returns a JSON array
-of `{when?, summary}` beats ([`timeline.ts`](../../../lib/node/pi/roleplay/timeline.ts) parses tolerantly), which are
-**appended** (never rewritten) to the carry-over timeline log (`timeline/auto.md`) and folded into the in-memory
-cumulative timeline that gets stamped into each `roleplay-timeline` branch entry (the within-session store). A compact
-`## Recent timeline`-style block (most-recent beats, capped by `timelineMaxInjectChars`, default 1200) is injected as a
-**separate** prefix from the recap (via `injectTimeline`) so a long timeline can't evict the recap or the hand-authored
-`formatRoleplayBlock`. Each roll writes an auditable `roleplay-timeline` log entry (custom entry, never sent to the
-LLM). Append-only means concurrent same-cast sessions just interleave distinct lines with no clobber.
-
-## Repetition / anti-slop nudge
-
-Sampler penalties (`presence_penalty` / `frequency_penalty`) only see token-level repeats within one response; they
-cannot catch a model reusing the same multi-word cadence or stock sensory phrase **across consecutive replies** ("a
-shiver runs down my spine", again, every turn). The extension scans the recent assistant replies for repeated word
-n-grams and, when one crosses the threshold, injects a one-line "vary your phrasing" nudge via the `context` event under
-the `roleplay-repetition` id. It never rewrites output. Like todo/memory, its producer block is finalized by the
-run-scoped [`cache-reminders`](./cache-reminders.md) coordinator rather than relying on ephemeral delivery alone.
-
-It is **roleplay-aware**: n-grams that appear in the active cast's `character` bodies (speech tics, verbatim canon
-lines) are excluded, so a signature catchphrase a persona is _supposed_ to repeat is never flagged. The exclusion set is
-memoized per cast and rebuilt on any store change. Tuned by the `repetition*` config keys (below) and disabled with
-`PI_ROLEPLAY_DISABLE_REPETITION=1`. Pure logic lives in [`repetition.ts`](../../../lib/node/pi/roleplay/repetition.ts).
-
-## Event system (`/roleplay event`)
+## Scene events (`/roleplay event`)
 
 `/roleplay event [hint]` queues a one-shot in-world **complication** - a knock at the door, a revealed motive, a sudden
-choice - injected as a private director note for the **next narrative reply only**. It is acknowledged only when the
-coordinator captures its frozen generation, then cleared at the following narrative boundary. A newly queued event gets
-a new generation even when its text is identical, so an older acknowledgement cannot consume it. Operational
-notifications and events queued during a tool loop do not consume it. Like the repetition nudge it rides the `context`
-event under the `roleplay-event` id and never rewrites the transcript. With stable projection enabled, the delivered
-snapshot is retained as historical context rather than being removed on the following call. It is not requeued as a new
-event on later user runs.
+choice - injected as a private director note (`roleplay-event` reminder) for the **next narrative reply only**. It is
+acknowledged once the reminder coordinator captures it, then cleared at the following narrative boundary. Operational
+notifications and events queued during a tool loop do not consume it.
 
 Source order:
 
-- **LLM-generated by default** (and always when a `hint` is given): the
-  [`roleplay-event`](../../../config/pi/agents/roleplay-event.md) agent is spawned once via `runOneShotAgent` with the
-  recent scene, the cast's one-line descriptors, and - when `eventSeedThreads` is on - the cast's relationship
-  `openThreads` so it can escalate a dangling thread instead of inventing one cold. The result is capped at
-  `eventMaxChars` (default 280) and an empty / `null` response is treated as a miss.
-- **Deck fallback**: when no event is generated (no agent installed, spawn failure, or `null`), one entry is drawn at
-  random from the `events` deck in `roleplay.json`. With an empty deck and no generated event the command reports that
-  nothing is available.
+- **LLM-generated by default** (and always when a `hint` is given): the [`roleplay-event`](../agents/roleplay-event.md)
+  agent receives the recent scene, the cast's one-line descriptors, and, when `eventSeedThreads` is on, relationship
+  `openThreads` to escalate. The result is truncated to `eventMaxChars`. An empty response or a `null` / `None` sentinel
+  (any case, ignoring surrounding quotes and punctuation) counts as no event.
+- **Deck fallback**: when nothing is generated, one entry is drawn at random from the `events` deck in `roleplay.json`
+  and queued as written. With an empty deck the command reports that nothing is available.
 
-Unlike auto-summarization, the event generator stays enabled **without** an explicit model - it inherits the parent
-session model. A separate `eventModel` (resolution order `<cwd>/.pi/roleplay-event.json` >
-`~/.pi/agent/roleplay-event.json` > `~/.pi/agent/settings.json` `roleplay.eventModel`) lets a stronger model write the
-complication while a small local model drives the scene. Disable the whole path with `PI_ROLEPLAY_DISABLE_EVENTS=1`.
-Pure logic lives in [`event.ts`](../../../lib/node/pi/roleplay/event.ts).
+The generator inherits the parent session model unless `eventModel` is set (resolution order
+`<cwd>/.pi/roleplay-event.json` > `~/.pi/agent/roleplay-event.json` > `~/.pi/agent/settings.json`
+`roleplay.eventModel`). Disable with `PI_ROLEPLAY_DISABLE_EVENTS=1`.
 
 ## The `roleplay` tool
 
-| Action   | Required                                  | Optional | Purpose                                        |
-| -------- | ----------------------------------------- | -------- | ---------------------------------------------- |
-| `list`   | -                                         | -        | Dump the active cast index.                    |
-| `read`   | `id`                                      | `kind`   | Load a record's full body.                     |
-| `save`   | `name`, `description`, `body`             | `kind`   | Write a new record + rebuild `INDEX.md`.       |
-| `update` | `id` + one of `name`/`description`/`body` | `kind`   | Rewrite fields; renames change the slug.       |
-| `remove` | `id`                                      | `kind`   | Delete a record + drop it from `INDEX.md`.     |
-| `search` | `query`                                   | -        | Case-insensitive match over name/desc/id/body. |
+| Action   | Required                               | Optional | Purpose                                        |
+| -------- | -------------------------------------- | -------- | ---------------------------------------------- |
+| `list`   | -                                      | -        | Dump the active cast index.                    |
+| `read`   | `id`                                   | `kind`   | Load a record's full body.                     |
+| `save`   | `name`, `description`, `body`          | `kind`   | Write a new record + rebuild `INDEX.md`.       |
+| `update` | `id` + a field (core or kind-specific) | `kind`   | Rewrite fields; renames change the slug.       |
+| `remove` | `id`                                   | `kind`   | Delete a record + drop it from `INDEX.md`.     |
+| `search` | `query`                                | -        | Case-insensitive match over name/desc/id/body. |
 
-`kind` defaults to `character`; pass `kind: lore` to target / create a lorebook entry. When a slug exists under more
-than one kind, `read` / `update` / `remove` need an explicit `kind` to disambiguate. `save` / `update` of a `lore` entry
-also accept `triggers`, `secondaryKeys`, `secondaryMode`, `constant`, `order`, `depth`, and `recurse` (a `lore` update
-may change only those fields); `save` / `update` of a `character` entry accept `aliases`, `pinned`, `triggers`, and
-`order` (the scene-fold knobs - see [Scene](#scene-folding-full-character-sheets-characters--pov--pinned)). All actions
-operate on the **active cast**.
+`kind` defaults to `character` for `save`. When an id exists under more than one kind, `read` / `update` / `remove` need
+an explicit `kind`. Kind-specific parameters:
+
+| Kind           | Parameters                                                                                                         |
+| -------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `lore`         | `triggers`, `secondaryKeys`, `secondaryMode` (`AND`/`OR`/`NOT`/`NOT_ALL`), `constant`, `order`, `depth`, `recurse` |
+| `character`    | `aliases`, `pinned`, `triggers`, `order`                                                                           |
+| `relationship` | `affinity` (clamped 0-100), `trust`, `lastInteraction` (`YYYY-MM-DD`, or `""` to clear), `openThreads`             |
+
+An `update` may change only kind-specific fields; an omitted `body` is preserved from disk. A negative `depth` clears
+it. `update` and `remove` act on the record's real file, including bundle lore. `save` and renames reject the reserved
+`auto` slug in `summary` / `timeline`. All actions operate on the **active cast**.
 
 ## Scene images: simple, full, or off
 
@@ -702,23 +523,32 @@ selection and branch-mode restoration live in [`image-tools.ts`](../../../lib/no
 
 ## `/roleplay` command
 
-- `/roleplay` (or `/roleplay list`) - show the active cast (or the dormant note).
-- `/roleplay cast <name>` - set the active-cast override (effective once a `roleplay: true` persona is active).
-- `/roleplay import <path.json|.png>` - import a SillyTavern character card into the active cast (see below).
-- `/roleplay event [hint]` - queue a one-shot scene complication for your next reply (LLM-generated, or drawn from the
-  `events` deck).
-- `/roleplay images [simple|full|off]` - show or change the image interface (see above).
-- `/roleplay newscene` - start a fresh scene: archive + clear the recap / timeline / captured-fact carry-overs so the
-  next turn cold-starts (opt-out of the silent carry-over seed).
-- `/roleplay dir` - print the store root + active cast dir.
-- `/roleplay rescan` - re-read the active cast from disk and rebuild `INDEX.md` from the complete on-disk inventory
-  (base + every lore bundle). The on-demand reindex path for bundles authored by direct file edits.
-- `/roleplay casts` - list every cast directory on disk.
-- `--help` / `-h` / `?` prints USAGE.
+| Verb                                | Effect                                                                                                                                                                |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| (none) / `list`                     | Show the active cast index (or the dormant note).                                                                                                                     |
+| `context` (aliases `ctx`, `window`) | Show the last context-window pass: message counts, cutoffs, which boundary binds, recap size, token estimates, prefix-cache reuse, and backlog drain.                 |
+| `lore`                              | Show the last narrative turn's lore selection (keyword lore kept / dropped by budget, depth lore kept / dropped), active bundles, and live sticky / cooldown windows. |
+| `recap [show]`                      | Show recap mode, recap model, coverage cutoffs, in-flight / forced status, the recap text, and a preview of the injected timeline block.                              |
+| `recap force`                       | Arm a forced roll: the next context pass rolls the recap regardless of the stride (waits for an in-flight async roll). Refused when recap mode is off.                |
+| `relationships` (alias `rel`)       | List relationship records sorted by name with stored and decayed affinity, trust, last interaction (and days since), and open threads.                                |
+| `cast <name>`                       | Set the active-cast override (effective once a `roleplay: true` persona is active). With no name, print the active cast.                                              |
+| `import <path.json\|.png>`          | Import a SillyTavern card into the active cast (see below).                                                                                                           |
+| `export [character] [path]`         | Export a character + the active lore as a Character Card V2 JSON (see below).                                                                                         |
+| `event [hint]`                      | Queue a one-shot scene complication for your next reply.                                                                                                              |
+| `images [simple\|full\|off]`        | Show or change the image interface.                                                                                                                                   |
+| `newscene`                          | Archive the recap / timeline / captured-fact carry-overs, mark the branch, and clear in-memory scene state so the next turn starts cold.                              |
+| `dir`                               | Print the store root + active cast dir.                                                                                                                               |
+| `rescan`                            | Re-read the active cast from disk and rebuild `INDEX.md` from the complete on-disk inventory (base + every lore bundle).                                              |
+| `casts`                             | List every cast directory on disk (active one marked `*`).                                                                                                            |
+| `help` / `--help` / `-h` / `?`      | Print USAGE.                                                                                                                                                          |
+
+Argument completion covers verbs, `cast` names, `recap` modes, `images` modes, and `export` character ids.
 
 ## Importing SillyTavern cards
 
-`/roleplay import <path>` ingests a SillyTavern / TavernAI **character card** into the active cast. It accepts:
+`/roleplay import <path>` ingests a SillyTavern / TavernAI **character card** into the active cast. The path may be
+quoted (one pair of matching `"` or `'`), may start with `~` or `~/`, and resolves relative paths against the session
+cwd. It accepts:
 
 - `.json` - a Character Card V1 (flat), V2 (`chara_card_v2`), or V3 (`chara_card_v3`) export; and
 - `.png` - a card image with the JSON embedded in a `chara` (V2) or `ccv3` (V3) `tEXt` chunk (base64). V3 wins when both
@@ -726,173 +556,167 @@ selection and branch-mode restoration live in [`image-tools.ts`](../../../lib/no
 
 The importer writes:
 
-- **one `character` record** whose body folds the card's `description`, `personality`, `scenario`, `first_mes`,
-  `mes_example`, `system_prompt`, `post_history_instructions`, and `alternate_greetings` into labelled sections (so
-  nothing is lost; routing `system_prompt`/greetings into persona fields is Phase 5 work); and
-- **one `lore` record per enabled `character_book` entry** - `keys` -> `triggers`, `secondary_keys` (when the entry is
-  `selective`) -> `secondaryKeys`, `selectiveLogic` -> `secondaryMode` (0 = OR, 1/2 = NOT, 3 = AND), `constant` and
-  `insertion_order` -> `order` preserved.
+- **one `character` record** whose body folds `description`, `personality`, `scenario`, `first_mes`, `mes_example`,
+  `system_prompt`, `post_history_instructions`, and `alternate_greetings` into labelled sections. The record description
+  comes from `creator_notes`, then `personality`, then `description`. A V3 `nickname` that differs from the name becomes
+  an `aliases` entry; and
+- **one `lore` record per non-empty `character_book` entry**, mapped as follows (knobs are read from the entry's
+  `extensions` with a flat fallback, as SillyTavern does):
 
-Disabled or empty-content book entries are skipped with a warning; the summary lists every record written. The import is
-dormant-gated like the rest of the extension - activate a `roleplay: true` persona first. Decoding/normalization is pure
-([`lib/node/pi/card-import/`](../../../lib/node/pi/card-import/)); the command just reads the file and writes the
-resulting records.
+| Card field                                                                                             | Lore field                                                         |
+| ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------ |
+| `keys`                                                                                                 | `triggers`                                                         |
+| `secondary_keys` (when `selective`)                                                                    | `secondaryKeys`                                                    |
+| `selectiveLogic` 0 (default) / 1 / 2 / 3                                                               | `secondaryMode` `OR` / `NOT_ALL` / `NOT` / `AND`                   |
+| `constant`, `insertion_order`                                                                          | `constant`, `order`                                                |
+| `extensions.position` 4 ("at depth")                                                                   | `depth` from `extensions.depth` (default 4); other positions unset |
+| `probability` (unless `useProbability: false`), `sticky`, `cooldown`, `delay`, `group`, `group_weight` | same-named lore fields                                             |
+| `enabled: false`                                                                                       | `enabled: false` (imported, not skipped)                           |
+
+`recurse` stays off: SillyTavern has no per-entry recursion opt-in. Warnings list empty entries (skipped), disabled
+entries (imported with `enabled: false`), entries with no keys that are not constant, and knobs the store cannot honor:
+regex-shaped keys (`/pattern/flags`, matched as literal text), `case_sensitive: true`, and `match_whole_words: false`
+(matching stays case-insensitive and whole-word). The summary lists every record written. Decoding and mapping are pure
+([`lib/node/pi/card-import/`](../../../lib/node/pi/card-import/)).
+
+## Exporting a card
+
+`/roleplay export [character] [path]` writes a SillyTavern **Character Card V2** JSON:
+
+- **Character.** A leading token that resolves to a cast character (id, name, or name slug) selects it. Otherwise the
+  default is the persona's primary character (first non-POV `characters` entry), then the first character record. A
+  leading token that does not resolve and does not look like a path (no `.`, `/`, `~`, or `\`) is an error.
+- **Path.** Defaults to `<session cwd>/<character-id>.card.json`. Quoting, `~` expansion, and relative resolution follow
+  the import rules. The export **never overwrites** an existing file.
+- **Lore.** Every lore record loaded for the active cast is included as `character_book` entries: base lore plus the
+  activated bundles (after bundle overrides), depth lore included, and disabled entries with `enabled: false`. The book
+  is omitted when the cast has no lore.
+
+Field mapping is the inverse of the importer. When the character body uses the importer's labelled-section layout, each
+section maps back to its card field (alternate greetings split from the numbered list); otherwise the whole body becomes
+`description`. The record's one-line `description` goes to `creator_notes`, so a re-import restores it. Lore maps
+`triggers` -> `keys`, `secondaryKeys` -> `secondary_keys` (`selective` when non-empty), `secondaryMode` ->
+`extensions.selectiveLogic` (OR=0, NOT_ALL=1, NOT=2, AND=3), `order` -> `insertion_order`, `depth` ->
+`extensions.position: 4` + `extensions.depth`, and `probability` / `sticky` / `cooldown` / `delay` / `group` /
+`groupWeight` to their `extensions` counterparts. Character fold metadata (`aliases`, `pinned`, ...) is not exported.
 
 ## Configuration
 
-Budgets + recursion are preferences, exposed via a `roleplay.json` config layer
-([`lib/node/pi/roleplay/config.ts`](../../../lib/node/pi/roleplay/config.ts)), resolution order
-`project (<cwd>/.pi/roleplay.json)` > `user (~/.pi/agent/roleplay.json)` > `PI_ROLEPLAY_MAX_INJECTED_CHARS` env >
-built-in default.
+Budgets and dials are preferences, exposed via a `roleplay.json` config layer
+([`lib/node/pi/roleplay/config.ts`](../../../lib/node/pi/roleplay/config.ts)). Resolution order:
+`project (<cwd>/.pi/roleplay.json)` > `user (~/.pi/agent/roleplay.json)` > env knobs > built-in default. Out-of-range
+values are clamped to the bounds below; wrong types are ignored.
 
 ```jsonc
 {
-  "imageMode": "full", // full (default), simple prompt-only scene illustrations, or off
+  "imageMode": "full", // full (default), simple, or off
   "imageWorkflow": "qwen-image-edit-2.1", // optional simple-mode workflow; absent = ComfyUI default
-  "charBudget": 4000, // cast-index block cap (default 3000, floor 500)
-  "loreCharBudget": 4000, // fired-lore section cap (default 3000, floor 500)
-  "maxRecursion": 1, // lorebook recursion passes, 0 = off (default 0, ceiling 2)
-  "scanDepth": 10, // recent messages scanned for depth lore, character folds, and scene events (default 10, max 100)
-  "depthLoreInlineTail": false, // merge depth-0 chunks in the input's snapshot; other depths keep anchored placements
-  "relationshipDecayPerDay": 1, // affinity points drifted toward baseline per idle day (default 1, >=0)
-  "relationshipBaseline": 50, // neutral resting affinity decay converges to (default 50, 0-100)
-  "summarizeMinMessages": 4, // min evicted messages before auto-summarization fires (default 4, >=1)
-  "summarizeMaxChars": 1500, // cap on the generated auto-summary body (default 1500, floor 200)
-  "repetitionEnabled": true, // enable the multi-turn repetition nudge (default true)
+  "charBudget": 3000, // cast-index block cap, also each scene-fold block (default 3000, floor 500)
+  "loreCharBudget": 3000, // fired-lore block cap, also depth lore (default 3000, floor 500)
+  "maxRecursion": 0, // lorebook recursion passes, 0 = off (default 0, max 2)
+  "scanDepth": 10, // recent messages scanned for depth lore, folds, and events (default 10, 1-100)
+  "depthLoreInlineTail": false, // merge depth-0 chunks into one roleplay-depth reminder (default false)
+  "relationshipDecayPerDay": 1, // affinity points drifted toward baseline per idle day (default 1, >= 0)
+  "relationshipBaseline": 50, // neutral resting affinity (default 50, 0-100)
+  "summarizeMinMessages": 4, // min messages in a span before a recap or extraction runs (default 4, >= 1)
+  "summarizeMaxChars": 1500, // cap on a recap body (default 1500, floor 200)
+  "repetitionEnabled": true, // multi-turn repetition nudge (default true)
   "repetitionNgram": 5, // word-n-gram length compared across replies (default 5, 2-12)
   "repetitionWindow": 6, // recent assistant replies scanned (default 6, 1-50)
-  "repetitionMinCount": 2, // occurrences across the window before flagging (default 2, >=2)
+  "repetitionMinCount": 2, // occurrences across the window before flagging (default 2, >= 2)
   "events": [], // fallback complication deck for `/roleplay event` (default [])
-  "eventMaxChars": 280, // cap on a generated / picked scene event (default 280, floor 40)
+  "eventMaxChars": 280, // cap on a generated scene event (default 280, floor 40)
   "eventSeedThreads": true, // offer relationship openThreads to the event generator (default true)
-  "keepTurns": 8, // recent user-turns kept verbatim in the rolling window (default 8, 1-200)
-  "recapChunk": 8, // aged messages per roll = re-recap + drop-boundary cadence (default 8, 1-500)
+  "keepTurns": 8, // recent user turns kept verbatim (default 8, 1-200)
+  "recapChunk": 8, // aged messages per roll when recapStride is 0 (default 8, 1-500)
   "windowAssistantChars": 200, // condense budget for older assistant text (default 200, floor 40)
   "windowUserChars": 400, // condense budget for older user text (default 400, floor 40)
   "recapStride": 0, // roll cadence in aged messages; 0 = follow recapChunk (default 0, 0-500)
+  "recapMaxAdvance": 24, // max messages one roll adds to recap coverage; 0 = unbounded (default 24, 0-5000)
+  "recapLagCeiling": 96, // force-accept a recap once coverage lags this many messages; 0 = off (default 96, 0-5000)
   "recapAsync": null, // force async (true) / sync (false) recap; null = auto by endpoint (default null)
   "capture": false, // deterministic fact capture on the roll -> memory notes (default false)
-  "timeline": false, // additive anti-drift timeline of dated beats on the roll (default false)
-  "timelineMaxInjectChars": 1200, // cap on the injected `## Recent timeline` block (default 1200, floor 200)
+  "timeline": false, // additive timeline of dated beats on the roll (default false)
+  "timelineMaxInjectChars": 1200, // cap on the injected timeline block (default 1200, floor 200)
+  "timelineFileMaxChars": 65536, // rotate timeline/auto.md past this size (default 65536, floor 4096)
+  "timelineMemoryMaxChars": 32768, // cap on the in-memory timeline log, newest lines kept (default 32768, floor 1024)
+  "sceneFoldDelivery": "reminder", // name-triggered sheets: reminder (default) or system
+  "sceneFoldRefreshTurns": 6, // re-send a still-active name-triggered sheet after N turns (default 6, 1-100)
 }
 ```
 
-The auto-summarization **model** is resolved separately (it is a credential / model choice, not a budget): set
-`roleplay.summarizeModel` in `~/.pi/agent/settings.json`, or a `summarizeModel` key in `roleplay-summarize.json`
-(project or user). With no model resolved, auto-summarization stays disabled. The scene-event **model** (`eventModel`)
-is resolved the same way (`roleplay.eventModel` in `settings.json`, or a `roleplay-event.json`); unlike summarization it
-is optional - with none set the event generator inherits the parent session model.
+The recap **model** is resolved separately: set `roleplay.summarizeModel` in `~/.pi/agent/settings.json`, or a
+`summarizeModel` key in `roleplay-summarize.json` (project or user). With no model resolved, no recap is generated and
+the compaction side-write is skipped. The fact and timeline extractors use the same model. The scene-event **model**
+(`eventModel`) resolves the same way (`roleplay.eventModel` in `settings.json`, or a `roleplay-event.json`) but is
+optional.
+
+Prompt guidance for the summary, timeline, facts, and event agents can be overridden with a markdown file at
+`<cwd>/.pi/roleplay/prompts/<name>.md` (project) or `<roleplay root>/prompts/<name>.md` (user), where `<name>` is
+`summary`, `timeline`, `facts`, or `event`. Only the editable guidance section is replaced; the output contract stays
+fixed.
 
 ## Environment variables
 
+Env knobs that mirror config keys sit below both config files.
+
 - `PI_ROLEPLAY_DISABLED=1` - skip the extension entirely (no tool, no command, no injection).
-- `PI_CACHE_REMINDERS_DISABLED=1` - suppress managed lore/note/repetition/event reminders globally, without restoring
-  legacy tail delivery. Scene/index prompts and context-window management remain independent.
-- `PI_ROLEPLAY_DISABLE_AUTOINJECT=1` - keep the tool but skip the `## Roleplay` block.
-- `PI_ROLEPLAY_DISABLE_LOREBOOK=1` - keep the cast-index injection but skip keyword-triggered lore.
+- `PI_CACHE_REMINDERS_DISABLED=1` - suppress managed reminders globally: lore, depth injection, repetition, and events
+  turn off, and name-triggered sheets fall back into the system-prompt scene block. Scene/index prompts and context
+  window management remain.
+- `PI_ROLEPLAY_DISABLE_AUTOINJECT=1` - keep the tool but skip the `## Roleplay` blocks and lore selection.
+- `PI_ROLEPLAY_DISABLE_LOREBOOK=1` - keep the cast-index injection but skip keyword and depth lore.
 - `PI_ROLEPLAY_DISABLE_DEPTH_INJECT=1` - skip depth-tagged lore and author's-note placements.
-- `PI_ROLEPLAY_DISABLE_SUMMARIZE=1` - drop recap mode (no `summary/auto` recap, no threshold ownership); the rolling
-  window degrades to the condense-only floor.
-- `PI_ROLEPLAY_DISABLE_CONTEXT_WINDOW=1` - skip the rolling in-context reduction entirely and defer to pi (keeps only
-  the legacy compaction-time side-write).
-- `PI_ROLEPLAY_CONTEXT_TURNS=N` - recent user-turns kept verbatim (overrides config `keepTurns`; sits below the config
-  files).
-- `PI_ROLEPLAY_RECAP_CHUNK=N` - aged messages per roll (overrides config `recapChunk`).
-- `PI_ROLEPLAY_RECAP_STRIDE=N` - roll cadence in aged messages (overrides config `recapStride`; 0/unset = follow
-  `recapChunk`); raise to cut cache churn.
-- `PI_ROLEPLAY_CONTEXT_ASSISTANT_CHARS=N` / `PI_ROLEPLAY_CONTEXT_USER_CHARS=N` - per-role condense budgets for the
-  boundary zone.
-- `PI_ROLEPLAY_RECAP_ASYNC=1|0` - force the recap off / on the critical path (overrides config `recapAsync`; default:
-  async only when a distinct recap endpoint is configured).
-- `PI_ROLEPLAY_CONTEXT_DEBUG=1` - append a per-turn `roleplay-context-window-debug` log entry (system / recap / sent vs
-  full token estimates + the sawtooth); off by default, never sent to the LLM.
-- `PI_ROLEPLAY_CAPTURE=1` - enable deterministic fact capture on the roll into `memory`'s session (`note`) tier (default
-  OFF; requires recap mode + a session id; validate extraction quality in a smoke run before relying).
-- `PI_ROLEPLAY_TIMELINE=1` - enable the additive anti-drift timeline on the roll (default OFF; requires recap mode;
-  appends dated beats to `timeline/auto.md` + the `roleplay-timeline` branch entry and injects a compact
-  `## Recent timeline` block).
-- `PI_ROLEPLAY_DISABLE_REPETITION=1` - skip the multi-turn repetition / anti-slop nudge.
-- `PI_ROLEPLAY_DISABLE_EVENTS=1` - disable `/roleplay event` scene complications.
-- `PI_ROLEPLAY_DISABLE_PROMPT_OVERRIDES=1` - ignore every `prompts/<name>.md` guidance override and use the shipped
-  default prompts.
-- `PI_ROLEPLAY_LORE_BUNDLES=nameA,nameB` - activate optional lore bundles (`lore/<name>/*.md`) at launch,
-  comma-separated in ascending precedence order (later overrides earlier; every bundle overrides base lore on an id
-  clash). Base top-level `lore/*.md` always loads; unlisted bundles stay inert. See
+- `PI_ROLEPLAY_DISABLE_SUMMARIZE=1` - drop recap mode and the compaction side-write; the window degrades to the
+  condense-only floor.
+- `PI_ROLEPLAY_DISABLE_CONTEXT_WINDOW=1` - skip the rolling reduction entirely and defer to pi.
+- `PI_ROLEPLAY_CONTEXT_TURNS=N` - `keepTurns`.
+- `PI_ROLEPLAY_RECAP_CHUNK=N` - `recapChunk`.
+- `PI_ROLEPLAY_RECAP_STRIDE=N` - `recapStride` (0 = follow `recapChunk`).
+- `PI_ROLEPLAY_RECAP_MAX_ADVANCE=N` - `recapMaxAdvance` (0 = unbounded).
+- `PI_ROLEPLAY_RECAP_LAG_CEILING=N` - `recapLagCeiling` (0 = disabled).
+- `PI_ROLEPLAY_CONTEXT_ASSISTANT_CHARS=N` / `PI_ROLEPLAY_CONTEXT_USER_CHARS=N` - `windowAssistantChars` /
+  `windowUserChars`.
+- `PI_ROLEPLAY_RECAP_ASYNC=1|0` - `recapAsync` (default: async only when a distinct recap endpoint is configured).
+- `PI_ROLEPLAY_CONTEXT_DEBUG=1` - append a per-turn `roleplay-context-window-debug` session entry (token estimates and
+  cutoffs); never sent to the LLM.
+- `PI_ROLEPLAY_CAPTURE=1` - `capture` (requires recap mode + a session id).
+- `PI_ROLEPLAY_TIMELINE=1` - `timeline` (requires recap mode).
+- `PI_ROLEPLAY_DISABLE_REPETITION=1` - skip the repetition nudge.
+- `PI_ROLEPLAY_DISABLE_EVENTS=1` - disable `/roleplay event`.
+- `PI_ROLEPLAY_DISABLE_PROMPT_OVERRIDES=1` - ignore every `prompts/<name>.md` override.
+- `PI_ROLEPLAY_LORE_BUNDLES=nameA,nameB` - activate lore bundles at launch, ascending precedence. See
   [Optional lore bundles](#optional-lore-bundles).
-- `PI_ROLEPLAY_DISABLE_AVATAR=1` - stop driving the [`avatar`](./avatar.md) face from the active cast (Phase 6).
-- `PI_ROLEPLAY_DISABLE_SCENEGEN=1` - stop mirroring generated scene images into the avatar's `scene` banner (Phase 6C).
-- `PI_ROLEPLAY_MAX_INJECTED_CHARS=N` - soft cap on the injected cast-index block (default 3000, floor 500). Below the
-  config files.
+- `PI_ROLEPLAY_DISABLE_AVATAR=1` - stop driving the [`avatar`](./avatar.md) face from the active cast.
+- `PI_ROLEPLAY_DISABLE_SCENEGEN=1` - stop mirroring generated scene images into the avatar's `scene` banner.
+- `PI_ROLEPLAY_MAX_INJECTED_CHARS=N` - `charBudget` (floor 500).
 - `PI_ROLEPLAY_ROOT=<path>` - override `~/.pi/agent/roleplay` (useful for testing / per-host profiles).
 
 ## Composition with other extensions
 
-| Extension                    | Interaction                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`persona.ts`](./persona.md) | The master gate. `roleplay: true` (+ optional `cast:`) in persona frontmatter activates this extension; `authorNote` / `authorNoteDepth` supply the turn-anchored author's note and its depth; the resolved persona is read via the singleton.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| [`memory.ts`](./memory.md)   | Independent. Coding memory is untouched; roleplay has its own root, tool, and injected block. Both can be active at once.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| [`avatar.ts`](./avatar.md)   | Phase 6: roleplay publishes the active character's sprite-set into the avatar-input slot ([`avatar/input.ts`](../../../lib/node/pi/avatar/input.ts)) so the avatar shows the _character_. The set slug resolves in precedence order: an explicit persona `avatarSet` &gt; the first non-POV `characters` entry &gt; the first `characters` entry &gt; the `cast` slug. `avatarSet` exists to decouple the avatar face from the cast store - e.g. `cast: exusiai-isekai` + `avatarSet: exusiai` keeps a distinct scenario cast while reusing the shared `exusiai` sprites (without it the `exusiai-isekai` slug has no `avatar/emotes/<slug>/` dir and the avatar falls back to the ASCII kaomoji). If a `portraits/<slug>.png` exists for the active character it is pushed as the avatar's override image (static portrait wins over the animated sprite). Gated by `PI_ROLEPLAY_DISABLE_AVATAR`. |
-| [`comfyui.ts`](./comfyui.md) | Phase 6C: roleplay subscribes to comfyui's neutral image-generated bus ([`comfyui/events.ts`](../../../lib/node/pi/comfyui/events.ts)) and, while a scene is active, mirrors the latest `generate_image` render into the avatar's `scene` banner. Full mode keeps model-driven prompting; simple mode delegates prompt writing with bounded visual identities. Roleplay routes saved PNGs to the banner. comfyui has no dependency on roleplay or the avatar. Gated by `PI_ROLEPLAY_DISABLE_SCENEGEN` (and `PI_ROLEPLAY_DISABLE_AVATAR`).                                                                                                                                                                                                                                                                                                                                                          |
-
-## Pure helpers
-
-Pure logic lives under [`../../../lib/node/pi/roleplay/`](../../../lib/node/pi/roleplay/) so it is vitest-testable
-without the pi runtime; this file holds only the pi-coupled glue + disk I/O.
-
-- [`store.ts`](../../../lib/node/pi/roleplay/store.ts) - types, frontmatter parse/serialize (incl. `lore` +
-  `relationship` metadata), index CRUD, `INDEX.md` + injected-block renderers, slugs.
-- [`paths.ts`](../../../lib/node/pi/roleplay/paths.ts) - on-disk layout + scan/read/write (node:fs only).
-- [`match.ts`](../../../lib/node/pi/roleplay/match.ts) - whole-word keyword matching + lore firing (triggers +
-  AND/OR/NOT secondaries).
-- [`budget.ts`](../../../lib/node/pi/roleplay/budget.ts) - rank fired lore by `order` and evict to the char budget.
-- [`recursion.ts`](../../../lib/node/pi/roleplay/recursion.ts) - bounded, opt-in re-scan of fired lore bodies.
-- [`timing.ts`](../../../lib/node/pi/roleplay/timing.ts) - timed-effect + inclusion-group pass (delay / probability /
-  sticky / cooldown / group) over matched lore.
-- [`prompt.ts`](../../../lib/node/pi/roleplay/prompt.ts) - render the fired-lore snapshot section.
-- [`inject.ts`](../../../lib/node/pi/roleplay/inject.ts) - narrative eligibility, depth planning/framing, and stable
-  placement-anchor resolution for snapshots.
-- [`scene.ts`](../../../lib/node/pi/roleplay/scene.ts) - resolve + fold full character sheets (`characters` / `pov`)
-  into the `## Roleplay scene` block.
-- [`scene-fold.ts`](../../../lib/node/pi/roleplay/scene-fold.ts) - name-keyed character-fold selection (`pinned` +
-  name/alias/trigger match), reusing `hasKeyword` + `applyTiming` for the sticky/cooldown timing.
-- [`macros.ts`](../../../lib/node/pi/roleplay/macros.ts) - `{{user}}` / `{{char}}` / `{{time}}` / `{{random}}` /
-  `{{roll}}` substitution over injected text (deterministic via injectable clock + rng).
-- [`relationship.ts`](../../../lib/node/pi/roleplay/relationship.ts) - toward-baseline affinity decay (`decayAffinity`,
-  `daysElapsed`, `formatRelationshipLine`).
-- [`summarize.ts`](../../../lib/node/pi/roleplay/summarize.ts) - auto-summarization: span rendering + trigger
-  (`planSummarization`), settings resolver, and the `createSummarizer` adapter (null = fall back).
-- [`context-window.ts`](../../../lib/node/pi/roleplay/context-window.ts) - rolling reduction: head+tail truncation,
-  `computeCutoff` / `applyLayeredWindow` (drop + condense on user boundaries), `injectRecap`, `acceptRecap` collapse
-  guard, `planRecap` roll cadence, and the sizing helpers (`deriveMaxSpanChars`, `updateCharsPerToken`,
-  `deriveKeepTurns`, `estimateChars`).
-- [`capture.ts`](../../../lib/node/pi/roleplay/capture.ts) - deterministic fact capture: fact-extraction task builder +
-  tolerant `parseFactCandidates` (fenced / bare JSON array -> validated, clamped, de-duped `{name, description}`).
-- [`timeline.ts`](../../../lib/node/pi/roleplay/timeline.ts) - additive anti-drift timeline: beat-extraction task
-  builder + tolerant `parseTimelineBeats` (`{when?, summary}`), append-log formatters (`formatBeatLines`), and the
-  injected-block renderer (`renderTimelineBlock`, most-recent + char-capped). Recovers the model's array via
-  `extractBalancedArray` from the shared [`json-loose.ts`](../../../lib/node/pi/json-loose.ts) (the array sibling of
-  `extractBalancedObject`), which `capture.ts` uses too.
-- [`repetition.ts`](../../../lib/node/pi/roleplay/repetition.ts) - multi-turn n-gram repetition detection +
-  character-sheet exclusion + nudge framing (`detectRepetition`, `buildExcludeSet`, `formatRepetitionNudge`).
-- [`event.ts`](../../../lib/node/pi/roleplay/event.ts) - scene-event task builder, director framing, deck pick, settings
-  resolver, and the `createEventGenerator` adapter (null = fall back to deck).
-- [`config.ts`](../../../lib/node/pi/roleplay/config.ts) - the `roleplay.json` config layer.
-- [`active.ts`](../../../lib/node/pi/roleplay/active.ts) - the cross-extension active-cast singleton.
-- [`usage.ts`](../../../lib/node/pi/roleplay/usage.ts) - the `/roleplay` USAGE string.
-
-Card import lives under [`../../../lib/node/pi/card-import/`](../../../lib/node/pi/card-import/):
-
-- [`parse-png-chara.ts`](../../../lib/node/pi/card-import/parse-png-chara.ts) - PNG `tEXt` chunk reader + base64 decode
-  of the `chara`/`ccv3` card chunk.
-- [`card-to-records.ts`](../../../lib/node/pi/card-import/card-to-records.ts) - normalize V1/V2/V3 card JSON and map it
-  to `character` + `lore` records.
+| Extension                                    | Interaction                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`persona.ts`](./persona.md)                 | The master gate. `roleplay: true` (+ optional `cast:`) activates this extension; `characters` / `pov` declare scene folds; `authorNote` / `authorNoteDepth` supply the author's note; `openers` feed `/persona opener`.                                                                                                                                                                                                                                                                         |
+| [`memory.ts`](./memory.md)                   | Independent store and tool. Fact capture writes into `memory`'s session (`note`) tier. Both can be active at once.                                                                                                                                                                                                                                                                                                                                                                              |
+| [`cache-reminders.ts`](./cache-reminders.md) | Captures the `roleplay-*` reminder blocks once per run and replays them through tool continuations; `PI_CACHE_REMINDERS_DISABLED` turns the reminder-delivered features off.                                                                                                                                                                                                                                                                                                                    |
+| [`avatar.ts`](./avatar.md)                   | Roleplay publishes the active character's sprite-set into the avatar-input slot ([`avatar/input.ts`](../../../lib/node/pi/avatar/input.ts)). The set slug resolves as: persona `avatarSet` > first non-POV `characters` entry > first `characters` entry > `cast` slug. `avatarSet` decouples the face from the cast store (e.g. `cast: exusiai-isekai` + `avatarSet: exusiai`). A `portraits/<slug>.png` for the active character overrides the sprite. Gated by `PI_ROLEPLAY_DISABLE_AVATAR`. |
+| [`comfyui.ts`](./comfyui.md)                 | Roleplay subscribes to comfyui's image-generated bus ([`comfyui/events.ts`](../../../lib/node/pi/comfyui/events.ts)) and mirrors the latest render into the avatar's `scene` banner while a scene is active. Simple image mode delegates prompt writing with bounded visual identities. comfyui has no dependency on roleplay. Gated by `PI_ROLEPLAY_DISABLE_SCENEGEN` (and `PI_ROLEPLAY_DISABLE_AVATAR`).                                                                                      |
 
 ## Hot reload
 
-Edit [`extensions/roleplay.ts`](./roleplay.ts) or any helper under
-[`../../../lib/node/pi/roleplay/`](../../../lib/node/pi/roleplay/) and run `/reload`. Editing the
-[`roleplay-summarizer`](../../../config/pi/agents/roleplay-summarizer.md) or
-[`roleplay-fact-extractor`](../../../config/pi/agents/roleplay-fact-extractor.md) agent (incl. its sampler
-`requestOptions`) is picked up on the next summarizer / extractor spawn without a reload. The rolling-window state
-(frozen cutoffs, in-memory recap) is per-process and reset on `session_start` / `session_tree` / `session_shutdown`, so
-`/reload` starts the window fresh and re-hydrates the recap from the durable `summary/auto` record.
+Edit [`roleplay.ts`](./roleplay.ts) or any helper under
+[`../../../lib/node/pi/roleplay/`](../../../lib/node/pi/roleplay/) and run `/reload`. Agent edits
+([`roleplay-summarizer`](../agents/roleplay-summarizer.md),
+[`roleplay-fact-extractor`](../agents/roleplay-fact-extractor.md),
+[`roleplay-timeline-extractor`](../agents/roleplay-timeline-extractor.md),
+[`roleplay-event`](../agents/roleplay-event.md), including sampler `requestOptions`) apply on the next spawn without a
+reload. Rolling-window state is per-process and reset on `session_start` / `session_tree` / `session_shutdown`; the next
+context pass re-hydrates the recap from the session branch, falling back to the `summary/auto.md` carry-over.
+
+## Related docs
+
+- [roleplay-internals.md](./roleplay-internals.md) - design rationale, cache-stability notes, recap mechanics, and the
+  pure helper module index.
+- [persona.md](./persona.md) - persona frontmatter that activates and shapes roleplay.
+- [cache-reminders.md](./cache-reminders.md) - reminder snapshot delivery used by lore, scene folds, events, and depth
+  blocks.
