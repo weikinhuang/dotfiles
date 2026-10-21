@@ -56,6 +56,7 @@ import { formatPresetListing } from '../../../lib/node/pi/preset/list.ts';
 import { PRESET_USAGE } from '../../../lib/node/pi/preset/usage.ts';
 import { createNotifyOnce } from '../../../lib/node/pi/notify-once.ts';
 import { piAgentPath, piProjectPath } from '../../../lib/node/pi/pi-paths.ts';
+import { parseCliThinkingLevel, resolveThinkingAfterModelSwap } from '../../../lib/node/pi/thinking-precedence.ts';
 import {
   describePreset,
   loadPresetFiles,
@@ -133,8 +134,12 @@ export default function presetExtension(pi: ExtensionAPI): void {
     if (debug) ctx.ui.notify(`preset: snapshot original state`, 'info');
   };
 
-  const applyPreset = async (name: string, preset: Preset, ctx: ExtensionContext): Promise<void> => {
+  const applyPreset = async (name: string, preset: Preset, ctx: ExtensionContext, startup = false): Promise<void> => {
     snapshotOriginal(ctx);
+    // pi's setModel() resets thinking to the settings default, so capture
+    // the live level first and re-apply per resolveThinkingAfterModelSwap
+    // (startup: CLI --thinking > preset > prior level).
+    const levelBeforeModelSwap = pi.getThinkingLevel();
 
     // Model. When the preset asks for a model that we can't actually apply
     // (malformed spec, unknown model, no auth), bail before marking the
@@ -160,8 +165,14 @@ export default function presetExtension(pi: ExtensionAPI): void {
     }
 
     // Thinking level
-    if (preset.thinkingLevel) {
-      pi.setThinkingLevel(preset.thinkingLevel);
+    const level = resolveThinkingAfterModelSwap({
+      startup,
+      cliLevel: parseCliThinkingLevel(process.argv.slice(2)),
+      overrideLevel: preset.thinkingLevel,
+      levelBeforeModelSwap,
+    });
+    if (level && level !== pi.getThinkingLevel()) {
+      pi.setThinkingLevel(level as Parameters<typeof pi.setThinkingLevel>[0]);
     }
 
     // Tools (validate against the live tool registry)
@@ -306,7 +317,7 @@ export default function presetExtension(pi: ExtensionAPI): void {
       updateStatus(ctx);
       return;
     }
-    await applyPreset(targetName, preset, ctx);
+    await applyPreset(targetName, preset, ctx, true);
   });
 
   pi.on('session_shutdown', () => {

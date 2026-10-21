@@ -23,12 +23,12 @@ preset.
 A preset is an entry in the top-level object of `presets.json`, keyed by name. All fields are optional - a preset may
 tweak a single knob.
 
-| Field                | Type                                   | Purpose                                                                                         |
-| -------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `model`              | `string` (`"provider/modelId"`)        | Model to switch to. Parsed via `parseModelSpec`; must resolve in `ctx.modelRegistry` with auth. |
-| `thinkingLevel`      | `"off" \| "low" \| "medium" \| "high"` | Forwarded to `pi.setThinkingLevel`.                                                             |
-| `tools`              | `string[]`                             | Active tool allow-list. Validated against `pi.getAllTools()`; unknowns warned-and-dropped.      |
-| `appendSystemPrompt` | `string`                               | Appended to the system prompt on every turn while the preset is active (two-newline separator). |
+| Field                | Type                                   | Purpose                                                                                          |
+| -------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `model`              | `string` (`"provider/modelId"`)        | Model to switch to. Parsed via `parseModelSpec`; must resolve in `ctx.modelRegistry` with auth.  |
+| `thinkingLevel`      | `"off" \| "low" \| "medium" \| "high"` | Forwarded to `pi.setThinkingLevel`. See [thinking-level precedence](#thinking-level-precedence). |
+| `tools`              | `string[]`                             | Active tool allow-list. Validated against `pi.getAllTools()`; unknowns warned-and-dropped.       |
+| `appendSystemPrompt` | `string`                               | Appended to the system prompt on every turn while the preset is active (two-newline separator).  |
 
 See [`../../../lib/node/pi/preset.ts`](../../../lib/node/pi/preset.ts) for the parsed `Preset` / `PresetsConfig` types
 and `describePreset` / `loadPresetFiles` helpers.
@@ -40,6 +40,20 @@ and `describePreset` / `loadPresetFiles` helpers.
 - `/preset off` (or `/preset (none)`) - clear the active preset and restore the snapshot taken at activation time.
 - `Ctrl+Shift+U` - cycle through presets in `nameOrder`, then `(none)`, then back to the first.
 - `--preset <name>` CLI flag - activate at `session_start`. Flag wins over the session-restored preset name.
+
+### Thinking-level precedence
+
+pi core's `setModel()` resets the thinking level to the settings `defaultThinkingLevel`, so a preset that swaps the
+model would otherwise clobber `--thinking off` at startup and reset a mid-session level change on every resume. The
+preset captures the live level before the model swap and re-applies one picked by
+[`resolveThinkingAfterModelSwap`](../../../lib/node/pi/thinking-precedence.ts), the same rules
+[persona](./persona.md#thinking-level-precedence) uses:
+
+- **Startup** (`--preset`, session restore): CLI `--thinking <level>` (or `--model <pattern>:<level>`) > preset
+  `thinkingLevel` > level before the model swap.
+- **Interactive** (`/preset <name>`, `Ctrl+Shift+U`): preset `thinkingLevel` > level before the model swap.
+
+With both a persona and a preset active, each re-applies its own level and the last one applied wins.
 
 ## `presets.json` location
 

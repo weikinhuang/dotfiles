@@ -101,6 +101,7 @@ import { resolveWriteRoots } from '../../../lib/node/pi/persona/resolve.ts';
 import { buildPersonaEnvDirs, parsePersonaDirsEnv } from '../../../lib/node/pi/persona/env-dirs.ts';
 import { parseModelSpec } from '../../../lib/node/pi/model-spec.ts';
 import { findRestoredPersonaName, selectStartupPersona } from '../../../lib/node/pi/persona/startup.ts';
+import { parseCliThinkingLevel, resolveThinkingAfterModelSwap } from '../../../lib/node/pi/thinking-precedence.ts';
 import { PERSONA_USAGE } from '../../../lib/node/pi/persona/usage.ts';
 import { clearActivePersona, setActivePersona } from '../../../lib/node/pi/persona/active.ts';
 import {
@@ -401,7 +402,15 @@ export default function personaExtension(pi: ExtensionAPI): void {
     }
   };
 
-  const applyModelAndThinking = async (persona: ActivePersona, ctx: ExtensionContext): Promise<boolean> => {
+  const applyModelAndThinking = async (
+    persona: ActivePersona,
+    ctx: ExtensionContext,
+    startup: boolean,
+  ): Promise<boolean> => {
+    // pi's setModel() resets thinking to the settings default, so capture
+    // the live level first and re-apply per resolveThinkingAfterModelSwap
+    // (startup: CLI --thinking > persona > prior level).
+    const levelBeforeModelSwap = pi.getThinkingLevel();
     if (persona.parsed.model && persona.parsed.model !== 'inherit') {
       const spec = parseModelSpec(persona.parsed.model);
       if (!spec) {
@@ -422,13 +431,19 @@ export default function personaExtension(pi: ExtensionAPI): void {
         return false;
       }
     }
-    if (persona.parsed.thinkingLevel) {
-      pi.setThinkingLevel(persona.parsed.thinkingLevel);
+    const level = resolveThinkingAfterModelSwap({
+      startup,
+      cliLevel: parseCliThinkingLevel(process.argv.slice(2)),
+      overrideLevel: persona.parsed.thinkingLevel,
+      levelBeforeModelSwap,
+    });
+    if (level && level !== pi.getThinkingLevel()) {
+      pi.setThinkingLevel(level as Parameters<typeof pi.setThinkingLevel>[0]);
     }
     return true;
   };
 
-  const applyPersona = async (name: string, ctx: ExtensionContext): Promise<void> => {
+  const applyPersona = async (name: string, ctx: ExtensionContext, startup = false): Promise<void> => {
     const resolved = resolveActive(name, ctx);
     if (!resolved) {
       ctx.ui.notify(`persona: unknown "${name}". Available: ${nameOrder.join(', ') || '(none)'}`, 'error');
@@ -443,7 +458,7 @@ export default function personaExtension(pi: ExtensionAPI): void {
 
     // Validate model / thinking BEFORE marking active so a failure
     // doesn't leave the badge claiming a half-applied persona.
-    const ok = await applyModelAndThinking(resolved, ctx);
+    const ok = await applyModelAndThinking(resolved, ctx, startup);
     if (!ok) return;
 
     // Tools - validate against the live tool registry; skip silently
@@ -499,10 +514,11 @@ export default function personaExtension(pi: ExtensionAPI): void {
   const clearPersona = async (ctx: ExtensionContext): Promise<void> => {
     if (!activeName) return;
     if (originalSnapshot) {
-      // Restore tools + thinking via the snapshot helper, model
-      // explicitly via ctx.modelRegistry (snapshot.setModel is a no-op
-      // - the SnapshotApi adapter doesn't roundtrip model setters).
-      restoreSession(snapshotApi(ctx), originalSnapshot);
+      // Restore the model explicitly via ctx.modelRegistry (snapshot.setModel
+      // is a no-op - the SnapshotApi adapter doesn't roundtrip model
+      // setters), THEN tools + thinking via the snapshot helper: pi's
+      // setModel() resets thinking to the settings default, so restoring
+      // thinking first would be clobbered.
       if (originalSnapshot.model) {
         const spec = parseModelSpec(originalSnapshot.model);
         if (spec) {
@@ -510,6 +526,7 @@ export default function personaExtension(pi: ExtensionAPI): void {
           if (model) await pi.setModel(model);
         }
       }
+      restoreSession(snapshotApi(ctx), originalSnapshot);
     }
     activeName = undefined;
     active = undefined;
@@ -855,7 +872,7 @@ export default function personaExtension(pi: ExtensionAPI): void {
       updateStatus(ctx);
       return;
     }
-    await applyPersona(targetName, ctx);
+    await applyPersona(targetName, ctx, true);
   });
 
   pi.on('session_shutdown', () => {

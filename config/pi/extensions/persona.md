@@ -36,7 +36,7 @@ agent frontmatter [`subagent.ts`](./subagent.ts) parses, so a persona file can b
 | `bashAllow`            | `string[]?`                            | **Persona-only.** Bash command-prefix allowlist layered on `bash-permissions.ts`.                                                                                                                                                                                                                                                      |
 | `bashDeny`             | `string[]?`                            | **Persona-only.** Bash deny patterns layered on `bash-permissions.ts`. `["*"]` blocks all.                                                                                                                                                                                                                                             |
 | `model`                | `string?` (`"provider/modelId"`)       | Model override. Parsed and resolved against `ctx.modelRegistry` with auth check.                                                                                                                                                                                                                                                       |
-| `thinkingLevel`        | `"off" \| "low" \| "medium" \| "high"` | Thinking level override.                                                                                                                                                                                                                                                                                                               |
+| `thinkingLevel`        | `"off" \| "low" \| "medium" \| "high"` | Thinking level override. See [thinking-level precedence](#thinking-level-precedence).                                                                                                                                                                                                                                                  |
 | `appendSystemPrompt`   | `string?`                              | **Persona-only.** Extra text appended after the body - useful when layering project-specific text onto an `agent:`-ref persona.                                                                                                                                                                                                        |
 | `systemPromptOverride` | `string?`                              | **Persona-only.** Escape hatch that _replaces_ pi's base prompt entirely (drops the default coding-agent scaffolding). Body + `appendSystemPrompt` are still appended after it. See "System-prompt composition" below.                                                                                                                 |
 | `requestOptions`       | `object?`                              | **Persona-only.** Free-form fields deep-merged into the outgoing provider payload via `before_provider_request`. See `requestOptions` section below.                                                                                                                                                                                   |
@@ -285,6 +285,24 @@ it doesn't accidentally route a write through `subagent(...)` to bypass the pare
 
 Activation precedence at `session_start`: `--persona` flag > session-restored persona (from the last `persona-state`
 entry on `/resume`) > `PI_PERSONA_DEFAULT`.
+
+### Thinking-level precedence
+
+pi core's `setModel()` resets the thinking level to the per-model / global `defaultThinkingLevel` setting (clamped to
+the model's `thinkingLevelMap`), so a persona that pins `model:` would otherwise clobber `--thinking off` with the
+settings default (observed: `off` -> `high` -> clamped `xhigh` on a llama.cpp Qwen). Persona captures the live level
+before the model swap and re-applies one picked by
+[`resolveThinkingAfterModelSwap`](../../../lib/node/pi/thinking-precedence.ts) (shared with [`preset.ts`](./preset.md)):
+
+- **Startup activation** (`--persona`, session restore, `PI_PERSONA_DEFAULT`): CLI `--thinking <level>` (or the
+  `--model <pattern>:<level>` shorthand) > persona `thinkingLevel` > level before the model swap. Headless
+  `pi -p --thinking off` therefore always sends a non-thinking request.
+- **Interactive switch** (`/persona <name>`, `Ctrl+Shift+M`): persona `thinkingLevel` > level before the model swap. The
+  CLI flag no longer applies; switching personas is a fresh explicit choice.
+- **`/persona off`** restores the snapshot model first, then the snapshot thinking level, so the restore is not reset
+  either.
+
+`PI_REASONING_LEVEL` plays no part: pi core only exports it to `bash` tool children as a read-only hint.
 
 ## Hot reload
 
