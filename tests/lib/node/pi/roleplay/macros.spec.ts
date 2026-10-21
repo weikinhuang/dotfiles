@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { hashString, mulberry32, seededRng, substituteMacros } from '../../../../../lib/node/pi/roleplay/macros.ts';
+import {
+  hashString,
+  mulberry32,
+  seededRng,
+  sessionMacroClock,
+  substituteMacros,
+} from '../../../../../lib/node/pi/roleplay/macros.ts';
 
 /** Deterministic rng: cycles through the given draws, repeating the last. */
 function seqRng(...draws: number[]): () => number {
@@ -117,6 +123,13 @@ describe('seeded rng', () => {
       expect(x).toBeLessThan(1);
     }
     expect(new Set(xs).size).toBeGreaterThan(40);
+  });
+
+  it('sessionMacroClock anchors to the session timestamp, else the fallback', () => {
+    const fallback = new Date(0);
+    expect(sessionMacroClock('2026-10-20T19:54:48.494Z', fallback).toISOString()).toBe('2026-10-20T19:54:48.494Z');
+    expect(sessionMacroClock(undefined, fallback)).toBe(fallback);
+    expect(sessionMacroClock('not a date', fallback)).toBe(fallback);
   });
 
   it('seededRng + a frozen now make volatile macros byte-stable across calls', () => {

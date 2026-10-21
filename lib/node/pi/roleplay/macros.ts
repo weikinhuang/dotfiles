@@ -161,3 +161,15 @@ export function mulberry32(seed: number): () => number {
 export function seededRng(key: string): () => number {
   return mulberry32(hashString(key));
 }
+
+/**
+ * Clock for head (system-prompt) macros, anchored to the session's start
+ * timestamp so `{{time}}` / `{{date}}` / `{{weekday}}` stay byte-stable
+ * across resume and `/reload`, not just within one process. Falls back to
+ * `fallback` when the timestamp is missing or unparseable (`--no-session`).
+ */
+export function sessionMacroClock(sessionTimestamp: string | undefined, fallback: Date): Date {
+  if (!sessionTimestamp) return fallback;
+  const ms = Date.parse(sessionTimestamp);
+  return Number.isFinite(ms) ? new Date(ms) : fallback;
+}

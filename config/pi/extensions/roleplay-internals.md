@@ -43,11 +43,12 @@ never delivered, or its last delivery is `sceneFoldRefreshTurns` old
 it. A sheet counts as delivered only when its reminder actually reaches the run's request.
 `sceneFoldDelivery: "system"`, or globally disabled reminders, restores head delivery so folds never silently vanish.
 
-Volatile macros would also churn the head. Head sheets therefore resolve against a clock captured once per session
-(cleared on shutdown) and an rng seeded from `<sessionId>\0<entryId>`
-([`seededRng`](../../../lib/node/pi/roleplay/macros.ts): FNV-1a hash into mulberry32), so `{{time}}`, `{{random}}`, and
-`{{roll}}` render the same bytes every turn. Reminder, lore, depth, and author's-note text keeps a live clock and
-`Math.random`; they are captured once per run anyway.
+Volatile macros would also churn the head. Head sheets therefore resolve against the session header's start timestamp
+([`sessionMacroClock`](../../../lib/node/pi/roleplay/macros.ts); process start time under `--no-session`) and an rng
+seeded from `<sessionId>\0<entryId>` ([`seededRng`](../../../lib/node/pi/roleplay/macros.ts): FNV-1a hash into
+mulberry32), so `{{time}}`, `{{random}}`, and `{{roll}}` render the same bytes every turn and across resume or
+`/reload`. Reminder, lore, depth, and author's-note text keeps a live clock and `Math.random`; they are captured once
+per run anyway.
 
 The lore budget charges the block heading and the "lore budget reached" trailer as well as each chunk and its separator
 ([`budget.ts`](../../../lib/node/pi/roleplay/budget.ts) shares the framing with `prompt.ts`), so the rendered block fits

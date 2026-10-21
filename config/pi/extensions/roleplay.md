@@ -318,9 +318,9 @@ is not in the cast still produces the announcement line.
 - Reminder block: name-triggered sheets ranked by `order` descending, ties by cast id; the first is always kept, later
   ones drop with a trailer.
 
-**Macro stability.** Sheets in the system-prompt head resolve macros against a clock frozen for the session and a random
-source seeded per session and entry, so `{{time}}`, `{{random}}`, and `{{roll}}` stay byte-identical across turns.
-Reminder sheets, lore, depth text, and the author's note keep live macros.
+**Macro stability.** Sheets in the system-prompt head resolve macros against the session's start time and a random
+source seeded per session and entry, so `{{time}}`, `{{random}}`, and `{{roll}}` stay byte-identical across turns,
+resume, and `/reload`. Reminder sheets, lore, depth text, and the author's note keep live macros.
 
 `/persona opener [n]` prints the active persona's greeting lines (all numbered, or just entry `n`); see
 [`persona.md`](./persona.md).

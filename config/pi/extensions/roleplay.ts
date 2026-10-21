@@ -99,7 +99,12 @@ import {
 } from '../../../lib/node/pi/roleplay/inject.ts';
 import { matchLore } from '../../../lib/node/pi/roleplay/match.ts';
 import { formatLoreBlock } from '../../../lib/node/pi/roleplay/prompt.ts';
-import { type MacroContext, seededRng, substituteMacros } from '../../../lib/node/pi/roleplay/macros.ts';
+import {
+  type MacroContext,
+  seededRng,
+  sessionMacroClock,
+  substituteMacros,
+} from '../../../lib/node/pi/roleplay/macros.ts';
 import { composeSceneBlock, composeSceneFoldBlock, resolveCharacter } from '../../../lib/node/pi/roleplay/scene.ts';
 import { planCharacterFold, selectFoldDeliveries } from '../../../lib/node/pi/roleplay/scene-fold.ts';
 import { expandMatchedRecursive } from '../../../lib/node/pi/roleplay/recursion.ts';
@@ -420,7 +425,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
    * only when the block is actually emitted.
    */
   let pendingSceneFold: { body: string; ids: string[]; turn: number } | null = null;
-  /** Session-frozen clock for macros in system-prompt (head) text, so `{{time}}` etc. stay byte-stable. */
+  /** Session-start-anchored clock for macros in system-prompt (head) text, so `{{time}}` etc. stay byte-stable. */
   let frozenMacroNow: Date | null = null;
   /** Unsubscribe handle for the comfyui image-generated bus (cleared on shutdown). */
   let unsubscribeImageEvents: (() => void) | null = null;
@@ -627,8 +632,14 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   /** Force a re-resolve + scan (session lifecycle hooks). */
   const resync = (ctx: ExtensionContext): void => {
     cwd = ctx.cwd;
-    // Captured once per session (cleared on shutdown) so head macros never tick.
-    frozenMacroNow ??= new Date();
+    // Anchored to the session start so head macros never tick, even across resume / reload.
+    let sessionTimestamp: string | undefined;
+    try {
+      sessionTimestamp = ctx.sessionManager?.getHeader()?.timestamp;
+    } catch {
+      /* --no-session */
+    }
+    frozenMacroNow = sessionMacroClock(sessionTimestamp, frozenMacroNow ?? new Date());
     resetWindowState();
     keywordVisualLore = [];
     depthVisualLore = [];
