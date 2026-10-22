@@ -22,8 +22,10 @@ ai-cost-doctor ~/.pi/agent/sessions/<proj>/<ts>_<uuid>.jsonl   # bare path -> ha
 ```
 
 Session resolution (`session-locator.ts`): an id/prefix is matched within the harness's session store; with no selector,
-the newest session is used (claude prefers the current project's slug dir). A bare existing JSONL path or Copilot
-`session-store.db` skips resolution and auto-detects the harness from the file signature.
+the newest session is used (claude prefers the current project's slug dir). A bare existing JSONL path (including a
+Copilot `session-state/<uuid>/events.jsonl`) or `opencode.db` skips resolution and auto-detects the harness from the
+path and file signature. Copilot sessions are looked up under `$COPILOT_HOME` (default `~/.copilot`) unless `--user-dir`
+is given.
 
 ## Architecture
 
@@ -49,8 +51,10 @@ Adapters absorb every per-harness format difference so detectors see only normal
   `cache_creation_input_tokens` / `cache_read_input_tokens`; no cost → pricing backfill.
 - **codex** (JSONL) is OpenAI-style: `token_count` events carry `info.last_token_usage`; `input_tokens` is the grand
   total, `cached_input_tokens` the cached read; no cache-write line; no cost → backfill.
-- **copilot** (SQLite) stores one `assistant_usage_events` row per model request; root-agent rows are analyzed while
-  child-agent rows are excluded; cache and reasoning fields map directly and USD cost is estimated from LiteLLM.
+- **copilot** (JSONL, `session-state/<uuid>/events.jsonl`, read via `copilot-events.ts`) logs one `session.usage_record`
+  per model call; root-agent records are analyzed while sub-agent records (`parentToolCallId` set) are excluded; cache
+  and reasoning fields map directly and USD cost is estimated from LiteLLM. Sessions from older CLIs without
+  `session.usage_record` events fail with an explicit unsupported-format error.
 - **opencode** (SQLite) records a scalar cost but not the read/write split, so the breakdown is re-derived from tokens;
   caching model comes from `providerID` (local `llama.cpp` → `none`).
 

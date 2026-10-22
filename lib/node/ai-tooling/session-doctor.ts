@@ -10,7 +10,7 @@
 //
 // Usage:
 //   session-doctor.ts <session.jsonl>                 # pi / claude / codex (auto-detected)
-//   session-doctor.ts --harness copilot <session-id>  # Copilot (SQLite DB)
+//   session-doctor.ts --harness copilot <session-id>  # Copilot (session-state/<id>/events.jsonl)
 //   session-doctor.ts --harness opencode <session-id> # opencode (SQLite DB)
 //
 // Pure logic lives in ./analyze/ + ./adapters/; this file is the I/O shell
@@ -22,7 +22,7 @@ import * as path from 'node:path';
 
 import { claudeToNormalized, type ClaudeEntry } from './adapters/claude-adapter.ts';
 import { codexToNormalized, type CodexEntry } from './adapters/codex-adapter.ts';
-import { copilotToNormalized, type CopilotUsageEvent } from './adapters/copilot-adapter.ts';
+import { copilotToNormalized } from './adapters/copilot-adapter.ts';
 import { opencodeToNormalized, type OpencodeSessionMeta } from './adapters/opencode-adapter.ts';
 import { piToNormalized, type PiEntry } from './adapters/pi-adapter.ts';
 import { detectHarness } from './analyze/detect-harness.ts';
@@ -30,6 +30,16 @@ import { DEFAULT_DETECTOR_CONFIG, runDetectors } from './analyze/detectors.ts';
 import { fillTurnCosts } from './analyze/pricing-fill.ts';
 import { renderReport, reportJson } from './analyze/report.ts';
 import { type Harness, type NormalizedSession } from './analyze/turn-model.ts';
+import {
+  copilotLegacyError,
+  type CopilotSessionDir,
+  copilotStateDir,
+  copilotStateDirMissing,
+  defaultCopilotHome,
+  listCopilotSessionDirs,
+  loadCopilotSessionDir,
+  pickCopilotSessionDir,
+} from './copilot-events.ts';
 import { setColorEnabled } from './format.ts';
 import { readJsonlLines } from './jsonl.ts';
 import { isOpencodeV2, OPENCODE_V2_REQUIRED, readOpencodeMessages, resolveOpencodeDbPath } from './opencode-db.ts';
@@ -47,14 +57,17 @@ Harnesses:
   pi        pi sessions (~/.pi/agent/sessions)
   claude    Claude Code sessions (~/.claude/projects)
   codex     Codex CLI sessions (~/.codex/sessions)
-  copilot   GitHub Copilot CLI sessions (~/.copilot, SQLite)
+  copilot   GitHub Copilot CLI sessions ($COPILOT_HOME or ~/.copilot,
+            session-state/<uuid>/events.jsonl)
   opencode  opencode sessions (~/.local/share/opencode, SQLite)
 
 Session selector (second argument, optional):
   <id|prefix>          A session id or unique prefix, resolved within the
                        harness's session store (like \`ai-tool-usage <tool>
                        session <id>\`). Omit to analyze your latest session.
-  <path>               An explicit path to a .jsonl session log or Copilot DB.
+  <path>               An explicit path to a .jsonl session log (including a
+                       Copilot session-state/<uuid>/events.jsonl) or an
+                       opencode.db.
 
 Without a harness word, a bare <session-file> path is accepted and the harness
 is auto-detected from the file signature.
@@ -226,67 +239,47 @@ async function loadOpencodeSession(
   return opencodeToNormalized(messages, meta);
 }
 
-// Copilot stores usage events alongside session metadata in session-store.db.
-// Child-agent requests have parent_tool_call_id set and are excluded so this
-// matches the parent-session accounting used by every other harness adapter.
-async function loadCopilotSession(
-  sessionId: string,
-  userDir: string,
-  explicitDbPath?: string,
-): Promise<NormalizedSession> {
-  const { DatabaseSync } = await import('node:sqlite');
-  const dbPath = explicitDbPath ?? path.join(expandUserPath(userDir || DEFAULT_DIRS.copilot), 'session-store.db');
-  if (!fs.existsSync(dbPath)) fail(`GitHub Copilot session database not found: ${dbPath}`);
-  const db = new DatabaseSync(dbPath, { readOnly: true });
-
-  interface Row {
-    id: string;
-    created_at?: string;
-    updated_at?: string;
-  }
-
-  let session: Row | undefined;
-  if (sessionId) {
-    const matches = db
-      .prepare('SELECT id, created_at, updated_at FROM sessions WHERE id = ? OR id LIKE ? ORDER BY updated_at DESC')
-      .all(sessionId, `${sessionId}%`) as unknown as Row[];
-    const exact = matches.find((row) => row.id === sessionId);
-    if (exact) {
-      session = exact;
-    } else if (matches.length === 1) {
-      session = matches[0];
-    } else if (matches.length > 1) {
-      fail(`ambiguous GitHub Copilot session prefix "${sessionId}"`);
-    }
+// Copilot logs one session.usage_record per model call in
+// session-state/<uuid>/events.jsonl. Sub-agent calls (parentToolCallId set)
+// are excluded so this matches the parent-session accounting used by every
+// other harness adapter. An empty sessionId picks the most recently written
+// log; `explicitEventsPath` (an events.jsonl passed as the session ref)
+// bypasses the lookup.
+function loadCopilotSession(sessionId: string, userDir: string, explicitEventsPath?: string): NormalizedSession {
+  let entry: CopilotSessionDir;
+  if (explicitEventsPath) {
+    const dir = path.dirname(explicitEventsPath);
+    entry = { id: path.basename(dir), dir, eventsPath: explicitEventsPath, mtimeMs: 0 };
   } else {
-    session = db.prepare('SELECT id, created_at, updated_at FROM sessions ORDER BY updated_at DESC LIMIT 1').get() as
-      | Row
-      | undefined;
-  }
-  if (!session) {
-    fail(sessionId ? `GitHub Copilot session not found: ${sessionId}` : 'no GitHub Copilot sessions found');
+    const stateDir = copilotStateDir(expandUserPath(userDir || defaultCopilotHome()));
+    if (!fs.existsSync(stateDir)) fail(copilotStateDirMissing(stateDir));
+    const dirs = listCopilotSessionDirs(stateDir);
+    if (sessionId) {
+      const picked = pickCopilotSessionDir(dirs, sessionId);
+      if (!picked.ok) {
+        if (picked.error === 'ambiguous') {
+          console.error(`session-doctor: ambiguous session prefix "${sessionId}", matches:`);
+          for (const m of picked.matches) console.error(`  ${m}`);
+          process.exit(1);
+        }
+        fail(`GitHub Copilot session not found: ${sessionId}`);
+      }
+      entry = picked.session;
+    } else {
+      const withEvents = dirs.filter((d) => d.eventsPath);
+      if (withEvents.length === 0) fail(`no GitHub Copilot sessions found under ${stateDir}`);
+      entry = withEvents.reduce((a, b) => (b.mtimeMs > a.mtimeMs ? b : a));
+    }
   }
 
-  const events = db
-    .prepare(
-      `SELECT model,
-              copilot_usage_model AS copilotUsageModel,
-              input_tokens AS inputTokens,
-              output_tokens AS outputTokens,
-              cache_read_tokens AS cacheReadTokens,
-              cache_write_tokens AS cacheWriteTokens,
-              reasoning_tokens AS reasoningTokens,
-              created_at AS createdAt
-         FROM assistant_usage_events
-        WHERE session_id = ? AND parent_tool_call_id IS NULL
-        ORDER BY id`,
-    )
-    .all(session.id) as unknown as CopilotUsageEvent[];
-
-  return copilotToNormalized(events, {
-    sessionId: session.id,
-    startTime: session.created_at,
-    endTime: session.updated_at,
+  const parsed = loadCopilotSessionDir(entry);
+  if (!parsed) fail(`GitHub Copilot session ${entry.id} has no events.jsonl (never prompted)`);
+  if (parsed.kind === 'legacy') fail(copilotLegacyError(parsed.sessionId, parsed.copilotVersion));
+  const { session } = parsed;
+  return copilotToNormalized(session.rootUsage, {
+    sessionId: session.sessionId,
+    startTime: session.startTime || undefined,
+    endTime: session.endTime || undefined,
   });
 }
 

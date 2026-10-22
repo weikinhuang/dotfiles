@@ -1,12 +1,22 @@
 // Harness auto-detection from a session-log path + its first JSONL lines.
 // Pure: the CLI reads the file head and the file extension and hands them
-// here. Copilot and opencode use SQLite; pi / claude / codex are JSONL and
-// are told apart by their record signatures.
+// here. opencode uses SQLite; pi / claude / codex / copilot are JSONL and
+// are told apart by their record signatures (copilot also by its
+// session-state/<uuid>/events.jsonl path).
 // SPDX-License-Identifier: MIT
 
 import { type Harness } from './turn-model.ts';
 
+// Copilot CLI event log: `{ type: 'session.start', data: { copilotVersion, producer, ... } }`.
+function isCopilotEvent(obj: Record<string, unknown>): boolean {
+  if (typeof obj.type !== 'string' || !obj.type.startsWith('session.')) return false;
+  const data = obj.data as Record<string, unknown> | undefined;
+  return !!data && typeof data === 'object' && (data.copilotVersion !== undefined || data.producer !== undefined);
+}
+
 function classifyLine(obj: Record<string, unknown>): Harness | undefined {
+  if (isCopilotEvent(obj)) return 'copilot';
+
   // codex wraps everything in a `payload` and uses these top-level types.
   if (obj.payload && typeof obj.payload === 'object') return 'codex';
   if (obj.type === 'session_meta' || obj.type === 'turn_context' || obj.type === 'event_msg') return 'codex';
@@ -37,8 +47,8 @@ function classifyLine(obj: Record<string, unknown>): Harness | undefined {
 // `lines` should be the leading non-empty lines of the file (the caller need
 // only pass ~10). Returns undefined when nothing matches confidently.
 export function detectHarness(filePath: string, lines: string[]): Harness | undefined {
-  const lower = filePath.toLowerCase();
-  if (lower.endsWith('session-store.db')) return 'copilot';
+  const lower = filePath.toLowerCase().replaceAll('\\', '/');
+  if (/\/session-state\/[^/]+\/events\.jsonl$/.test(lower)) return 'copilot';
   if (lower.endsWith('.db') || lower.endsWith('.sqlite') || lower.endsWith('opencode.db')) return 'opencode';
 
   for (const line of lines) {

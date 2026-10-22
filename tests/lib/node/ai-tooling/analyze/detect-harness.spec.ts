@@ -3,8 +3,24 @@ import { describe, expect, test } from 'vitest';
 import { detectHarness } from '../../../../../lib/node/ai-tooling/analyze/detect-harness.ts';
 
 describe('detectHarness', () => {
-  test('detects GitHub Copilot from session-store.db', () => {
-    expect(detectHarness('/home/u/.copilot/session-store.db', [])).toBe('copilot');
+  test('detects GitHub Copilot from a session-state/<uuid>/events.jsonl path', () => {
+    expect(detectHarness('/home/u/.copilot/session-state/efba9a45-ca1a/events.jsonl', [])).toBe('copilot');
+    expect(detectHarness('/home/u/.copilot/session-state/events.jsonl', [])).toBeUndefined();
+  });
+
+  test('detects GitHub Copilot from a session.start event line', () => {
+    const line = JSON.stringify({
+      type: 'session.start',
+      data: { sessionId: 's', copilotVersion: '1.0.103', producer: 'copilot-agent', startTime: 't' },
+      id: 'e1',
+      timestamp: 't',
+      parentId: null,
+    });
+    expect(detectHarness('/tmp/copied.jsonl', [line])).toBe('copilot');
+  });
+
+  test('no longer treats session-store.db as copilot', () => {
+    expect(detectHarness('/home/u/.copilot/session-store.db', [])).not.toBe('copilot');
   });
 
   test('detects opencode from a .db / .sqlite path regardless of content', () => {

@@ -9,8 +9,8 @@ setup() {
 
   TOOL="${REPO_ROOT}/dotenv/bin/ai-cost-doctor"
   COPILOT_DIR="${HOME}/.copilot"
-  COPILOT_DB="${COPILOT_DIR}/session-store.db"
-  mkdir -p "${COPILOT_DIR}" "${XDG_CACHE_HOME}/ai-tool-usage"
+  COPILOT_EVENTS="${COPILOT_DIR}/session-state/aaaaaaaa-1111-2222-3333-444444444444/events.jsonl"
+  mkdir -p "${COPILOT_EVENTS%/*}" "${XDG_CACHE_HOME}/ai-tool-usage"
 
   if ! command -v node >/dev/null 2>&1; then
     skip "node not installed"
@@ -27,32 +27,36 @@ setup() {
 {"fetched_at":"${now}","data":{"gpt-5":{"input_cost_per_token":1e-5,"output_cost_per_token":5e-5,"cache_read_input_token_cost":2e-6}}}
 EOF
 
-  node --input-type=module - "${COPILOT_DB}" <<'EOF'
-import { DatabaseSync } from 'node:sqlite';
-const db = new DatabaseSync(process.argv[2]);
-db.exec(`CREATE TABLE sessions (
-  id TEXT PRIMARY KEY, created_at TEXT, updated_at TEXT
-);`);
-db.exec(`CREATE TABLE assistant_usage_events (
-  id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT,
-  parent_tool_call_id TEXT, model TEXT, copilot_usage_model TEXT,
-  input_tokens INTEGER, output_tokens INTEGER, cache_read_tokens INTEGER,
-  cache_write_tokens INTEGER, reasoning_tokens INTEGER, created_at TEXT
-);`);
-db.prepare('INSERT INTO sessions VALUES (?, ?, ?)').run(
-  'aaaaaaaa-1111-2222-3333-444444444444',
-  '2026-09-20T10:00:00.000Z',
-  '2026-09-20T10:02:00.000Z',
-);
-const usage = db.prepare(`INSERT INTO assistant_usage_events
-  (session_id, parent_tool_call_id, model, copilot_usage_model,
-   input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
-   reasoning_tokens, created_at)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-usage.run('aaaaaaaa-1111-2222-3333-444444444444', null, 'gpt-5', null, 1000, 100, 800, 0, 20, '2026-09-20T10:00:00.000Z');
-usage.run('aaaaaaaa-1111-2222-3333-444444444444', null, 'gpt-5', null, 1200, 80, 900, 0, 10, '2026-09-20T10:01:00.000Z');
-usage.run('aaaaaaaa-1111-2222-3333-444444444444', 'spawn-1', 'gpt-5', null, 9999, 999, 0, 0, 0, '2026-09-20T10:01:30.000Z');
-db.close();
+  # inputTokens is the grand total (cached included); the spawn-1 call belongs
+  # to a subagent and must stay out of the root series.
+  node --input-type=module - "${COPILOT_EVENTS}" <<'EOF'
+import { writeFileSync } from 'node:fs';
+const usage = (ts, input, output, cacheRead, reasoning, parentToolCallId) => ({
+  type: 'session.usage_record',
+  data: {
+    usage: {
+      model: 'gpt-5', inputTokens: input, outputTokens: output, cacheReadTokens: cacheRead,
+      cacheWriteTokens: 0, reasoningTokens: reasoning, cost: 1,
+      ...(parentToolCallId ? { parentToolCallId } : {}),
+    },
+  },
+  id: `u-${ts}`, timestamp: ts, parentId: null,
+});
+const events = [
+  {
+    type: 'session.start',
+    data: {
+      sessionId: 'aaaaaaaa-1111-2222-3333-444444444444', copilotVersion: '1.0.103',
+      startTime: '2026-09-20T10:00:00.000Z', selectedModel: 'gpt-5', context: { cwd: '/proj' },
+    },
+    id: 's', timestamp: '2026-09-20T10:00:00.000Z', parentId: null,
+  },
+  { type: 'user.message', data: { content: 'hi' }, id: 'm', timestamp: '2026-09-20T10:00:00.000Z', parentId: null },
+  usage('2026-09-20T10:00:00.000Z', 1000, 100, 800, 20),
+  usage('2026-09-20T10:01:00.000Z', 1200, 80, 900, 10),
+  usage('2026-09-20T10:01:30.000Z', 9999, 999, 0, 0, 'spawn-1'),
+];
+writeFileSync(process.argv[2], events.map((e) => JSON.stringify(e)).join('\n') + '\n');
 EOF
 }
 
@@ -71,8 +75,8 @@ EOF
   assert_success
 }
 
-@test "ai-cost-doctor: auto-detects a bare Copilot database path" {
-  run "${TOOL}" "${COPILOT_DB}" --no-cost --json
+@test "ai-cost-doctor: auto-detects a bare Copilot events.jsonl path" {
+  run "${TOOL}" "${COPILOT_EVENTS}" --no-cost --json
   assert_success
 
   assert_equal "$(jq -r '.harness' <<<"${output}")" 'copilot'

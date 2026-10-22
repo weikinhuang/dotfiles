@@ -130,21 +130,21 @@ describe('copilotToNormalized', () => {
         cacheReadTokens: 8960,
         cacheWriteTokens: 0,
         reasoningTokens: 331,
-        createdAt: '2026-09-20T10:00:00.000Z',
+        timestamp: '2026-09-20T10:00:00.000Z',
       },
       {
         model: 'claude-sonnet-4.5',
-        inputTokens: 3,
+        inputTokens: 14996,
         outputTokens: 170,
         cacheReadTokens: 9663,
         cacheWriteTokens: 5330,
         reasoningTokens: 0,
-        createdAt: '2026-09-20T10:00:30.000Z',
+        timestamp: '2026-09-20T10:00:30.000Z',
       },
     ];
   }
 
-  test('maps token, cache, reasoning, and model fields', () => {
+  test('keeps the grand-total input for OpenAI-style turns and subtracts the cache for Anthropic-style turns', () => {
     const s = copilotToNormalized(events(), {
       sessionId: 'cp-1',
       startTime: '2026-09-20T09:59:00.000Z',
@@ -175,10 +175,10 @@ describe('copilotToNormalized', () => {
     expect(s.turns.every((turn) => turn.cost === undefined)).toBe(true);
   });
 
-  test('falls back to copilot_usage_model when model is absent', () => {
-    const s = copilotToNormalized([{ copilotUsageModel: 'gpt-4.1', inputTokens: 10 }], { sessionId: 'cp-1' });
-    expect(s.model).toBe('gpt-4.1');
-    expect(s.turns[0].model).toBe('gpt-4.1');
+  test('takes start / end from meta, else the first / last record timestamp', () => {
+    const s = copilotToNormalized(events(), { sessionId: 'cp-1' });
+    expect(s.startTime).toBe('2026-09-20T10:00:00.000Z');
+    expect(s.endTime).toBe('2026-09-20T10:00:30.000Z');
   });
 });
 
