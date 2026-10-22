@@ -40,8 +40,8 @@ See [README.md](./README.md) for the full per-directory table; high-level groupi
 - `session-usage.ts` is a shared harness: all five adapters render and parse args via
   [`../lib/node/ai-tooling/`](../lib/node/ai-tooling). When adding a new flag or column, update all five in lockstep so
   the UX stays identical across providers. Specs live under [`../tests/config/*/`](../tests/config).
-- `settings-baseline.json` (or `config.toml`, `opencode.jsonc`) **mirrors** the live product file under `~/.<tool>/`.
-  Keep runtime-only keys (e.g. `lastChangelogVersion`) out of the baseline.
+- `settings-baseline.json` (or `config.toml`, `opencode.jsonc` / `cli-baseline.json`) **mirrors** the live product file
+  under `~/.<tool>/`. Keep runtime-only keys (e.g. `lastChangelogVersion`) out of the baseline.
 - Each subdir has its own [AGENTS.md](./claude/AGENTS.md) / [README.md](./pi/README.md) covering product-specific rules;
   update those when the product surface changes, not this file.
 
