@@ -1,0 +1,88 @@
+# Baseline for <COPILOT_HOME>/tool-permissions (~/.copilot by default, ~/.config/copilot-<name> for `copilot -u <name>`).
+# Copy by hand. plugins/30-copilot.sh turns each `allow <pattern>` / `deny <pattern>` line into a
+# --allow-tool= / --deny-tool= flag on every `copilot` invocation; `#` comments and blank lines are ignored.
+#
+# Ported from permissions.allow in config/claude/settings-baseline.json (see config/copilot/README.md). Copilot matches
+# shell rules on a command identifier (the command name, plus a first-level subcommand for tools such as git, gh, npm),
+# never on the full command text, so only Claude rules whose identifier is no broader than the Claude rule are kept.
+# Commands copilot's built-in read-only tier already auto-approves (cat, grep, ls, git status, gh pr view, ...) are left
+# out. Everything else keeps asking.
+
+# Files and text
+allow shell(ag:*)
+allow shell(b2sum:*)
+allow shell(base64:*)
+allow shell(basename:*)
+allow shell(bat:*)
+allow shell(cksum:*)
+allow shell(cmp:*)
+allow shell(column:*)
+allow shell(comm:*)
+allow shell(dirname:*)
+allow shell(egrep:*)
+allow shell(fgrep:*)
+allow shell(fmt:*)
+allow shell(fold:*)
+allow shell(hexdump:*)
+allow shell(join:*)
+allow shell(jq:*)
+allow shell(locate:*)
+allow shell(md5sum:*)
+allow shell(od:*)
+allow shell(paste:*)
+allow shell(printf:*)
+allow shell(sha1sum:*)
+allow shell(sha256sum:*)
+allow shell(sha512sum:*)
+allow shell(shasum:*)
+allow shell(tac:*)
+allow shell(test:*)
+allow shell(tree:*)
+allow shell(xxd:*)
+allow shell(yamllint:*)
+allow shell(yq:*)
+
+# File changes the Claude allowlist also permits
+allow shell(chmod:*)
+allow shell(cp:*)
+allow shell(mkdir:*)
+allow shell(mv:*)
+allow shell(tee:*)
+allow shell(touch:*)
+
+# Shell builtins
+allow shell(cd:*)
+allow shell(dirs:*)
+allow shell(popd:*)
+allow shell(pushd:*)
+allow shell(shopt:*)
+
+# git / gh
+allow shell(gh browse:*)
+allow shell(git cat-file:*)
+allow shell(git ls-tree:*)
+allow shell(git reflog:*)
+allow shell(git rev-list:*)
+
+# Node package managers
+allow shell(npm --version)
+allow shell(npm -v)
+allow shell(npm info:*)
+allow shell(npm list:*)
+allow shell(npm ls:*)
+allow shell(npm outdated:*)
+allow shell(npm view:*)
+allow shell(npx --version)
+allow shell(npx oxlint:*)
+allow shell(pnpm --version)
+allow shell(pnpm list:*)
+allow shell(pnpm why:*)
+allow shell(yarn --version)
+allow shell(yarn list:*)
+allow shell(yarn why:*)
+
+# Secrets: mirrors Claude's Read(./.env*) denies. Covers copilot's file tools only; shell reads such as `cat .env` go
+# through the read-only tier, the same gap Claude has with Bash(cat *).
+deny read(.env)
+deny read(.env.*)
+deny read(.envrc)

@@ -1,0 +1,9 @@
+{
+  "banner": "never",
+  "effortLevel": "high",
+  "includeCoAuthoredBy": false,
+  "memory": true,
+  "showTipsOnStartup": false,
+  "terminalProgress": false,
+  "theme": "default"
+}

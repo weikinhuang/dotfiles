@@ -11,7 +11,7 @@ with their own `README.md` document custom tooling on top of the stock config.
 | [`bat/`](./bat/)                    | `bat`                                                                     | `BAT_CONFIG_PATH` points here from [`plugins/30-bat.sh`](../plugins/30-bat.sh).                                              |
 | [`claude/`](./claude/README.md)     | [Claude Code](https://code.claude.com)                                    | Settings, custom statusline, session-usage CLI. See [`claude/AGENTS.md`](./claude/AGENTS.md) for edit rules.                 |
 | [`codex/`](./codex/README.md)       | [Codex CLI](https://github.com/openai/codex)                              | `config.toml` + session-usage CLI.                                                                                           |
-| [`copilot/`](./copilot/)            | [GitHub Copilot CLI](https://github.com/github/copilot-cli)               | Session-usage CLI for Copilot's local session database.                                                                      |
+| [`copilot/`](./copilot/README.md)   | [GitHub Copilot CLI](https://github.com/github/copilot-cli)               | `settings.json` baseline + `tool-permissions` rules for the wrapper + session-usage CLI.                                     |
 | [`eza/`](./eza/)                    | `eza`                                                                     | Solarized theme files symlinked into `~/.config/eza/theme.yml` by [`plugins/10-eza.sh`](../plugins/10-eza.sh).               |
 | [`git/`](./git/)                    | `git`                                                                     | Split `.gitconfig` fragments and global ignore/attributes, installed by [`bootstrap.sh`](../bootstrap.sh).                   |
 | [`opencode/`](./opencode/README.md) | [opencode](https://opencode.ai)                                           | `opencode.jsonc` + `cli.json` baselines + session-usage CLI.                                                                 |
@@ -28,4 +28,6 @@ with their own `README.md` document custom tooling on top of the stock config.
 - [pi/README.md](./pi/README.md) - pi config (deepest subtree - has its own extension / skill / agent indexes).
 - [claude/README.md](./claude/README.md) - Claude Code config.
 - [codex/README.md](./codex/README.md) - Codex CLI config.
+- [copilot/README.md](./copilot/README.md) - GitHub Copilot CLI config, permission rules, profiles, and session-usage
+  CLI.
 - [opencode/README.md](./opencode/README.md) - opencode config, profiles, and session-usage CLI.
