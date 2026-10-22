@@ -23,7 +23,7 @@ import * as path from 'node:path';
 import { claudeToNormalized, type ClaudeEntry } from './adapters/claude-adapter.ts';
 import { codexToNormalized, type CodexEntry } from './adapters/codex-adapter.ts';
 import { copilotToNormalized, type CopilotUsageEvent } from './adapters/copilot-adapter.ts';
-import { opencodeToNormalized, type OpencodeMessage, type OpencodeSessionMeta } from './adapters/opencode-adapter.ts';
+import { opencodeToNormalized, type OpencodeSessionMeta } from './adapters/opencode-adapter.ts';
 import { piToNormalized, type PiEntry } from './adapters/pi-adapter.ts';
 import { detectHarness } from './analyze/detect-harness.ts';
 import { DEFAULT_DETECTOR_CONFIG, runDetectors } from './analyze/detectors.ts';
@@ -32,6 +32,7 @@ import { renderReport, reportJson } from './analyze/report.ts';
 import { type Harness, type NormalizedSession } from './analyze/turn-model.ts';
 import { setColorEnabled } from './format.ts';
 import { readJsonlLines } from './jsonl.ts';
+import { isOpencodeV2, OPENCODE_V2_REQUIRED, readOpencodeMessages, resolveOpencodeDbPath } from './opencode-db.ts';
 import { expandUserPath } from './paths.ts';
 import { loadPricing } from './pricing.ts';
 import { collectCandidates, DEFAULT_DIRS, pickSession } from './session-locator.ts';
@@ -186,12 +187,19 @@ function loadJsonlSession(harness: Harness, filePath: string): NormalizedSession
 }
 
 // node:sqlite is imported lazily so the JSONL path never pays for it. An
-// empty sessionId resolves to the most recently updated session.
-async function loadOpencodeSession(sessionId: string, userDir: string): Promise<NormalizedSession> {
+// empty sessionId resolves to the most recently updated top-level session.
+// `explicitDbPath` (an opencode.db passed as the session ref) overrides the
+// --user-dir / OPENCODE_DB / default lookup.
+async function loadOpencodeSession(
+  sessionId: string,
+  userDir: string,
+  explicitDbPath?: string,
+): Promise<NormalizedSession> {
   const { DatabaseSync } = await import('node:sqlite');
-  const dbPath = path.join(expandUserPath(userDir || DEFAULT_DIRS.opencode), 'opencode.db');
+  const dbPath = explicitDbPath ?? resolveOpencodeDbPath(userDir);
   if (!fs.existsSync(dbPath)) fail(`opencode database not found: ${dbPath}`);
   const db = new DatabaseSync(dbPath, { readOnly: true });
+  if (!isOpencodeV2(db)) fail(`${OPENCODE_V2_REQUIRED}: ${dbPath}`);
 
   interface Row {
     id?: string;
@@ -200,26 +208,16 @@ async function loadOpencodeSession(sessionId: string, userDir: string): Promise<
   }
   const session = sessionId
     ? (db
-        .prepare('SELECT id, time_created, time_updated FROM session WHERE id = ? OR id LIKE ?')
+        .prepare('SELECT id, time_created, time_updated FROM session_v2 WHERE id = ? OR id LIKE ?')
         .get(sessionId, `${sessionId}%`) as Row | undefined)
     : (db
         .prepare(
-          'SELECT id, time_created, time_updated FROM session WHERE parent_id IS NULL ORDER BY time_updated DESC LIMIT 1',
+          'SELECT id, time_created, time_updated FROM session_v2 WHERE parent_id IS NULL ORDER BY time_updated DESC LIMIT 1',
         )
         .get() as Row | undefined);
   if (!session?.id) fail(sessionId ? `opencode session not found: ${sessionId}` : 'no opencode sessions found');
 
-  const rows = db.prepare('SELECT data FROM message WHERE session_id = ? ORDER BY time_created').all(session.id) as {
-    data: string;
-  }[];
-  const messages: OpencodeMessage[] = [];
-  for (const r of rows) {
-    try {
-      messages.push(JSON.parse(r.data) as OpencodeMessage);
-    } catch {
-      // skip malformed row
-    }
-  }
+  const messages = readOpencodeMessages(db, session.id);
   const meta: OpencodeSessionMeta = {
     sessionId: session.id,
     startTimeMs: session.time_created,
@@ -303,7 +301,7 @@ async function loadSession(args: DoctorArgs): Promise<NormalizedSession> {
       const harness = args.harness ?? detectHarness(refPath, []) ?? detectHarness(refPath, readHeadLines(refPath));
       if (!harness) fail('could not auto-detect harness; pass a harness word (pi|claude|codex|copilot|opencode)');
       if (harness === 'copilot') return loadCopilotSession('', args.userDir, refPath);
-      if (harness === 'opencode') return loadOpencodeSession(ref, args.userDir);
+      if (harness === 'opencode') return loadOpencodeSession('', args.userDir, refPath);
       return loadJsonlSession(harness, refPath);
     }
   }

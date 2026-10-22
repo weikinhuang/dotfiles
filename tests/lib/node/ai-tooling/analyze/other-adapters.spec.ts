@@ -185,33 +185,34 @@ describe('copilotToNormalized', () => {
 describe('opencodeToNormalized', () => {
   function messages(): OpencodeMessage[] {
     return [
-      { role: 'user' },
+      { type: 'user' },
+      { type: 'synthetic' },
       {
-        role: 'assistant',
-        modelID: 'claude-opus-4-8',
-        providerID: 'anthropic',
+        type: 'assistant',
+        model: { id: 'claude-opus-4-8', providerID: 'anthropic' },
         cost: 0.42,
         time: { created: Date.UTC(2026, 4, 1, 0, 0, 0), completed: Date.UTC(2026, 4, 1, 0, 0, 2) },
         tokens: { input: 5, output: 200, reasoning: 50, cache: { read: 40000, write: 1200 } },
       },
       {
-        role: 'assistant',
-        modelID: 'qwen3-5-35b-a3b',
-        providerID: 'llama.cpp',
+        type: 'assistant',
+        model: { id: 'qwen3-5-35b-a3b', providerID: 'llama.cpp', variant: 'default' },
         cost: 0,
         time: { created: Date.UTC(2026, 4, 1, 0, 0, 30) },
         tokens: { input: 1000, output: 100, cache: { read: 0, write: 0 } },
       },
+      { type: 'idle' },
     ];
   }
 
-  test('maps assistant rows, derives caching model from providerID', () => {
+  test('maps assistant rows, derives caching model from model.providerID', () => {
     const s = opencodeToNormalized(messages(), { sessionId: 'oc-1' });
     expect(s.harness).toBe('opencode');
     expect(s.turns).toHaveLength(2);
     expect(s.turns[0].cachingModel).toBe('anthropic');
     expect(s.turns[0].tokens).toEqual({ input: 5, output: 250, cacheReadInput: 40000, cacheWriteInput: 1200 });
     expect(s.turns[1].cachingModel).toBe('none'); // local llama.cpp
+    expect(s.model).toBe('claude-opus-4-8');
   });
 
   test('skips non-assistant rows and converts epoch-ms to ISO', () => {

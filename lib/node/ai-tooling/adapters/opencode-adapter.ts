@@ -1,9 +1,9 @@
 // opencode session-log adapter: parsed DB message rows -> NormalizedSession.
 //
 // opencode stores sessions in SQLite (not JSONL), so the CLI runs the query
-// and hands this pure adapter the already-parsed assistant message objects
-// plus session meta. The per-message caching model is derived from
-// `providerID` (anthropic / openai / local). opencode records a scalar `cost`
+// (see ../opencode-db.ts) and hands this pure adapter the already-parsed v2
+// `session_message` objects plus session meta. The per-message caching model
+// is derived from `model.providerID` (anthropic / openai / local). opencode records a scalar `cost`
 // but not the cacheRead/cacheWrite split the detectors attribute against, so
 // the adapter leaves cost for the pricing backfill to compute the component
 // breakdown consistently (local llama.cpp turns are `none` + unpriced -> $0,
@@ -19,11 +19,19 @@ import {
   refineLocalCachingModel,
 } from '../analyze/turn-model.ts';
 
+export interface OpencodeContentItem {
+  type?: string;
+  name?: string;
+}
+
+// One opencode v2 `session_message` row: the row's `type` (user / assistant /
+// synthetic / idle) merged with its parsed JSON `data`.
 export interface OpencodeMessage {
-  role?: string;
-  modelID?: string;
-  providerID?: string;
+  type?: string;
+  agent?: string;
+  model?: { id?: string; providerID?: string; variant?: string };
   cost?: number;
+  content?: OpencodeContentItem[];
   time?: { created?: number; completed?: number };
   tokens?: {
     input?: number;
@@ -48,9 +56,9 @@ export function opencodeToNormalized(messages: OpencodeMessage[], meta: Opencode
   const turns: NormalizedTurn[] = [];
 
   for (const m of messages) {
-    if (typeof m !== 'object' || m === null || m.role !== 'assistant') continue;
-    const model = m.modelID ?? '';
-    const provider = m.providerID ?? '';
+    if (typeof m !== 'object' || m === null || m.type !== 'assistant') continue;
+    const model = m.model?.id ?? '';
+    const provider = m.model?.providerID ?? '';
     if (!sessionModel && model) sessionModel = model;
 
     const t = m.tokens ?? {};
