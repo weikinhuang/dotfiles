@@ -52,8 +52,8 @@ seed_session() {
     const db = new DatabaseSync('${DB_PATH}');
     db.exec(\`CREATE TABLE IF NOT EXISTS session_v2 (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, parent_id TEXT, slug TEXT NOT NULL, directory TEXT NOT NULL, title TEXT, version TEXT NOT NULL, time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL)\`);
     db.exec(\`CREATE TABLE IF NOT EXISTS session_message (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, type TEXT NOT NULL, seq INTEGER NOT NULL, time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL, data TEXT NOT NULL)\`);
-    db.prepare('INSERT INTO session_v2 (id, project_id, parent_id, slug, directory, title, version, time_created, time_updated) VALUES (?, ?, ${parent_js}, ?, ?, ?, ?, ?, ?)')
-      .run('${sid}', 'proj', 'slug', '${dir}', 'title ${sid}', '2.1.3', ${created}, ${updated});
+    db.prepare('INSERT INTO session_v2 (id, project_id, parent_id, slug, directory, title, version, time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run('${sid}', 'proj', ${parent_js}, 'slug', '${dir}', 'title ${sid}', '2.1.3', ${created}, ${updated});
     ${rows_js}
     db.close();
   "
