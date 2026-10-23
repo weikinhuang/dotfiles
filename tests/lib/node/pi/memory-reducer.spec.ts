@@ -17,7 +17,6 @@ import {
   findEntry,
   formatText,
   isMemoryTypeAllowedInScope,
-  isMemoryStateShape,
   isStaleEntry,
   type MemoryEntry,
   parseFrontmatter,
@@ -56,70 +55,6 @@ const sNote = (id: string, name = id, description = `desc ${id}`): MemoryEntry =
   type: 'note',
   name,
   description,
-});
-
-// ──────────────────────────────────────────────────────────────────────
-// Shape validator
-// ──────────────────────────────────────────────────────────────────────
-
-test('isMemoryStateShape: accepts empty state', () => {
-  expect(isMemoryStateShape(emptyState())).toBe(true);
-});
-
-test('isMemoryStateShape: accepts populated state with slug', () => {
-  const s = {
-    index: { global: [gUser('a')], project: [], session: [sNote('n')] },
-    projectSlug: '--tmp--',
-    sessionId: 'abc123',
-  };
-
-  expect(isMemoryStateShape(s)).toBe(true);
-});
-
-test('isMemoryStateShape: rejects missing index', () => {
-  expect(isMemoryStateShape({ projectSlug: null, sessionId: null })).toBe(false);
-});
-
-test('isMemoryStateShape: rejects missing session bucket', () => {
-  expect(isMemoryStateShape({ index: { global: [], project: [] }, projectSlug: null, sessionId: null })).toBe(false);
-});
-
-test('isMemoryStateShape: rejects non-string projectSlug', () => {
-  expect(isMemoryStateShape({ index: emptyIndex(), projectSlug: 42, sessionId: null })).toBe(false);
-});
-
-test('isMemoryStateShape: rejects non-string sessionId', () => {
-  expect(isMemoryStateShape({ index: emptyIndex(), projectSlug: null, sessionId: 42 })).toBe(false);
-});
-
-test('isMemoryStateShape: rejects entry with bad type', () => {
-  const bad = { id: 'a', scope: 'global', type: 'bogus', name: 'n', description: 'd' };
-
-  expect(
-    isMemoryStateShape({ index: { global: [bad], project: [], session: [] }, projectSlug: null, sessionId: null }),
-  ).toBe(false);
-});
-
-test('isMemoryStateShape: rejects entry with bad scope', () => {
-  const bad = { id: 'a', scope: 'weird', type: 'user', name: 'n', description: 'd' };
-
-  expect(
-    isMemoryStateShape({ index: { global: [bad], project: [], session: [] }, projectSlug: null, sessionId: null }),
-  ).toBe(false);
-});
-
-test('isMemoryStateShape: rejects entry missing name', () => {
-  const bad = { id: 'a', scope: 'global', type: 'user', description: 'd' };
-
-  expect(
-    isMemoryStateShape({ index: { global: [bad], project: [], session: [] }, projectSlug: null, sessionId: null }),
-  ).toBe(false);
-});
-
-test('isMemoryStateShape: accepts a session note entry', () => {
-  const s = { index: { global: [], project: [], session: [sNote('n')] }, projectSlug: null, sessionId: 'sid' };
-
-  expect(isMemoryStateShape(s)).toBe(true);
 });
 
 // ──────────────────────────────────────────────────────────────────────
@@ -368,30 +303,6 @@ test('update flow: created is preserved while updated is bumped (injected clock)
   expect(after!.frontmatter.updated).toBe('2026-06-30T12:34:56.000Z');
 });
 
-test('isMemoryStateShape: accepts entries carrying timestamp strings', () => {
-  const s = {
-    index: {
-      global: [
-        { id: 'a', scope: 'global', type: 'user', name: 'n', description: 'd', created: '2026-01-01T00:00:00Z' },
-      ],
-      project: [],
-      session: [],
-    },
-    projectSlug: null,
-    sessionId: null,
-  };
-
-  expect(isMemoryStateShape(s)).toBe(true);
-});
-
-test('isMemoryStateShape: rejects a non-string timestamp', () => {
-  const bad = { id: 'a', scope: 'global', type: 'user', name: 'n', description: 'd', created: 123 };
-
-  expect(
-    isMemoryStateShape({ index: { global: [bad], project: [], session: [] }, projectSlug: null, sessionId: null }),
-  ).toBe(false);
-});
-
 // ──────────────────────────────────────────────────────────────────────
 // Staleness math
 // ──────────────────────────────────────────────────────────────────────
@@ -486,6 +397,14 @@ test('removeEntry: removes by id', () => {
   const after = removeEntry(idx, 'global', 'a');
 
   expect(after.global.map((e) => e.id)).toEqual(['b']);
+});
+
+test('upsertEntry / removeEntry: a slug shared across types stays distinct', () => {
+  let idx = upsertEntry(emptyIndex(), gUser('a', 'user-a', 'u'));
+  idx = upsertEntry(idx, { ...gUser('a', 'fb-a', 'f'), type: 'feedback' });
+  expect(idx.global.map((e) => `${e.type}/${e.name}`)).toEqual(['feedback/fb-a', 'user/user-a']);
+  const after = removeEntry(idx, 'global', 'a', 'user');
+  expect(after.global.map((e) => `${e.type}/${e.name}`)).toEqual(['feedback/fb-a']);
 });
 
 test('removeEntry: no-op on unknown id', () => {

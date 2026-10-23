@@ -3,10 +3,11 @@
  *
  * Port of Claude Code's "auto memory" feature. Durable knowledge is
  * kept as small markdown files on disk and indexed by a per-scope
- * `MEMORY.md` file. Each turn the extension injects the indices into
- * the system prompt under a `## Memory` header so the model sees what
- * durable context is available without a tool call; full bodies are
- * fetched on demand via `memory read <id>`.
+ * `MEMORY.md` file. The extension delivers the index as a cache-safe
+ * `memory-index` reminder snapshot: the full `## Memory` block once (new
+ * session, or after a compaction), then only a small delta when the index
+ * changes, and nothing otherwise. Full bodies are fetched on demand via
+ * `memory read <id>`.
  *
  * Memory types:
  *   - `user`      - facts about the user (role, preferences, expertise). Cross-project by default.
@@ -22,12 +23,15 @@
  *   - `session`   - `<root>/projects/<cwd-slug>/sessions/<session-id>/note/<slug>.md`, keyed on
  *                   the session id; only ever loaded for the session that owns it. Holds `note`s.
  *
- * Disk is the source of truth. On `session_start` the extension scans
- * the memory directories and rebuilds its in-memory index. Tool writes
- * go straight to disk, then re-emit the MEMORY.md index file; the
- * extension also mirrors the index snapshot (not bodies) into a
- * `memory-state` branch custom entry so `/fork` / `/tree` shows the
- * correct index at that point.
+ * Disk is the source of truth. The extension rescans the memory
+ * directories on `session_start` / `session_tree`, at the start of every
+ * agent run, and before every tool action, so writes from other pi
+ * sessions are picked up; new files are claimed with an exclusive create
+ * so concurrent saves never overwrite each other (updates of the same
+ * memory are last-writer-wins). Tool writes go straight to
+ * disk, then re-emit the MEMORY.md index file. The delivered-index
+ * baseline is persisted as a tiny `memory-delivery` branch entry so
+ * resume and `/tree` know what the model has already seen.
  *
  * Pure logic lives in `../../../lib/node/pi/memory-*.ts` so it can be
  * unit-tested under `vitest` without the pi runtime; this file holds
@@ -36,8 +40,8 @@
  * Environment:
  *   PI_MEMORY_DISABLED=1             skip the extension entirely.
  *   PI_MEMORY_DISABLE_AUTOINJECT=1   tool still works but skip the
- *                                    before_agent_start block.
- *   PI_MEMORY_MAX_INJECTED_CHARS=N   soft cap on injected index (default 3000).
+ *                                    memory-index reminder.
+ *   PI_MEMORY_MAX_INJECTED_CHARS=N   soft cap on the full index (default 6000).
  *   PI_MEMORY_STALE_DAYS=N           age (days) past which a project memory
  *                                    gets a `(Nd)` marker + shows in
  *                                    `/memory stale` (default 30).
@@ -79,6 +83,7 @@ import {
   readMemoryFrontmatter,
   rebuildMemoryIndex,
   removeFileIfExists,
+  reserveMemoryFile,
   sessionDir,
   slugifyName,
 } from '../../../lib/node/pi/memory-paths.ts';
@@ -89,14 +94,27 @@ import {
   contextRemindersEnabled,
   type ReminderMessage,
 } from '../../../lib/node/pi/context-reminder.ts';
-import type { ReminderSnapshot } from '../../../lib/node/pi/reminder-lifecycle.ts';
+import { REMINDER_PROJECTED, type ReminderSnapshot } from '../../../lib/node/pi/reminder-lifecycle.ts';
 import {
   buildCandidateNudge,
   CAPTURE_NUDGE,
   selectCaptureCandidates,
   shouldNudgeCapture,
 } from '../../../lib/node/pi/memory-capture.ts';
-import { formatMemoryIndex } from '../../../lib/node/pi/memory-prompt.ts';
+import { DEFAULT_MAX_INDEX_CHARS, MIN_INDEX_CHARS, renderMemoryIndex } from '../../../lib/node/pi/memory-prompt.ts';
+import {
+  containsFullIndex,
+  deliveryFromBranch,
+  deliveryRecord,
+  MEMORY_DELIVERY_TYPE,
+  MEMORY_REMINDER_ID,
+  type MemoryBaseline,
+  planMemoryReminder,
+  type PlannedMemoryReminder,
+  type RenderedFullIndex,
+  withEntry,
+  withoutEntry,
+} from '../../../lib/node/pi/memory/delivery.ts';
 import { validateSaveParams } from '../../../lib/node/pi/memory/save.ts';
 import { MEMORY_USAGE } from '../../../lib/node/pi/memory/usage.ts';
 import {
@@ -106,7 +124,6 @@ import {
   entryAgeDays,
   formatText,
   isStaleEntry,
-  MEMORY_CUSTOM_TYPE,
   type MemoryEntry,
   type MemoryIndex,
   type MemoryScope,
@@ -121,8 +138,6 @@ import {
 import { findSimilarMemories, searchMemories } from '../../../lib/node/pi/memory-search.ts';
 import { truncate } from '../../../lib/node/pi/shared.ts';
 import { envTruthy, parseClampedPositiveInt, parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
-
-const MAX_INJECTED_CHARS_DEFAULT = 3000;
 
 // ──────────────────────────────────────────────────────────────────────
 // Tool params
@@ -265,8 +280,8 @@ export default function memoryExtension(pi: ExtensionAPI): void {
   const readOnly = envTruthy(process.env.PI_MEMORY_READONLY);
   const maxInjectedChars = parseClampedPositiveInt(
     process.env.PI_MEMORY_MAX_INJECTED_CHARS,
-    MAX_INJECTED_CHARS_DEFAULT,
-    500,
+    DEFAULT_MAX_INDEX_CHARS,
+    MIN_INDEX_CHARS,
   );
   const staleDays = parsePositiveInt(process.env.PI_MEMORY_STALE_DAYS, DEFAULT_STALE_DAYS);
   // Capture-assist: a one-shot nudge fired after compaction.
@@ -308,6 +323,18 @@ export default function memoryExtension(pi: ExtensionAPI): void {
   let renderedCaptureGeneration: number | null = null;
   let captureEligible = false;
   const surfacedWarnings = new Set<string>();
+  // Cache-safe index delivery (see lib/node/pi/memory/delivery.ts).
+  // `delivered` is the baseline the model has already seen; `null` means
+  // nothing is in context yet, so the next run carries the full index.
+  // `pendingIndex` is what the latest `context` call proposed; it becomes
+  // `delivered` only once the coordinator confirms the capture.
+  let delivered: MemoryBaseline | null = null;
+  let pendingIndex: PlannedMemoryReminder | null = null;
+
+  const renderFullIndex = (): RenderedFullIndex | null => {
+    const rendered = renderMemoryIndex(state, { maxChars: maxInjectedChars, now: now(), staleDays });
+    return rendered ? { body: rendered.body, truncated: rendered.skipped > 0 } : null;
+  };
 
   const readOnlyError = (action: string): { content: string; details: MemoryDetails; isError: boolean } => {
     const error = `memory is read-only: PI_MEMORY_READONLY=1`;
@@ -318,20 +345,54 @@ export default function memoryExtension(pi: ExtensionAPI): void {
     };
   };
 
-  const rebuildFromDisk = (ctx: ExtensionContext): void => {
-    cwd = ctx.cwd;
-    sessionId = readSessionId(ctx);
+  /**
+   * Re-read every scope from disk. Cheap (a few dozen small files), and
+   * run before each agent run and tool action so writes from other pi
+   * sessions are seen and MEMORY.md / slug choice never work from a stale index. Changes it
+   * discovers reach the model as a delta on the next run.
+   */
+  const rescan = (ctx: ExtensionContext | undefined): void => {
+    if (ctx?.cwd) cwd = ctx.cwd;
+    if (ctx) sessionId = readSessionId(ctx) ?? sessionId;
     const { state: next, warnings } = rebuildMemoryIndex(cwd, sessionId);
     state = next;
     for (const w of warnings) {
       if (surfacedWarnings.has(w)) continue;
       surfacedWarnings.add(w);
-      ctx.ui.notify(`memory: ${w}`, 'warning');
+      ctx?.ui.notify(`memory: ${w}`, 'warning');
     }
+  };
+
+  /** Persist the delivered baseline so resume / `/tree` can reconstruct it. */
+  const recordDelivery = (baseline: MemoryBaseline): void => {
+    delivered = baseline;
     try {
-      pi.appendEntry(MEMORY_CUSTOM_TYPE, cloneState(state));
+      pi.appendEntry(MEMORY_DELIVERY_TYPE, deliveryRecord(baseline));
     } catch {
-      // Bookkeeping must never break initialization.
+      // Bookkeeping must never break a turn; worst case the next run resends.
+    }
+  };
+
+  /** The model learned about its own write from the tool result - no delta needed. */
+  const noteLocalUpsert = (entry: MemoryEntry, replaced?: MemoryEntry): void => {
+    if (delivered === null) return;
+    const base = replaced ? withoutEntry(delivered.fingerprint, replaced) : delivered.fingerprint;
+    recordDelivery({ fingerprint: withEntry(base, entry), truncated: delivered.truncated });
+  };
+  const noteLocalRemoval = (entry: MemoryEntry): void => {
+    if (delivered === null) return;
+    recordDelivery({ fingerprint: withoutEntry(delivered.fingerprint, entry), truncated: delivered.truncated });
+  };
+
+  const resetSession = (ctx: ExtensionContext): void => {
+    cwd = ctx.cwd;
+    sessionId = readSessionId(ctx);
+    rescan(ctx);
+    pendingIndex = null;
+    try {
+      delivered = deliveryFromBranch(ctx.sessionManager.getBranch());
+    } catch {
+      delivered = null;
     }
   };
 
@@ -345,34 +406,78 @@ export default function memoryExtension(pi: ExtensionAPI): void {
   };
   pi.on('session_start', (_event, ctx) => {
     resetCaptureState();
-    rebuildFromDisk(ctx);
+    resetSession(ctx);
   });
 
   pi.on('session_tree', (_event, ctx) => {
     resetCaptureState();
-    rebuildFromDisk(ctx);
+    resetSession(ctx);
   });
 
-  // Only count activity here. The index never rebuilds the leading system prompt.
-  pi.on('before_agent_start', (event) => {
+  // Compaction may evict the snapshot that carried the full index; resend it.
+  pi.on('session_compact', () => {
+    delivered = null;
+    pendingIndex = null;
+  });
+
+  // Refresh from disk and count activity here. The index never rebuilds the
+  // leading system prompt.
+  pi.on('before_agent_start', (event, ctx) => {
+    try {
+      rescan(ctx);
+    } catch {
+      // A transient disk error keeps the previous index.
+    }
     captureEligible = event.messageType === 'user';
     renderedCaptureGeneration = null;
     if (!captureEligible) return;
     // Count this submit as user activity for the capture-assist gate.
     userTurnsSinceLastSave += 1;
   });
-  // The final snapshot coordinator preserves the index in a distinct history item.
-  // Never rebuild the leading system prompt when memories or age labels change.
+  // The snapshot coordinator captures this once per run into a distinct,
+  // persisted history item. Emit the full index only when the model has no
+  // baseline, a delta when the index changed, and nothing otherwise, so
+  // runs do not stack identical copies of the index.
   pi.on('context', (event) => {
     if (!autoInjectEnabled) return undefined;
-    const block = formatMemoryIndex(state, { maxChars: maxInjectedChars, now: now(), staleDays });
-    if (!block) return undefined;
+    pendingIndex = planMemoryReminder(delivered, state.index, renderFullIndex);
+    if (!pendingIndex) return undefined;
     const messages = applyContextReminder(event.messages as unknown as ReminderMessage[], {
-      id: 'memory-index',
-      body: block,
+      id: MEMORY_REMINDER_ID,
+      body: pendingIndex.body,
     });
     return { messages: messages as unknown as typeof event.messages };
   });
+
+  // Advance the delivered baseline only when the coordinator actually
+  // captured the proposed body, so an aborted request never desyncs it.
+  if (autoInjectEnabled) {
+    const unsubscribeIndex = pi.events.on('cache-reminders:captured', (data) => {
+      const snapshot = data as ReminderSnapshot | undefined;
+      const planned = pendingIndex;
+      if (!planned) return;
+      const captured = snapshot?.specs.some(
+        (spec) => spec.id === MEMORY_REMINDER_ID && spec.body === planned.body.trim(),
+      );
+      if (!captured) return;
+      pendingIndex = null;
+      recordDelivery(planned.baseline);
+    });
+    // Compaction is not the only way history shrinks: a rolling context
+    // window (roleplay) can cut the turn whose snapshot held the full index.
+    // If the final projected request no longer carries one, drop the
+    // baseline so the next run resends the full index at its own origin.
+    const unsubscribeProjected = pi.events.on(REMINDER_PROJECTED, (data) => {
+      if (delivered === null) return;
+      const messages = (data as { messages?: unknown } | undefined)?.messages;
+      if (!Array.isArray(messages) || containsFullIndex(messages)) return;
+      delivered = null;
+    });
+    pi.on('session_shutdown', () => {
+      unsubscribeIndex();
+      unsubscribeProjected();
+    });
+  }
 
   // ── Capture-assist context-hook injection ────────────────────────────
   // The capture nudge rides the turn as an ephemeral <system-reminder>
@@ -456,6 +561,11 @@ export default function memoryExtension(pi: ExtensionAPI): void {
         capturePending = false;
         pendingCaptureBody = null;
         pi.sendUserMessage(body, { deliverAs: 'followUp' });
+      } else if (!remindersEnabled) {
+        // Turn-only mode with no concrete candidates and no reminder
+        // transport: nothing can deliver the generic nudge, so disarm.
+        capturePending = false;
+        pendingCaptureBody = null;
       } else {
         // Reminder path (default): stash the concrete body for the context
         // hook; `null` falls back to the generic CAPTURE_NUDGE.
@@ -525,7 +635,16 @@ export default function memoryExtension(pi: ExtensionAPI): void {
         `Note: this looks similar to existing memory ${ids}. Consider \`update\`-ing instead of saving a duplicate.`,
       );
     }
-    const slug = chooseMemorySlug(state, scope, name);
+    // Claim the file with an exclusive create while picking the slug, so a
+    // concurrent save in another pi session can never pick the same file.
+    const slug = chooseMemorySlug(
+      state,
+      scope,
+      name,
+      undefined,
+      (s) => !reserveMemoryFile(fileFor(scope, type, s, cwd, sessionId)),
+    );
+    const path = fileFor(scope, type, slug, cwd, sessionId);
     // New memory: stamp both timestamps with the same instant.
     const stamp = now().toISOString();
     const serialized = serializeMemory({
@@ -536,7 +655,13 @@ export default function memoryExtension(pi: ExtensionAPI): void {
       created: stamp,
       updated: stamp,
     });
-    atomicWriteFile(fileFor(scope, type, slug, cwd, sessionId), serialized);
+    try {
+      atomicWriteFile(path, serialized);
+    } catch (error) {
+      // Drop the empty placeholder so it doesn't surface as a malformed file.
+      removeFileIfExists(path);
+      throw error;
+    }
     const entry: MemoryEntry = {
       id: slug,
       scope,
@@ -549,17 +674,13 @@ export default function memoryExtension(pi: ExtensionAPI): void {
     const nextIndex = upsertEntry(state.index, entry);
     state = { index: nextIndex, projectSlug: state.projectSlug, sessionId: state.sessionId };
     writeIndex(scope, cwd, sessionId, bucketFor(nextIndex, scope));
-    try {
-      pi.appendEntry(MEMORY_CUSTOM_TYPE, cloneState(state));
-    } catch {
-      // keep going
-    }
+    noteLocalUpsert(entry);
     // A successful save clears the capture-assist gate: nothing fresh is
     // unsaved until the next user turn.
     resetCaptureState();
     const prefix = warnings.length > 0 ? `${warnings.join('\n')}\n\n` : '';
     return {
-      content: `${prefix}Saved memory [${scope}/${type}] ${slug} - ${entry.name}\n\n${formatText(state)}`,
+      content: `${prefix}Saved memory [${scope}/${type}] \`${slug}\` - ${entry.description}`,
       details: { action: 'save', state: cloneState(state), entry },
     };
   };
@@ -632,14 +753,17 @@ export default function memoryExtension(pi: ExtensionAPI): void {
     if (renamed) {
       // Remove the outgoing entry from the index BEFORE picking a new slug so
       // a rename that collapses back to the same slug (or a reclaimed one)
-      // doesn't get pushed to `-2`. Then remove the old file.
-      nextIndex = removeEntry(nextIndex, resolved.scope, resolved.id);
+      // doesn't get pushed to `-2`. The old file is deleted only after the
+      // new one is written, so a failed write never loses the memory.
+      nextIndex = removeEntry(nextIndex, resolved.scope, resolved.id, resolved.type);
       nextId = chooseMemorySlug(
         { index: nextIndex, projectSlug: state.projectSlug, sessionId: state.sessionId },
         resolved.scope,
         params.name!,
+        undefined,
+        // Our own file is free to keep; any other slug must be claimed.
+        (s) => s !== resolved.id && !reserveMemoryFile(fileFor(resolved.scope, resolved.type, s, cwd, sessionId)),
       );
-      removeFileIfExists(fileFor(resolved.scope, resolved.type, resolved.id, cwd, sessionId));
     }
     // Preserve `created`, bumping `updated` to now. Prefer the resolved
     // entry's own `created` (populated by the disk scan and captured before
@@ -656,7 +780,16 @@ export default function memoryExtension(pi: ExtensionAPI): void {
       created: priorCreated,
       updated: updatedStamp,
     });
-    atomicWriteFile(fileFor(resolved.scope, resolved.type, nextId, cwd, sessionId), serialized);
+    const nextPath = fileFor(resolved.scope, resolved.type, nextId, cwd, sessionId);
+    try {
+      atomicWriteFile(nextPath, serialized);
+    } catch (error) {
+      if (nextId !== resolved.id) removeFileIfExists(nextPath);
+      throw error;
+    }
+    if (nextId !== resolved.id) {
+      removeFileIfExists(fileFor(resolved.scope, resolved.type, resolved.id, cwd, sessionId));
+    }
     const entry: MemoryEntry = {
       id: nextId,
       scope: resolved.scope,
@@ -669,13 +802,9 @@ export default function memoryExtension(pi: ExtensionAPI): void {
     nextIndex = upsertEntry(nextIndex, entry);
     state = { index: nextIndex, projectSlug: state.projectSlug, sessionId: state.sessionId };
     writeIndex(entry.scope, cwd, sessionId, bucketFor(nextIndex, entry.scope));
-    try {
-      pi.appendEntry(MEMORY_CUSTOM_TYPE, cloneState(state));
-    } catch {
-      // keep going
-    }
+    noteLocalUpsert(entry, resolved);
     return {
-      content: `Updated memory [${entry.scope}/${entry.type}] ${entry.id} - ${entry.name}\n\n${formatText(state)}`,
+      content: `Updated memory [${entry.scope}/${entry.type}] \`${entry.id}\` - ${entry.description}`,
       details: { action: 'update', state: cloneState(state), entry },
     };
   };
@@ -699,16 +828,12 @@ export default function memoryExtension(pi: ExtensionAPI): void {
       };
     }
     removeFileIfExists(fileFor(resolved.scope, resolved.type, resolved.id, cwd, sessionId));
-    const nextIndex = removeEntry(state.index, resolved.scope, resolved.id);
+    const nextIndex = removeEntry(state.index, resolved.scope, resolved.id, resolved.type);
     state = { index: nextIndex, projectSlug: state.projectSlug, sessionId: state.sessionId };
     writeIndex(resolved.scope, cwd, sessionId, bucketFor(nextIndex, resolved.scope));
-    try {
-      pi.appendEntry(MEMORY_CUSTOM_TYPE, cloneState(state));
-    } catch {
-      // keep going
-    }
+    noteLocalRemoval(resolved);
     return {
-      content: `Removed memory [${resolved.scope}/${resolved.type}] ${resolved.id}\n\n${formatText(state)}`,
+      content: `Removed memory [${resolved.scope}/${resolved.type}] \`${resolved.id}\``,
       details: { action: 'remove', state: cloneState(state), entry: resolved },
     };
   };
@@ -756,16 +881,10 @@ export default function memoryExtension(pi: ExtensionAPI): void {
     parameters: MemoryParams,
 
     async execute(_toolCallId, params: MemoryParamsT, _signal, _onUpdate, ctx) {
-      // Keep `cwd`/`sessionId` fresh - tool calls can happen long after
-      // session_start and the cwd/session in ctx may have changed across
-      // commands.
-      if (ctx?.cwd && ctx.cwd !== cwd) {
-        cwd = ctx.cwd;
-      }
-      if (ctx) {
-        const sid = readSessionId(ctx);
-        if (sid) sessionId = sid;
-      }
+      // Rescan before every action: picks up the current cwd/session and
+      // any memory written by another pi session, so `read` finds it and a
+      // write never rebuilds MEMORY.md or picks a slug from a stale index.
+      rescan(ctx);
       let out: { content: string; details: MemoryDetails; isError?: boolean };
       switch (params.action) {
         case 'list':
@@ -885,13 +1004,22 @@ export default function memoryExtension(pi: ExtensionAPI): void {
           );
           return;
         }
-        const block = formatMemoryIndex(state, { maxChars: maxInjectedChars, now: now(), staleDays });
-        if (!block) {
-          ctx.ui.notify('(no memories - no memory-index snapshot would be emitted next run)', 'info');
+        rescan(ctx);
+        const plan = planMemoryReminder(delivered, state.index, renderFullIndex);
+        if (plan) {
+          ctx.ui.notify(
+            `Proposed ${plan.kind === 'full' ? 'full index' : 'delta'} for the next run's reminder snapshot ` +
+              `(cap ${maxInjectedChars} chars, rendered ${plan.body.length}):\n\n${plan.body}`,
+            'info',
+          );
           return;
         }
+        const full = renderFullIndex()?.body;
         ctx.ui.notify(
-          `Proposed for the next run's reminder snapshot (cap ${maxInjectedChars} chars, rendered ${block.length}):\n\n${block}`,
+          full
+            ? `Index unchanged since it was last delivered - nothing would be emitted next run.\n` +
+                `Full index (resent after compaction or in a new session, ${full.length} chars):\n\n${full}`
+            : '(no memories - no memory-index snapshot would be emitted next run)',
           'info',
         );
         return;
@@ -911,7 +1039,7 @@ export default function memoryExtension(pi: ExtensionAPI): void {
         return;
       }
       if (sub === 'rescan') {
-        rebuildFromDisk(ctx);
+        rescan(ctx);
         ctx.ui.notify(`Rescanned memory dirs.\n\n${formatText(state)}`, 'info');
         return;
       }
@@ -948,7 +1076,7 @@ export default function memoryExtension(pi: ExtensionAPI): void {
         }
         const before = listSessionMemoryDirs(ctx.cwd);
         const removed = pruneOrphanSessionDirs(ctx.cwd, live);
-        rebuildFromDisk(ctx);
+        rescan(ctx);
         ctx.ui.notify(
           removed.length === 0
             ? `No orphaned session memory to prune (${before.length} session dir(s) all have transcripts).`

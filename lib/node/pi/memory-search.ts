@@ -1,27 +1,25 @@
 /**
  * Pure ranking helpers for the memory extension's `search` action, its
- * save-time duplicate check, and per-turn recall.
+ * save-time duplicate check, and the capture-assist "already saved?" check.
  *
  * No pi imports - testable under `vitest`.
  *
  * The query is TOKENIZED first (see {@link tokenizeQuery}): a
  * natural-language prompt like "tell me about the auth mock policy" is
- * scored on its content words (auth / mock / policy), not as one doomed
- * whole-string subsequence. This is the difference between recall that
- * fires on real sentences and recall that only fires on hand-typed
- * keywords. Each surviving token contributes:
- *   - a fuzzy (subsequence) match on the name, weighted high;
- *   - a fuzzy match on the description, weighted medium;
- *   - a substring match on the body, weighted low and only consulted
- *     lazily when name+description didn't already clear a threshold (so
- *     we skip a disk read for every entry on every search).
- * Token scores are summed.
+ * scored on its content words (auth / mock / policy), not as one whole
+ * string. Each token is matched as a word, not a loose subsequence (a
+ * subsequence like t..e..s..t matches almost any long description):
+ *   - whole word > word prefix > mid-word substring (4+ chars only);
+ *   - weighted high on the name, medium on the description, and low on
+ *     the body, which is only read lazily when name+description didn't
+ *     already clear a threshold (so a strong header hit skips a disk read).
+ * Token scores are summed. `searchMemories` then drops results far below
+ * the best hit and caps the list.
  *
- * This is the cheap version of a multi-pass recall ranker: enough signal
- * to order the index sensibly without embeddings or a second model call.
+ * Cheap lexical ranking: enough signal to order the index sensibly without
+ * embeddings or a second model call.
  */
 
-import { fuzzyMatch } from './fuzzy-match.ts';
 import { type MemoryEntry } from './memory-reducer.ts';
 
 export interface ScoredMemory {
@@ -42,7 +40,16 @@ const BODY_WEIGHT = 1;
  * the disk read while a weak (or zero) header score still falls through
  * to "body matches too" behaviour.
  */
-const DEFAULT_BODY_READ_THRESHOLD = 6;
+const DEFAULT_BODY_READ_THRESHOLD = 30;
+
+/** Results scoring below this fraction of the best hit are dropped. */
+const DEFAULT_MIN_RELATIVE_SCORE = 0.15;
+
+/** Most results `searchMemories` returns by default. */
+const DEFAULT_SEARCH_LIMIT = 10;
+
+/** Mid-word substring hits only count for tokens at least this long. */
+const MIN_INFIX_TOKEN_LEN = 4;
 
 /** Tokens shorter than this are dropped before scoring (kills "i", "a"). */
 const MIN_TOKEN_LEN = 2;
@@ -175,27 +182,45 @@ export function tokenizeQuery(query: string): string[] {
   return tokens.length > 0 ? tokens : [lower];
 }
 
-/** Fuzzy score of `token` against `text`, or 0 when it doesn't match. */
-function fuzzyScore(token: string, text: string): number {
-  const m = fuzzyMatch(token, text);
-  return m ? m.score : 0;
+const isWordChar = (ch: string | undefined): boolean => ch !== undefined && /[a-z0-9]/.test(ch);
+
+/**
+ * Best word-aware match of a lowercased `token` in `text`: a whole word
+ * scores 3x its length, a word prefix 2x, a mid-word substring 1x (only
+ * for tokens of {@link MIN_INFIX_TOKEN_LEN}+ chars), otherwise 0.
+ */
+export function tokenScore(token: string, text: string): number {
+  if (token.length === 0) return 0;
+  const hay = text.toLowerCase();
+  const whole = 3 * token.length;
+  let best = 0;
+  for (let i = hay.indexOf(token); i !== -1; i = hay.indexOf(token, i + 1)) {
+    const startsWord = !isWordChar(hay[i - 1]);
+    const endsWord = !isWordChar(hay[i + token.length]);
+    let s = 0;
+    if (startsWord && endsWord) s = whole;
+    else if (startsWord) s = 2 * token.length;
+    else if (token.length >= MIN_INFIX_TOKEN_LEN) s = token.length;
+    if (s > best) best = s;
+    if (best === whole) break;
+  }
+  return best;
 }
 
-/** Summed name+description fuzzy score across all query tokens. */
+/** Summed name+description score across all query tokens. */
 function headerScore(tokens: readonly string[], entry: MemoryEntry): number {
   let score = 0;
   for (const t of tokens) {
-    score += NAME_WEIGHT * fuzzyScore(t, entry.name) + DESC_WEIGHT * fuzzyScore(t, entry.description);
+    score += NAME_WEIGHT * tokenScore(t, entry.name) + DESC_WEIGHT * tokenScore(t, entry.description);
   }
   return score;
 }
 
-/** Body signal: weighted count of query tokens present as substrings. */
+/** Body signal: summed word-aware token score, weighted low. */
 function bodyScore(tokens: readonly string[], body: string): number {
-  const hay = body.toLowerCase();
-  let hits = 0;
-  for (const t of tokens) if (hay.includes(t)) hits += 1;
-  return BODY_WEIGHT * hits;
+  let score = 0;
+  for (const t of tokens) score += BODY_WEIGHT * tokenScore(t, body);
+  return score;
 }
 
 /**
@@ -218,9 +243,19 @@ function scoreEntry(
   return score;
 }
 
+export interface SearchOptions {
+  /** Header score under which the body is read. */
+  bodyReadThreshold?: number;
+  /** Drop results scoring below this fraction of the best hit (0 keeps all). */
+  minRelativeScore?: number;
+  /** Maximum number of results (default 10). */
+  limit?: number;
+}
+
 /**
- * Rank `entries` against `query`, dropping zero-score entries. Sorted by
- * score descending. The query is tokenized first (see {@link tokenizeQuery}).
+ * Rank `entries` against `query`, dropping zero-score entries and those far
+ * below the best hit, sorted by score descending and capped at
+ * `opts.limit`. The query is tokenized first (see {@link tokenizeQuery}).
  * `getBody` is lazy: only called for entries whose name+description score
  * is below `opts.bodyReadThreshold`.
  */
@@ -228,7 +263,7 @@ export function searchMemories(
   entries: readonly MemoryEntry[],
   getBody: (e: MemoryEntry) => string | null,
   query: string,
-  opts: { bodyReadThreshold?: number } = {},
+  opts: SearchOptions = {},
 ): ScoredMemory[] {
   const tokens = tokenizeQuery(query);
   if (tokens.length === 0) return [];
@@ -240,7 +275,9 @@ export function searchMemories(
     if (score > 0) scored.push({ entry, score });
   }
   scored.sort((a, b) => b.score - a.score);
-  return scored;
+  if (scored.length === 0) return scored;
+  const floor = scored[0].score * (opts.minRelativeScore ?? DEFAULT_MIN_RELATIVE_SCORE);
+  return scored.filter((s) => s.score >= floor).slice(0, opts.limit ?? DEFAULT_SEARCH_LIMIT);
 }
 
 /**
@@ -261,7 +298,7 @@ export function findSimilarMemories(
   if (tokens.length === 0) return [];
   // The maximum name-component score an identical-named entry would reach;
   // a near-duplicate must clear a fraction of it.
-  const selfNameScore = NAME_WEIGHT * tokens.reduce((s, t) => s + fuzzyScore(t, candidate.name), 0);
+  const selfNameScore = NAME_WEIGHT * tokens.reduce((s, t) => s + tokenScore(t, candidate.name), 0);
   // Guard against a degenerate self-score: a default threshold of
   // `0.6 * 0` collapses to 0, which every scored entry clears, turning
   // the near-duplicate check into "match everything". Bail unless the
@@ -270,6 +307,9 @@ export function findSimilarMemories(
   const threshold = opts.threshold ?? DEFAULT_SIMILARITY_FRACTION * selfNameScore;
   const max = opts.max ?? 3;
 
-  const scored = searchMemories(existing, getBody, candidate.name);
+  const scored = searchMemories(existing, getBody, candidate.name, {
+    minRelativeScore: 0,
+    limit: Number.POSITIVE_INFINITY,
+  });
   return scored.filter((s) => s.score >= threshold).slice(0, max);
 }

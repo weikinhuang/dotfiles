@@ -11,9 +11,10 @@ description:
 
 The `memory` tool is durable, cross-session storage, plus a session-scoped `note` layer for context that should live
 only as long as the current session. Anything you save in the durable types survives session shutdown, context
-compaction, and new projects; a `note` survives compaction but not the session. Every turn the MEMORY.md index is
-injected into the system prompt under a `## Memory` header so you can see what's available without a tool call. Full
-bodies are fetched on demand via `memory` action `read`.
+compaction, and new projects; a `note` survives compaction but not the session. The index of saved memories reaches you
+as a `## Memory` reminder near the start of the session (and again after a compaction), followed by a short
+`## Memory changes` block whenever memories change outside your own tool calls. Full bodies are fetched on demand via
+`memory` action `read`.
 
 This skill teaches WHEN to save, WHEN to recall, and WHAT NOT to save. The tool provides the mechanism; this doc
 provides the policy.
@@ -142,16 +143,13 @@ outstanding, ignore it - do not manufacture a memory just because compaction is 
 
 ## Recall
 
-Indices are injected every turn so you always see what's available. On top of that, the harness now surfaces the
-memories most relevant to the current prompt: by default a one-line reminder names the best-matching ids ("Most relevant
-saved memories for this request: `…`"); when body injection is enabled it drops their full bodies under a
-`## Relevant memory` heading. Treat those as a ranked shortlist, not an instruction - **reading is still your call.** If
-a surfaced description looks relevant, `read` it (cheap); if it clearly isn't, skip it. And the harness only ranks
-lexically, so it can miss a relevant memory or over-rank a coincidental keyword match - scan the full index too when the
-shortlist looks off.
+The `## Memory` index lists every saved memory you can use (if a tight cap hides some, the trailer says so - call
+`list`). It is not repeated every turn: the latest `## Memory` block plus any later `## Memory changes` blocks and your
+own `memory` tool results make up the current view. The harness does not pick "relevant" memories for you, so scan the
+index yourself, `read` a memory whose description looks relevant (cheap), and use `search` when the index is long.
 
-Before acting on memory content, **verify it** (this applies just as much to a recall-surfaced or body-injected memory
-as to one you fetched yourself):
+Before acting on memory content, **verify it** (this applies just as much to a memory listed in the index as to one you
+fetched yourself):
 
 - Memory names a file or function? Grep or stat before recommending it - it may have been renamed or removed.
 - Memory claims "X exists"? That was true when the memory was written, not necessarily now.
@@ -184,11 +182,11 @@ treat the marker as a prompt to re-verify before relying on it.
 
 ## Quick reference
 
-| Action   | Required                                    | Optional        | Purpose                                                                |
-| -------- | ------------------------------------------- | --------------- | ---------------------------------------------------------------------- |
-| `list`   | -                                           | -               | Print all indices (global + project + session).                        |
-| `read`   | `id`                                        | `type`, `scope` | Load a memory's full body.                                             |
-| `save`   | `type`, `name`, `description`, `body`       | `scope`         | Create a new memory.                                                   |
-| `update` | `id` + at least one of `name`/`desc`/`body` | `type`, `scope` | Rewrite fields on an existing memory.                                  |
-| `remove` | `id`, `scope`                               | `type`          | Delete a memory + drop it from MEMORY.md.                              |
-| `search` | `query`                                     | -               | Fuzzy + substring match over name/description/body, ranked best-first. |
+| Action   | Required                                    | Optional        | Purpose                                                            |
+| -------- | ------------------------------------------- | --------------- | ------------------------------------------------------------------ |
+| `list`   | -                                           | -               | Print all indices (global + project + session).                    |
+| `read`   | `id`                                        | `type`, `scope` | Load a memory's full body.                                         |
+| `save`   | `type`, `name`, `description`, `body`       | `scope`         | Create a new memory.                                               |
+| `update` | `id` + at least one of `name`/`desc`/`body` | `type`, `scope` | Rewrite fields on an existing memory.                              |
+| `remove` | `id`, `scope`                               | `type`          | Delete a memory + drop it from MEMORY.md.                          |
+| `search` | `query`                                     | -               | Word match over name/description/body, ranked best-first (top 10). |

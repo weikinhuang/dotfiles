@@ -1,167 +1,155 @@
 /**
- * System-prompt renderer for the memory extension.
+ * Index renderer for the memory extension's `memory-index` reminder.
  *
  * No pi imports - testable under `vitest`.
  *
- * Every turn the extension injects the `MEMORY.md` indices (global +
- * project + the current session) under a `## Memory` header so the model
- * can see what's available without a tool call. Full memory bodies are
- * fetched on demand via `memory read <id>`; we only inject the
- * one-line-per-memory index here.
+ * Renders the one-line-per-memory index (global + project + the current
+ * session) under a `## Memory` header so the model can see what's available
+ * without a tool call. Full bodies are fetched on demand via `memory read`.
+ * The extension emits this full block only when the model has no delivered
+ * baseline (see `memory/delivery.ts`); later runs carry a small delta.
  *
- * A soft character cap protects the system prompt - once the cap is
- * reached we emit a trailer pointing at the tool. The cap is a budget,
- * not a hard limit: each rendered entry fits whole; we stop adding
- * entries once the next one would blow the budget.
+ * A soft character cap bounds the block. The budget is spent in *priority*
+ * order - behavioural types first (`feedback`, `user`), then `note`,
+ * `reference`, `project`; within a type the more specific scope wins
+ * (session, project, global) - so corrections are the last thing dropped.
+ * Selected entries are then rendered in reader-friendly *display* order
+ * (global -> project -> session, types in scope order).
  */
 
 import {
   DEFAULT_STALE_DAYS,
   entryAgeDays,
-  groupByType,
   isStaleEntry,
   type MemoryEntry,
+  type MemoryScope,
   type MemoryState,
   type MemoryType,
+  validTypesForScope,
 } from './memory-reducer.ts';
+import { slugifyAscii } from './slugify.ts';
+
+/** Default soft cap (chars). The full index is emitted rarely, so it can be generous. */
+export const DEFAULT_MAX_INDEX_CHARS = 6000;
+/** Lowest accepted cap; smaller values are clamped up. */
+export const MIN_INDEX_CHARS = 500;
 
 export interface FormatOptions {
   /**
-   * Soft cap on the rendered body in characters. The trailer telling
-   * the model how to fetch more is appended beyond this cap, so the
-   * final block can exceed it slightly. Default 3000.
+   * Soft cap on the rendered body in characters. The trailer telling the
+   * model how to fetch more is appended beyond this cap, so the final block
+   * can exceed it slightly. Default {@link DEFAULT_MAX_INDEX_CHARS}.
    */
   maxChars?: number;
-  /**
-   * Clock used to compute entry age for the stale marker. Injected so
-   * tests are deterministic; the extension passes the real `new Date()`.
-   * Defaults to now.
-   */
+  /** Clock for the stale marker. Injected so tests are deterministic. */
   now?: Date;
-  /**
-   * Age (days) past which a `project` entry gets a tiny `(Nd)` age
-   * marker. Defaults to {@link DEFAULT_STALE_DAYS}.
-   */
+  /** Age (days) past which a `project` entry gets a `(Nd)` marker. */
   staleDays?: number;
 }
 
-/**
- * Tiny age suffix for a stale `project` entry, e.g. ` (45d)`. Empty
- * string for fresh / non-project / undated entries so it costs nothing.
- */
+/** Budget priority: lower spends first. Behavioural rules survive a tight cap. */
+const TYPE_PRIORITY: Record<MemoryType, number> = { feedback: 0, user: 1, note: 2, reference: 3, project: 4 };
+const SCOPE_PRIORITY: Record<MemoryScope, number> = { session: 0, project: 1, global: 2 };
+const DISPLAY_SCOPES: readonly MemoryScope[] = ['global', 'project', 'session'];
+
 function staleSuffix(entry: MemoryEntry, now: Date, staleDays: number): string {
   if (!isStaleEntry(entry, now, staleDays)) return '';
   const age = entryAgeDays(entry, now);
   return age === undefined ? '' : ` (${age}d)`;
 }
 
-function renderScope(
-  label: string,
-  entries: readonly MemoryEntry[],
-  validTypes: readonly MemoryType[],
-  budget: number,
-  now: Date,
-  staleDays: number,
-): { lines: string[]; used: number; skipped: number; truncated: boolean } {
-  const lines: string[] = [`### ${label}`];
-  let used = lines[0].length + 1;
-  let skipped = 0;
-  let truncated = false;
-
-  const grouped = groupByType(entries);
-  for (const type of validTypes) {
-    const group = grouped.get(type) ?? [];
-    if (group.length === 0) continue;
-    const heading = `**${type}**`;
-    // Reserve budget for heading + one entry before bailing.
-    if (used + heading.length + 2 > budget && lines.length > 1) {
-      truncated = true;
-      skipped += group.length;
-      continue;
-    }
-    lines.push(heading);
-    used += heading.length + 1;
-    for (const e of group) {
-      const line = `- ${e.name} (\`${e.id}\`) - ${e.description}${staleSuffix(e, now, staleDays)}`;
-      if (used + line.length + 1 > budget && lines.length > 2) {
-        truncated = true;
-        skipped++;
-        continue;
-      }
-      lines.push(line);
-      used += line.length + 1;
-    }
-  }
-  if (lines.length === 1) {
-    // No content at all - drop the header.
-    return { lines: [], used: 0, skipped, truncated };
-  }
-  lines.push('');
-  return { lines, used, skipped, truncated };
+/**
+ * One index line. The human name is omitted when it is just the slug's
+ * source (the id already says it), which saves a large share of the budget.
+ */
+export function formatIndexLine(entry: MemoryEntry, now: Date, staleDays: number): string {
+  const redundantName = slugifyAscii(entry.name, { fallback: 'memory' }) === entry.id;
+  const label = redundantName ? `\`${entry.id}\`` : `${entry.name} (\`${entry.id}\`)`;
+  return `- ${label} - ${entry.description}${staleSuffix(entry, now, staleDays)}`;
 }
 
+function scopeLabel(scope: MemoryScope, state: MemoryState): string {
+  if (scope === 'global') return 'Global';
+  if (scope === 'project') return state.projectSlug ? `Project (${state.projectSlug})` : 'Project';
+  return state.sessionId ? `Session (${state.sessionId})` : 'Session';
+}
+
+const typeHeading = (type: MemoryType): string => `**${type}**`;
+
 /**
- * Build the `## Memory` block injected into the system prompt each turn.
- * Returns `null` when both scopes are empty so the caller can skip
- * injection - no point reserving tokens for nothing.
- *
- * Budget vs display order are decoupled. The `maxChars` budget is
- * consumed in *priority* order - session -> project -> global - so when
- * the cap is tight the scopes most relevant to the current turn survive
- * and stable cross-project global entries are the first to be truncated.
- * The rendered sections are then re-assembled into reader-friendly
- * *display* order (global -> project -> session) for the final block.
+ * Build the `## Memory` block and report how many entries the cap left out,
+ * so delivery can tell a complete index from a truncated one. Returns `null`
+ * when every scope is empty so the caller can skip the reminder.
  */
-export function formatMemoryIndex(state: MemoryState, opts: FormatOptions = {}): string | null {
-  const globalEntries = state.index.global;
-  const projectEntries = state.index.project;
-  const sessionEntries = state.index.session;
-  if (globalEntries.length === 0 && projectEntries.length === 0 && sessionEntries.length === 0) return null;
-  const cap = Math.max(500, opts.maxChars ?? 3000);
+export function renderMemoryIndex(
+  state: MemoryState,
+  opts: FormatOptions = {},
+): { body: string; skipped: number } | null {
+  const byScope: Record<MemoryScope, readonly MemoryEntry[]> = {
+    global: state.index.global,
+    project: state.index.project,
+    session: state.index.session,
+  };
+  const total = byScope.global.length + byScope.project.length + byScope.session.length;
+  if (total === 0) return null;
+  const cap = Math.max(MIN_INDEX_CHARS, opts.maxChars ?? DEFAULT_MAX_INDEX_CHARS);
   const now = opts.now ?? new Date();
   const staleDays = opts.staleDays ?? DEFAULT_STALE_DAYS;
 
-  const header: string[] = ['## Memory', ''];
-  let used = header.join('\n').length;
-  let totalSkipped = 0;
-  let truncated = false;
+  // Priority-ordered candidates with their rendered line.
+  const candidates = DISPLAY_SCOPES.flatMap((scope) =>
+    byScope[scope].map((entry, order) => ({ entry, order, line: formatIndexLine(entry, now, staleDays) })),
+  ).sort(
+    (a, b) =>
+      TYPE_PRIORITY[a.entry.type] - TYPE_PRIORITY[b.entry.type] ||
+      SCOPE_PRIORITY[a.entry.scope] - SCOPE_PRIORITY[b.entry.scope] ||
+      a.order - b.order,
+  );
 
-  // Hold each scope's rendered lines so we can render in priority order
-  // (for budget consumption) but emit in display order below.
-  let globalLines: string[] = [];
-  let projectLines: string[] = [];
-  let sessionLines: string[] = [];
-
-  const renderInto = (entries: readonly MemoryEntry[], label: string, validTypes: readonly MemoryType[]): string[] => {
-    if (entries.length === 0) return [];
-    const r = renderScope(label, entries, validTypes, cap - used, now, staleDays);
-    if (r.lines.length > 0) used += r.used;
-    totalSkipped += r.skipped;
-    truncated = truncated || r.truncated;
-    return r.lines;
-  };
-
-  // Budget-consumption order: session -> project -> global.
-  if (sessionEntries.length > 0) {
-    const label = state.sessionId ? `Session (${state.sessionId})` : 'Session';
-    sessionLines = renderInto(sessionEntries, label, ['note']);
+  let used = '## Memory\n\n'.length;
+  const openScopes = new Set<MemoryScope>();
+  const openGroups = new Set<string>();
+  const selected = new Set<MemoryEntry>();
+  for (const c of candidates) {
+    const { scope, type } = c.entry;
+    const group = `${scope}/${type}`;
+    let cost = c.line.length + 1;
+    if (!openScopes.has(scope)) cost += `### ${scopeLabel(scope, state)}`.length + 2;
+    if (!openGroups.has(group)) cost += typeHeading(type).length + 1;
+    // Always admit the first entry so a tiny cap still shows something.
+    if (selected.size > 0 && used + cost > cap) continue;
+    used += cost;
+    openScopes.add(scope);
+    openGroups.add(group);
+    selected.add(c.entry);
   }
-  if (projectEntries.length > 0) {
-    const label = state.projectSlug ? `Project (${state.projectSlug})` : 'Project';
-    projectLines = renderInto(projectEntries, label, ['user', 'feedback', 'project', 'reference']);
+
+  const lines: string[] = ['## Memory', ''];
+  for (const scope of DISPLAY_SCOPES) {
+    const entries = byScope[scope].filter((e) => selected.has(e));
+    if (entries.length === 0) continue;
+    lines.push(`### ${scopeLabel(scope, state)}`);
+    for (const type of validTypesForScope(scope)) {
+      const group = entries.filter((e) => e.type === type);
+      if (group.length === 0) continue;
+      lines.push(typeHeading(type));
+      for (const e of group) lines.push(formatIndexLine(e, now, staleDays));
+    }
+    lines.push('');
   }
-  globalLines = renderInto(globalEntries, 'Global', ['user', 'feedback']);
 
-  // Display order: global -> project -> session.
-  const lines: string[] = [...header, ...globalLines, ...projectLines, ...sessionLines];
-
-  if (truncated) {
-    lines.push(`(${totalSkipped} more memory entry(ies) not shown - call \`memory\` with action \`list\` to see all.)`);
+  const skipped = total - selected.size;
+  if (skipped > 0) {
+    lines.push(`(${skipped} more memory entry(ies) not shown - call \`memory\` with action \`list\` to see all.)`);
   } else {
     lines.push(
       'Call `memory` with action `read` + the id in backticks to load full content, `save` to persist new durable notes, `update` / `remove` to keep the index accurate.',
     );
   }
+  return { body: lines.join('\n').trimEnd(), skipped };
+}
 
-  return lines.join('\n').trimEnd();
+/** The `## Memory` block alone ({@link renderMemoryIndex} without the skip count). */
+export function formatMemoryIndex(state: MemoryState, opts: FormatOptions = {}): string | null {
+  return renderMemoryIndex(state, opts)?.body ?? null;
 }

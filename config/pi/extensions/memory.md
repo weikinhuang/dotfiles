@@ -63,21 +63,23 @@ the session.
 
 Registers a `memory` tool and a `/memory` command. Actions:
 
-| Action   | Required                                    | Optional        | Purpose                                                                |
-| -------- | ------------------------------------------- | --------------- | ---------------------------------------------------------------------- |
-| `list`   | -                                           | -               | Dump both indices (global + project).                                  |
-| `read`   | `id`                                        | `type`, `scope` | Load a memory's full body.                                             |
-| `save`   | `type`, `name`, `description`, `body`       | `scope`         | Write a new memory + update MEMORY.md.                                 |
-| `update` | `id` + at least one of `name`/`desc`/`body` | `type`, `scope` | Rewrite fields; renames change the slug.                               |
-| `remove` | `id`, `scope`                               | `type`          | Delete a memory + drop it from MEMORY.md.                              |
-| `search` | `query`                                     | -               | Fuzzy + substring match over name/description/body, ranked best-first. |
+| Action   | Required                                    | Optional        | Purpose                                                            |
+| -------- | ------------------------------------------- | --------------- | ------------------------------------------------------------------ |
+| `list`   | -                                           | -               | Dump both indices (global + project).                              |
+| `read`   | `id`                                        | `type`, `scope` | Load a memory's full body.                                         |
+| `save`   | `type`, `name`, `description`, `body`       | `scope`         | Write a new memory + update MEMORY.md.                             |
+| `update` | `id` + at least one of `name`/`desc`/`body` | `type`, `scope` | Rewrite fields; renames change the slug.                           |
+| `remove` | `id`, `scope`                               | `type`          | Delete a memory + drop it from MEMORY.md.                          |
+| `search` | `query`                                     | -               | Word match over name/description/body, ranked best-first (top 10). |
 
 For `save` with `scope: session`, `type` defaults to `note` (the only type valid in the session scope), so you can omit
 it.
 
-`search` ranks results by a lightweight multi-signal score: a fuzzy (subsequence) match on the name (weighted highest),
-on the description (medium), and a substring match on the body (low). The body is only read for an entry when its
-name+description score is weak, so a strong header hit avoids a disk read.
+`search` splits the query into content words (stopwords dropped) and scores each as a word match - whole word > word
+prefix > mid-word substring (4+ characters only) - weighted highest on the name, medium on the description, and low on
+the body. The body is only read for an entry when its name+description score is weak, so a strong header hit avoids a
+disk read. Results far below the best hit (under 15% of its score) are dropped and at most 10 are returned. Loose
+subsequence matching is deliberately not used: it matched nearly every memory for short queries.
 
 On `save`, the tool runs two non-blocking checks before writing:
 
@@ -90,16 +92,45 @@ On `save`, the tool runs two non-blocking checks before writing:
 
 ## Session-prompt integration
 
-On `session_start` / `session_tree` the extension scans the global and project memory dirs - plus the current session's
-dir when a session id is resolved - rebuilds an in-memory index, and mirrors that index snapshot (not bodies) to a
-`memory-state` session entry so `/fork` and `/tree` show the correct view. Its `context` producer emits a `## Memory`
-block with the per-type index (Global / Project / Session), capped by `PI_MEMORY_MAX_INJECTED_CHARS` (default 3000). The
-model is expected to call `memory` action `read` when it needs a full body.
+Disk is the source of truth. The extension rescans the global and project memory dirs - plus the current session's dir
+when a session id is resolved - on `session_start` / `session_tree`, at the start of every agent run, and before every
+tool action. A memory written by another pi session is therefore readable immediately, and a write never rebuilds
+`MEMORY.md` or picks a slug from a stale index. Rescans are cheap: parsed frontmatter is cached per file and keyed on
+its stat identity, so an unchanged file costs one `stat`.
 
-[`cache-reminders`](./cache-reminders.md) captures that index once per run in a distinct, persistent request projection
-by default. The legacy system-prompt index path is removed. Index mutations and age annotations no longer rebuild the
-leading system prompt. New user turns capture current state from the disk index. Resume, branch navigation, and
-compaction replay already-delivered snapshots whose input anchors survive, without creating fresh tool-tail snapshots.
+A new file (on `save`, or the target of a rename) is claimed with an exclusive create before it is written, so two
+sessions saving the same name at the same moment get distinct slugs instead of one overwriting the other. Empty files
+are skipped by the scanner (they are such in-flight claims). A rename writes the new file before deleting the old one.
+`update` of an existing memory is last-writer-wins: two sessions editing the same memory concurrently keep the later
+write.
+
+The index reaches the model through the `memory-index` reminder, captured by [`cache-reminders`](./cache-reminders.md)
+once per run into a distinct, persisted snapshot. Earlier snapshots stay byte-identical and the leading system prompt is
+never rebuilt. Because the coordinator keeps every earlier snapshot, the producer avoids stacking a fresh copy of an
+unchanged index on every run:
+
+- **Full index once.** With no delivered baseline (new session, or after a compaction) the run carries the full
+  `## Memory` block (Global / Project / Session), capped by `PI_MEMORY_MAX_INJECTED_CHARS` (default 6000).
+- **Delta after.** When the index changed since the baseline, the run carries a small `## Memory changes` block listing
+  added (`+`), changed (`~`), and removed (`-`) entries. More than 12 changes resend the full index instead, and so does
+  any change when the delivered full index was capped (a delta cannot re-balance the cap, so hidden entries would
+  otherwise stay hidden).
+- **Nothing otherwise.** An unchanged index emits no reminder.
+
+The baseline advances only when the coordinator confirms it captured the proposed body (`cache-reminders:captured`), so
+an aborted request never desyncs it. The model's own `save` / `update` / `remove` advance it directly - the tool result
+already told the model - so deltas only surface changes made elsewhere (another session, a hand edit, `/memory rescan`).
+The baseline is persisted as a small `memory-delivery` branch entry (`scope/type/id` -> short content hash, plus a
+`truncated` flag), so resume and `/tree` reconstruct it from the selected branch; a compaction later on the branch
+discards it and the next run resends the full index. History can also shrink without a compaction (roleplay's rolling
+context window cuts whole earlier turns), so after every request the extension checks the final projected context
+(`cache-reminders:projected`): if no full index block survives, it drops the baseline and the next run resends the full
+index at its own origin.
+
+Within the full index, the budget is spent by type priority so behavioural rules survive a tight cap: `feedback`, then
+`user`, `note`, `reference`, `project`; within a type the more specific scope wins (session, project, global). Lines
+omit the human name when it only restates the slug. The model is expected to call `memory` action `read` when it needs a
+full body.
 
 **Stale annotation.** `project`-type entries older than `PI_MEMORY_STALE_DAYS` (default 30, measured from `updated`
 falling back to `created`, truncated to whole days) get a tiny `(Nd)` age marker appended in the injected index - a soft
@@ -129,10 +160,9 @@ candidates are found). Tool continuations and operational custom starts do not c
 when the coordinator acknowledges the matching capture generation. The model carries the
 [`memory-first`](../skills/memory-first/SKILL.md) skill describing _what_ to save; this adds _when_ + _which_.
 
-Pi's `session_before_compact` handler can only cancel or replace the compaction - it cannot inject conversation context
-
-- so the reminder waits for the following eligible user run via the `context` producer and stable snapshot coordinator
-  to reach the model itself, rather than only the UI.
+Pi's `session_before_compact` handler can only cancel or replace the compaction - it cannot inject conversation context.
+The reminder therefore waits for the following eligible user run, where the `context` producer and the stable snapshot
+coordinator deliver it to the model itself rather than only the UI.
 
 **Delivery mode (`PI_MEMORY_CAPTURE_TURN`).** By default the nudge rides the next user turn as a `<system-reminder>` -
 invisible, cache-cheap, and effective on frontier models. Small/weak self-hosted models, however, attend to the primary
@@ -155,8 +185,8 @@ own model call remains a deferred option.
 ## Commands
 
 - `/memory` (or `/memory list`) - raw state dump of all indices (global + project + session).
-- `/memory preview` - shows the exact `## Memory` block proposed for the next run's reminder snapshot, honouring
-  `PI_MEMORY_MAX_INJECTED_CHARS` and `PI_MEMORY_DISABLE_AUTOINJECT`.
+- `/memory preview` - shows what the next run's reminder snapshot would carry (full index, delta, or nothing), plus the
+  full index for reference, honouring `PI_MEMORY_MAX_INJECTED_CHARS` and `PI_MEMORY_DISABLE_AUTOINJECT`.
 - `/memory dir` - prints the memory root, global dir, project dir, session dir, and the project slug (tagged
   `(PI_MEMORY_PROJECT_SLUG)` when overridden) + session id pi resolved.
 - `/memory rescan` - re-read disk. Useful if another process edited a memory file underneath pi.
@@ -172,16 +202,18 @@ own model call remains a deferred option.
   its independent switch below.
 - `PI_CACHE_REMINDERS_DISABLED=1` - suppress the index and framed capture reminders globally, with no system-prompt
   fallback. The explicit persistent `PI_MEMORY_CAPTURE_TURN=1` directive remains independent.
-- `PI_MEMORY_MAX_INJECTED_CHARS=N` - soft cap on the injected block (default `3000`, floor `500`). The budget is
-  consumed in priority order (session → project → global) so the scopes most relevant to the current turn survive a
-  tight cap; the rendered block still displays global → project → session.
+- `PI_MEMORY_MAX_INJECTED_CHARS=N` - soft cap on the full index block (default `6000`, floor `500`). The budget is
+  consumed by type priority (feedback → user → note → reference → project; session → project → global within a type) so
+  behavioural rules survive a tight cap; the rendered block still displays global → project → session. Deltas are not
+  capped.
 - `PI_MEMORY_STALE_DAYS=N` - age in days past which a `project` memory gets the `(Nd)` marker in the injected index and
   shows up in `/memory stale` (default `30`). Never auto-deletes; surfaces age and lets the model / user decide.
 - `PI_MEMORY_ROOT=<path>` - override the memory root (useful for testing / per-host profiles). Unset, it defaults to
   `<piAgentDir>/memory`, i.e. `~/.pi/agent/memory` or `<PI_CODING_AGENT_DIR>/memory` when that is set.
 - `PI_MEMORY_PROJECT_SLUG=<slug>` - pin the `projects/<slug>` subtree to a fixed, cwd-independent slug instead of
   deriving it from the cwd. Set it so a workspace's project + session memory survives a folder rename/move. Unset =
-  cwd-derived slug (unchanged behaviour). Reflected in `/memory dir`.
+  cwd-derived slug (unchanged behaviour). A value that is not a single path segment (contains `/` or `\`, or is `.` /
+  `..`) is ignored. Reflected in `/memory dir`.
 - `PI_MEMORY_READONLY=1` - block `save` / `update` / `remove` (they return a clear error); `list` / `read` / `search`
   and auto-injection still work. Useful in CI, shared/managed config, or "don't let this session mutate my memory" runs.
 - `PI_MEMORY_DISABLE_CAPTURE=1` - turn off the capture-assist nudge spliced into the turn after a compaction (see
@@ -193,7 +225,8 @@ Edit [`extensions/memory.ts`](./memory.ts) or the helpers under
 [`lib/node/pi/memory-reducer.ts`](../../../lib/node/pi/memory-reducer.ts) /
 [`lib/node/pi/memory-paths.ts`](../../../lib/node/pi/memory-paths.ts) /
 [`lib/node/pi/memory-prompt.ts`](../../../lib/node/pi/memory-prompt.ts) /
-[`lib/node/pi/memory-capture.ts`](../../../lib/node/pi/memory-capture.ts) and run `/reload`.
+[`lib/node/pi/memory-capture.ts`](../../../lib/node/pi/memory-capture.ts) /
+[`lib/node/pi/memory/delivery.ts`](../../../lib/node/pi/memory/delivery.ts) and run `/reload`.
 
 Companion skill: [`skills/memory-first/SKILL.md`](../skills/memory-first/SKILL.md) - when to save, when NOT to save, and
 how to structure bodies for each type.

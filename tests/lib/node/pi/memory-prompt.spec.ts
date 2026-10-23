@@ -6,7 +6,7 @@
 
 import { expect, test } from 'vitest';
 
-import { formatMemoryIndex } from '../../../../lib/node/pi/memory-prompt.ts';
+import { formatMemoryIndex, renderMemoryIndex } from '../../../../lib/node/pi/memory-prompt.ts';
 import { emptyState } from '../../../../lib/node/pi/memory-reducer.ts';
 import { type MemoryEntry, type MemoryState } from '../../../../lib/node/pi/memory-reducer.ts';
 
@@ -41,7 +41,7 @@ test('formatMemoryIndex: single global memory renders a ## Memory block', () => 
   expect(out).toMatch(/^## Memory\n/);
   expect(out).toContain('### Global');
   expect(out).toContain('**user**');
-  expect(out).toContain('- tabs (`tabs`) - desc for tabs');
+  expect(out).toContain('- `tabs` - desc for tabs');
   expect(out).not.toContain('### Project');
 });
 
@@ -78,7 +78,7 @@ test('formatMemoryIndex: session scope renders a labelled note block', () => {
   expect(out).not.toBeNull();
   expect(out).toContain('### Session (sid-42)');
   expect(out).toContain('**note**');
-  expect(out).toContain('- Scratch (`scratch`) - in-progress refactor');
+  expect(out).toContain('- `scratch` - in-progress refactor');
 });
 
 test('formatMemoryIndex: session-only state still renders a block', () => {
@@ -118,6 +118,17 @@ test('formatMemoryIndex: appends a trailer pointing at the memory tool when untr
   expect(out).toMatch(/memory.*read|action `read`/);
 });
 
+test('renderMemoryIndex: reports how many entries the cap left out', () => {
+  const filler = 'lorem ipsum dolor sit amet consectetur '.repeat(3);
+  const many: MemoryEntry[] = [];
+  for (let i = 0; i < 10; i++) many.push(entry(`p-${i}`, 'project', 'project', `project-${i}`, filler));
+  const capped = renderMemoryIndex(mkState([], many, '--s--'), { maxChars: 500 });
+  expect(capped?.skipped).toBeGreaterThan(0);
+  expect(capped?.body).toContain(`(${capped?.skipped} more memory entry(ies) not shown`);
+  expect(renderMemoryIndex(mkState([], many.slice(0, 1), '--s--'))?.skipped).toBe(0);
+  expect(renderMemoryIndex(emptyState())).toBeNull();
+});
+
 test('formatMemoryIndex: soft cap truncation emits a count and trailer', () => {
   const globalEntries: MemoryEntry[] = [];
   for (let i = 0; i < 40; i++) {
@@ -135,35 +146,52 @@ test('formatMemoryIndex: respects a minimum 500-char floor for the cap', () => {
 
   expect(out).not.toBeNull();
   // At least one entry rendered - sanity that the floor kicked in.
-  expect(out).toContain('- A (`a`)');
+  expect(out).toContain('- `a` - short');
 });
 
-test('formatMemoryIndex: tight budget consumes session + project before global', () => {
+test('formatMemoryIndex: tight budget keeps behavioural types before project facts', () => {
   const filler = 'lorem ipsum dolor sit amet consectetur '.repeat(3);
-  const globalEntries: MemoryEntry[] = [];
+  const projectFacts: MemoryEntry[] = [];
   for (let i = 0; i < 10; i++) {
-    globalEntries.push(entry(`g-${i}`, 'global', 'user', `global-${i}`, filler));
+    projectFacts.push(entry(`p-${i}`, 'project', 'project', `project-${i}`, filler));
   }
-  const projectEntries = [entry('proj', 'project', 'project', 'project-keep', filler)];
-  const sessionEntries = [entry('sess', 'session', 'note', 'session-keep', filler)];
-  const out = formatMemoryIndex(mkState(globalEntries, projectEntries, '--slug--', sessionEntries, 'sid'), {
+  const globalFeedback = [entry('rule', 'global', 'feedback', 'global-rule', filler)];
+  const projectUser = [entry('pref', 'project', 'user', 'project-pref', filler)];
+  const out = formatMemoryIndex(mkState(globalFeedback, [...projectUser, ...projectFacts], '--slug--'), {
     maxChars: 500,
   });
 
   expect(out).not.toBeNull();
-  // Session + project win the budget; global is truncated first.
-  expect(out).toContain('session-keep');
-  expect(out).toContain('project-keep');
-  // Global is truncated first: most of its ten entries are dropped (the
-  // session + project entries that consumed the budget ahead of it all
-  // survive).
-  expect(out).toMatch(/\(9 more memory entry\(ies\) not shown/);
-  expect(out).not.toContain('global-9');
-  // Display order stays reader-friendly: Project before Session.
-  const pIdx = out!.indexOf('### Project');
-  const sIdx = out!.indexOf('### Session');
-  expect(pIdx).toBeGreaterThanOrEqual(0);
-  expect(sIdx).toBeGreaterThan(pIdx);
+  // feedback + user win the budget even though they live in different scopes.
+  expect(out).toContain('global-rule');
+  expect(out).toContain('project-pref');
+  expect(out).toMatch(/\(\d+ more memory entry\(ies\) not shown/);
+  expect(out).not.toContain('project-9');
+  // Display order stays reader-friendly: Global before Project.
+  expect(out!.indexOf('### Global')).toBeLessThan(out!.indexOf('### Project'));
+});
+
+test('formatMemoryIndex: within a type the more specific scope wins the budget', () => {
+  const filler = 'lorem ipsum dolor sit amet consectetur '.repeat(6);
+  const globalFeedback = [entry('g', 'global', 'feedback', 'global-fb', filler)];
+  const projectFeedback = [entry('p', 'project', 'feedback', 'project-fb', filler)];
+  const out = formatMemoryIndex(mkState(globalFeedback, projectFeedback, '--s--'), { maxChars: 500 });
+
+  expect(out).toContain('project-fb');
+  expect(out).not.toContain('global-fb');
+});
+
+test('formatMemoryIndex: omits the name when it only restates the id', () => {
+  const out = formatMemoryIndex(
+    mkState(
+      [entry('batch-linters', 'global', 'feedback', 'Batch linters', 'd1')],
+      [entry('batch-linters-2', 'project', 'feedback', 'Batch linters', 'd2')],
+      '--s--',
+    ),
+  );
+
+  expect(out).toContain('- `batch-linters` - d1');
+  expect(out).toContain('- Batch linters (`batch-linters-2`) - d2');
 });
 
 // ──────────────────────────────────────────────────────────────────────

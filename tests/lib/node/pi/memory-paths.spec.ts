@@ -25,6 +25,7 @@ import {
   readMemoryBody,
   readMemoryFrontmatter,
   rebuildMemoryIndex,
+  reserveMemoryFile,
   scanScope,
   sessionDir,
   sessionsParentDir,
@@ -72,6 +73,10 @@ test('uniqueSlug: returns base if free', () => {
 test('uniqueSlug: appends -2, -3 on collision', () => {
   expect(uniqueSlug('alice', new Set(['alice']))).toBe('alice-2');
   expect(uniqueSlug('alice', new Set(['alice', 'alice-2']))).toBe('alice-3');
+});
+
+test('uniqueSlug: also skips slugs the exists predicate reports', () => {
+  expect(uniqueSlug('alice', new Set(['alice']), (s) => s === 'alice-2')).toBe('alice-3');
 });
 
 test('chooseMemorySlug: slugifies and skips collisions in the selected scope', () => {
@@ -448,4 +453,43 @@ test('listSessionMemoryDirs / pruneOrphanSessionDirs: prune dirs with no live tr
 
 test('pruneOrphanSessionDirs: no-op when parent dir is absent', () => {
   expect(pruneOrphanSessionDirs('/tmp/never-used', new Set(['x']))).toEqual([]);
+});
+
+// ── Concurrency helpers: exclusive slug reservation + scan cache ────────────
+
+test('reserveMemoryFile: the first claim wins, a second claim on the same path fails', () => {
+  const path = join(sandbox, 'global', 'user', 'alice.md');
+  expect(reserveMemoryFile(path)).toBe(true);
+  expect(reserveMemoryFile(path)).toBe(false);
+  expect(readFileSync(path, 'utf8')).toBe('');
+});
+
+test('chooseMemorySlug + reserveMemoryFile: a slug claimed by another session is skipped', () => {
+  const dir = join(sandbox, 'global', 'user');
+  // Another session reserved `alice` after our index was scanned.
+  expect(reserveMemoryFile(join(dir, 'alice.md'))).toBe(true);
+  const slug = chooseMemorySlug(
+    emptyState(),
+    'global',
+    'Alice',
+    undefined,
+    (s) => !reserveMemoryFile(join(dir, `${s}.md`)),
+  );
+  expect(slug).toBe('alice-2');
+});
+
+test('scanScope: empty reservation files are skipped without a warning', () => {
+  const scopeDir = join(sandbox, 'global');
+  reserveMemoryFile(join(scopeDir, 'user', 'pending.md'));
+  const { entries, warnings } = scanScope(scopeDir, 'global');
+  expect(entries).toEqual([]);
+  expect(warnings).toEqual([]);
+});
+
+test('scanScope: picks up an edited file on the next scan', () => {
+  const scopeDir = join(sandbox, 'global');
+  writeMemory(join(scopeDir, 'user'), 'a.md', { name: 'A', description: 'first', type: 'user' }, 'b');
+  expect(scanScope(scopeDir, 'global').entries[0]?.description).toBe('first');
+  writeMemory(join(scopeDir, 'user'), 'a.md', { name: 'A', description: 'second edit', type: 'user' }, 'b');
+  expect(scanScope(scopeDir, 'global').entries[0]?.description).toBe('second edit');
 });

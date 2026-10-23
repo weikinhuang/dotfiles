@@ -81,16 +81,25 @@ test.each(['', '1'])(
       vi.stubEnv('PI_CACHE_REMINDERS_DISABLED', disabled);
       vi.stubEnv('PI_CACHE_REMINDERS_ENABLED', '0');
       const handlers = new Map<string, (event: unknown, ctx: unknown) => unknown>();
+      const listeners = new Map<string, (data: unknown) => void>();
+      const appendEntry = vi.fn();
       let execute: ((...args: unknown[]) => Promise<unknown>) | undefined;
       const pi = {
         on: (name: string, handler: (event: unknown, ctx: unknown) => unknown) => {
           handlers.set(name, handler);
         },
+        events: {
+          on: (name: string, listener: (data: unknown) => void) => {
+            listeners.set(name, listener);
+            return () => listeners.delete(name);
+          },
+          emit: vi.fn(),
+        },
         registerTool: (definition: { execute: (...args: unknown[]) => Promise<unknown> }) => {
           execute = definition.execute;
         },
         registerCommand: vi.fn(),
-        appendEntry: vi.fn(),
+        appendEntry,
       } as unknown as ExtensionAPI;
       memory(pi);
       const ctx = {
@@ -119,6 +128,25 @@ test.each(['', '1'])(
       expect(projected === undefined).toBe(Boolean(disabled));
       expect(JSON.stringify(projected) ?? '').toContain(disabled ? '' : 'memory-index');
       expect(JSON.stringify(projected) ?? '').toContain(disabled ? '' : 'INDEX_MARKER');
+      if (disabled) return;
+      // Once the coordinator confirms the capture, an unchanged index emits nothing
+      // on later runs instead of stacking another identical copy.
+      const projectedMessages = (projected as { messages: { content: { text: string }[] }[] }).messages;
+      const body = /<system-reminder id="memory-index">\n([\s\S]*)\n<\/system-reminder>/.exec(
+        projectedMessages.at(-1)!.content.at(-1)!.text,
+      )![1];
+      listeners.get('cache-reminders:captured')!({ specs: [{ id: 'memory-index', body: body.trim() }] });
+      expect(handlers.get('context')!({ messages: [{ role: 'user', content: 'next' }] }, ctx)).toBeUndefined();
+      expect(appendEntry).toHaveBeenCalledWith('memory-delivery', expect.anything());
+      // While the projected request still carries the full index, the baseline holds.
+      listeners.get('cache-reminders:projected')!({ messages: projectedMessages });
+      expect(handlers.get('context')!({ messages: [{ role: 'user', content: 'kept' }] }, ctx)).toBeUndefined();
+      // A projected request that lost the full index (e.g. a rolling window cut
+      // its turn) drops the baseline; the next run resends the full index.
+      listeners.get('cache-reminders:projected')!({ messages: [{ role: 'user', content: 'later' }] });
+      const resent = handlers.get('context')!({ messages: [{ role: 'user', content: 'again' }] }, ctx);
+      expect(JSON.stringify(resent)).toContain('## Memory\\n');
+      expect(JSON.stringify(resent)).toContain('INDEX_MARKER');
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

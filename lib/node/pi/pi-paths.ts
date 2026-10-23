@@ -88,9 +88,12 @@ export function cwdSlug(cwd: string): string {
  * store survives a workspace folder rename/move; otherwise the cwd slug is
  * used (unchanged default behaviour). Shared by every extension that keys
  * on the session/cwd slug so the override contract stays consistent.
+ *
+ * An override that is not a single path segment (contains `/` or `\`, or
+ * is `.` / `..`) is ignored so it can never escape the store's parent dir.
  */
 export function slugFromEnv(envValue: string | undefined, cwd: string): string {
   const trimmed = envValue?.trim();
-  if (trimmed && trimmed.length > 0) return trimmed;
+  if (trimmed && trimmed.length > 0 && !/[/\\]/.test(trimmed) && trimmed !== '.' && trimmed !== '..') return trimmed;
   return cwdSlug(cwd);
 }

@@ -6,7 +6,12 @@
 
 import { expect, test, vi } from 'vitest';
 
-import { findSimilarMemories, searchMemories, tokenizeQuery } from '../../../../lib/node/pi/memory-search.ts';
+import {
+  findSimilarMemories,
+  searchMemories,
+  tokenizeQuery,
+  tokenScore,
+} from '../../../../lib/node/pi/memory-search.ts';
 import { type MemoryEntry } from '../../../../lib/node/pi/memory-reducer.ts';
 
 const entry = (
@@ -162,4 +167,38 @@ test('findSimilarMemories: caps results at opts.max', () => {
     max: 2,
   });
   expect(out).toHaveLength(2);
+});
+
+test('tokenScore: whole word > word prefix > mid-word substring', () => {
+  expect(tokenScore('lint', 'run the lint gate')).toBe(12);
+  expect(tokenScore('lint', 'linters at the end')).toBe(8);
+  expect(tokenScore('lint', 'splinted')).toBe(4);
+  // Short tokens never match mid-word.
+  expect(tokenScore('ui', 'build')).toBe(0);
+  expect(tokenScore('lint', 'nothing here')).toBe(0);
+});
+
+test('searchMemories: a scattered subsequence is not a match', () => {
+  // t..e..s..t is a subsequence of this description but not a word.
+  const entries = [entry('noise', 'shell output', 'the extension settings stay')];
+  expect(searchMemories(entries, noBody, 'test')).toEqual([]);
+});
+
+test('searchMemories: drops results far below the best hit', () => {
+  const bodies: Record<string, string> = { weak: 'a passing mention of gpus' };
+  const entries = [
+    entry('strong', 'gpu server', 'dual gpu box with gpu details'),
+    entry('weak', 'unrelated', 'unrelated'),
+  ];
+  const out = searchMemories(entries, (e) => bodies[e.id] ?? null, 'gpu');
+  expect(out.map((s) => s.entry.id)).toEqual(['strong']);
+  // minRelativeScore 0 keeps the weak body-only hit.
+  const all = searchMemories(entries, (e) => bodies[e.id] ?? null, 'gpu', { minRelativeScore: 0 });
+  expect(all.map((s) => s.entry.id)).toEqual(['strong', 'weak']);
+});
+
+test('searchMemories: caps results at opts.limit (default 10)', () => {
+  const entries = Array.from({ length: 15 }, (_, i) => entry(`w-${i}`, 'widget notes'));
+  expect(searchMemories(entries, noBody, 'widget')).toHaveLength(10);
+  expect(searchMemories(entries, noBody, 'widget', { limit: 3 })).toHaveLength(3);
 });

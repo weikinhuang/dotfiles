@@ -38,9 +38,9 @@
  * orphan the old files). When unset, behaviour is unchanged.
  */
 
-import { existsSync, readdirSync, readFileSync, rmSync, statSync, unlinkSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import { atomicWriteFile, ensureDirSync } from './atomic-write.ts';
 import { parseFrontmatter, takenSlugs, validTypesForScope } from './memory-reducer.ts';
@@ -78,13 +78,19 @@ export function slugifyName(name: string): string {
 
 /**
  * Pick a slug that doesn't collide with any existing entry id. Appends
- * `-2`, `-3`, … as needed.
+ * `-2`, `-3`, … as needed. `exists` adds an extra collision check (e.g. a
+ * file another process wrote since the index was scanned).
  */
-export function uniqueSlug(base: string, taken: ReadonlySet<string>): string {
-  if (!taken.has(base)) return base;
+export function uniqueSlug(
+  base: string,
+  taken: ReadonlySet<string>,
+  exists: (slug: string) => boolean = () => false,
+): string {
+  const free = (slug: string): boolean => !taken.has(slug) && !exists(slug);
+  if (free(base)) return base;
   for (let i = 2; i < 1000; i++) {
     const candidate = `${base}-${i}`;
-    if (!taken.has(candidate)) return candidate;
+    if (free(candidate)) return candidate;
   }
   // Pathological fallback - shouldn't happen in practice.
   return `${base}-${Date.now()}`;
@@ -92,13 +98,20 @@ export function uniqueSlug(base: string, taken: ReadonlySet<string>): string {
 
 /**
  * Pick a slug for a new or renamed memory inside `scope`.
- * `excludeId` lets rename-in-place keep the outgoing entry's own slug.
+ * `excludeId` lets rename-in-place keep the outgoing entry's own slug;
+ * `exists` rejects slugs whose file already exists on disk.
  */
-export function chooseMemorySlug(state: MemoryState, scope: MemoryScope, name: string, excludeId?: string): string {
+export function chooseMemorySlug(
+  state: MemoryState,
+  scope: MemoryScope,
+  name: string,
+  excludeId?: string,
+  exists?: (slug: string) => boolean,
+): string {
   const base = slugifyName(name);
   const taken = takenSlugs(state.index, scope);
   if (excludeId !== undefined) taken.delete(excludeId);
-  return uniqueSlug(base, taken);
+  return uniqueSlug(base, taken, exists);
 }
 
 /** Absolute path to the memory root, honouring `PI_MEMORY_ROOT` (and
@@ -196,6 +209,25 @@ export function removeFileIfExists(path: string): boolean {
   return true;
 }
 
+/**
+ * Claim a new memory file path with an exclusive create, so two pi sessions
+ * choosing the same slug at the same moment cannot both win (an existence
+ * check followed by `atomicWriteFile` would let the later rename clobber the
+ * earlier file). Returns `false` when the file already exists. The caller
+ * then overwrites the empty placeholder via `atomicWriteFile`, and should
+ * remove it if that write fails.
+ */
+export function reserveMemoryFile(path: string): boolean {
+  ensureDirSync(dirname(path));
+  try {
+    writeFileSync(path, '', { flag: 'wx' });
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') return false;
+    throw error;
+  }
+}
+
 export function readTextFile(path: string): string | null {
   try {
     return readFileSync(path, 'utf8');
@@ -237,9 +269,34 @@ export interface ScanWarning {
 }
 
 /**
+ * Parsed-frontmatter cache keyed by path, validated against the file's
+ * stat identity. The extension rescans before every run and tool action;
+ * this keeps those rescans to a `readdir` + `stat` per file, re-reading
+ * only files that changed. `null` caches a malformed file.
+ */
+const frontmatterCache = new Map<string, { stamp: string; frontmatter: Frontmatter | null }>();
+
+/** Drop the scan cache (tests; or after bulk out-of-band edits). */
+export function clearScanCache(): void {
+  frontmatterCache.clear();
+}
+
+function cachedFrontmatter(path: string, stamp: string): Frontmatter | null | 'unreadable' {
+  const hit = frontmatterCache.get(path);
+  if (hit?.stamp === stamp) return hit.frontmatter;
+  const raw = readTextFile(path);
+  if (raw == null) return 'unreadable';
+  const frontmatter = parseFrontmatter(raw)?.frontmatter ?? null;
+  frontmatterCache.set(path, { stamp, frontmatter });
+  return frontmatter;
+}
+
+/**
  * Walk `<scopeDir>/<type>/*.md` for each known memory type and parse
  * frontmatter into `MemoryEntry` records. Malformed files are skipped
- * with a warning so a single bad file doesn't blind the whole index.
+ * with a warning so a single bad file doesn't blind the whole index. Empty
+ * files are skipped silently: they are slug reservations another session
+ * is about to fill (see {@link reserveMemoryFile}).
  */
 export function scanScope(
   scopeDir: string,
@@ -260,24 +317,25 @@ export function scanScope(
     for (const name of files) {
       if (!name.endsWith('.md')) continue;
       const full = join(dir, name);
+      let stamp: string;
       try {
         const st = statSync(full);
-        if (!st.isFile()) continue;
+        if (!st.isFile() || st.size === 0) continue;
+        stamp = `${st.ino}:${st.size}:${st.mtimeMs}:${st.ctimeMs}`;
       } catch {
         continue;
       }
-      const raw = readTextFile(full);
-      if (raw == null) {
+      const frontmatter = cachedFrontmatter(full, stamp);
+      if (frontmatter === 'unreadable') {
         warnings.push({ path: full, reason: 'unreadable' });
         continue;
       }
-      const parsed = parseFrontmatter(raw);
-      if (!parsed) {
+      if (!frontmatter) {
         warnings.push({ path: full, reason: 'missing or malformed frontmatter' });
         continue;
       }
-      if (parsed.frontmatter.type !== type) {
-        warnings.push({ path: full, reason: `frontmatter type "${parsed.frontmatter.type}" != directory "${type}"` });
+      if (frontmatter.type !== type) {
+        warnings.push({ path: full, reason: `frontmatter type "${frontmatter.type}" != directory "${type}"` });
         continue;
       }
       const slug = name.slice(0, -3);
@@ -285,12 +343,12 @@ export function scanScope(
         id: slug,
         scope,
         type,
-        name: parsed.frontmatter.name,
-        description: parsed.frontmatter.description,
+        name: frontmatter.name,
+        description: frontmatter.description,
         // Absent / unparseable timestamps were normalised to `undefined`
         // by `parseFrontmatter`; carry them straight through.
-        created: parsed.frontmatter.created,
-        updated: parsed.frontmatter.updated,
+        created: frontmatter.created,
+        updated: frontmatter.updated,
       });
     }
   }

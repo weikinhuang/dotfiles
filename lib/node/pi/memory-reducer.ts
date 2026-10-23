@@ -6,22 +6,12 @@
  *
  * Memory lives on disk (source of truth). This module handles:
  *   - `MemoryEntry` / `MemoryIndex` / `MemoryState` types.
- *   - Strict three-key frontmatter parse + serialize (no external YAML dep -
- *     the frontmatter surface is intentionally tiny: `name`, `description`,
- *     `type`).
+ *   - Frontmatter parse + serialize (`name`, `description`, `type`, plus
+ *     optional `created` / `updated`), parsed via the shared YAML helper.
  *   - Pure index CRUD (callers pair these with disk writes in the extension).
  *   - `MEMORY.md` renderer grouped by memory type.
- *   - Shape validator for branch-mirrored snapshots.
  */
 
-import {
-  type ActionError,
-  type ActionResult as GenericActionResult,
-  type ActionSuccess as GenericActionSuccess,
-  type BranchEntry as GenericBranchEntry,
-  findLatestStateInBranch,
-  stateFromEntryGeneric,
-} from './branch-state.ts';
 import { parseFencedFrontmatter } from './shared/strict-frontmatter.ts';
 
 // ──────────────────────────────────────────────────────────────────────
@@ -77,12 +67,6 @@ export interface MemoryState {
    */
   sessionId: string | null;
 }
-
-export const MEMORY_TOOL_NAME = 'memory';
-export const MEMORY_CUSTOM_TYPE = 'memory-state';
-
-/** Re-exported so callers have a single import path. */
-export type BranchEntry = GenericBranchEntry;
 
 export function emptyIndex(): MemoryIndex {
   return { global: [], project: [], session: [] };
@@ -140,50 +124,7 @@ export function validTypesForScope(scope: MemoryScope): MemoryType[] {
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// Shape validation (for branch-mirrored snapshots)
-// ──────────────────────────────────────────────────────────────────────
-
-function isMemoryEntryShape(value: unknown): value is MemoryEntry {
-  if (!value || typeof value !== 'object') return false;
-  const v = value as Record<string, unknown>;
-  if (typeof v.id !== 'string' || v.id.length === 0) return false;
-  if (!(MEMORY_SCOPES as readonly string[]).includes(v.scope as MemoryScope)) return false;
-  if (!MEMORY_TYPES.includes(v.type as MemoryType)) return false;
-  if (typeof v.name !== 'string') return false;
-  if (typeof v.description !== 'string') return false;
-  // Timestamps are optional; when present they must be strings.
-  if (v.created !== undefined && typeof v.created !== 'string') return false;
-  if (v.updated !== undefined && typeof v.updated !== 'string') return false;
-  return true;
-}
-
-function isMemoryIndexShape(value: unknown): value is MemoryIndex {
-  if (!value || typeof value !== 'object') return false;
-  const v = value as Record<string, unknown>;
-  if (!Array.isArray(v.global) || !Array.isArray(v.project) || !Array.isArray(v.session)) return false;
-  return (
-    v.global.every(isMemoryEntryShape) && v.project.every(isMemoryEntryShape) && v.session.every(isMemoryEntryShape)
-  );
-}
-
-export function isMemoryStateShape(value: unknown): value is MemoryState {
-  if (!value || typeof value !== 'object') return false;
-  const v = value as Record<string, unknown>;
-  if (v.projectSlug !== null && typeof v.projectSlug !== 'string') return false;
-  if (v.sessionId !== null && typeof v.sessionId !== 'string') return false;
-  return isMemoryIndexShape(v.index);
-}
-
-export function stateFromEntry(entry: BranchEntry): MemoryState | null {
-  return stateFromEntryGeneric(entry, MEMORY_TOOL_NAME, MEMORY_CUSTOM_TYPE, isMemoryStateShape, cloneState);
-}
-
-export function reduceBranch(branch: readonly BranchEntry[]): MemoryState | null {
-  return findLatestStateInBranch(branch, MEMORY_TOOL_NAME, MEMORY_CUSTOM_TYPE, isMemoryStateShape, cloneState);
-}
-
-// ──────────────────────────────────────────────────────────────────────
-// Frontmatter (strict five-key YAML subset)
+// Frontmatter (five-key YAML subset)
 // ──────────────────────────────────────────────────────────────────────
 
 export interface Frontmatter {
@@ -208,12 +149,6 @@ export interface ParsedMemoryFile {
 const FENCE = '---';
 
 /**
- * Coerce a raw frontmatter timestamp into a normalised ISO-8601 UTC
- * string, or `undefined` when the value is missing or unparseable.
- * Parsing is deliberately loose: a bad timestamp is treated as absent,
- * never a reason to reject the whole file.
- */
-/**
  * Coerce a native YAML frontmatter value to a trimmed string, or
  * `undefined` when it is not string-shaped. YAML hands back typed values
  * (strings, numbers, booleans); a number/boolean is stringified so a
@@ -226,6 +161,12 @@ function asString(v: unknown): string | undefined {
   return undefined;
 }
 
+/**
+ * Coerce a raw frontmatter timestamp into a normalised ISO-8601 UTC
+ * string, or `undefined` when the value is missing or unparseable.
+ * Parsing is deliberately loose: a bad timestamp is treated as absent,
+ * never a reason to reject the whole file.
+ */
 function parseTimestamp(raw: string | undefined): string | undefined {
   if (raw === undefined) return undefined;
   const t = raw.trim();
@@ -237,7 +178,8 @@ function parseTimestamp(raw: string | undefined): string | undefined {
 
 /**
  * Parse a memory markdown file. Returns `null` if the frontmatter fence
- * is missing, incomplete, or the three required keys aren't all present.
+ * is missing, incomplete, or the three required keys aren't all present
+ * (`created` / `updated` are optional).
  *
  * Fence detection, header splitting, and body slicing are delegated to
  * the shared {@link parseFencedFrontmatter}; this function only layers
@@ -361,10 +303,15 @@ export function takenSlugs(index: MemoryIndex, scope: MemoryScope): Set<string> 
   return new Set(entriesFor(index, scope).map((e) => e.id));
 }
 
+/**
+ * Insert or replace an entry. Matches on id AND type so hand-written files
+ * sharing a slug across type dirs (`user/foo.md`, `feedback/foo.md`) stay
+ * distinct.
+ */
 export function upsertEntry(index: MemoryIndex, entry: MemoryEntry): MemoryIndex {
   const next = cloneIndex(index);
   const target = entriesFor(next, entry.scope);
-  const existing = target.findIndex((e) => e.id === entry.id);
+  const existing = target.findIndex((e) => e.id === entry.id && e.type === entry.type);
   if (existing === -1) target.push(cloneEntry(entry));
   else target[existing] = cloneEntry(entry);
   target.sort((a, b) => {
@@ -374,10 +321,11 @@ export function upsertEntry(index: MemoryIndex, entry: MemoryEntry): MemoryIndex
   return next;
 }
 
-export function removeEntry(index: MemoryIndex, scope: MemoryScope, id: string): MemoryIndex {
+/** Remove an entry by id; pass `type` to disambiguate a slug shared across type dirs. */
+export function removeEntry(index: MemoryIndex, scope: MemoryScope, id: string, type?: MemoryType): MemoryIndex {
   const next = cloneIndex(index);
   const target = entriesFor(next, scope);
-  const idx = target.findIndex((e) => e.id === id);
+  const idx = target.findIndex((e) => e.id === id && (type === undefined || e.type === type));
   if (idx !== -1) target.splice(idx, 1);
   return next;
 }
@@ -389,8 +337,7 @@ export function removeEntry(index: MemoryIndex, scope: MemoryScope, id: string):
 /**
  * Bucket `entries` by their `type`, seeding every {@link MEMORY_TYPES}
  * key so callers can iterate a fixed type order with empty buckets
- * present. Shared with the system-prompt renderer (`memory-prompt.ts`),
- * which needs the identical grouping.
+ * present.
  */
 export function groupByType(entries: readonly MemoryEntry[]): Map<MemoryType, MemoryEntry[]> {
   const out = new Map<MemoryType, MemoryEntry[]>();
@@ -485,11 +432,3 @@ export function isStaleEntry(entry: MemoryEntry, now: Date, staleDays: number): 
   const age = entryAgeDays(entry, now);
   return age !== undefined && age >= staleDays;
 }
-
-// ──────────────────────────────────────────────────────────────────────
-// ActionResult re-exports (parity with scratchpad/todo reducer style)
-// ──────────────────────────────────────────────────────────────────────
-
-export type ActionSuccess = GenericActionSuccess<MemoryState>;
-export type { ActionError };
-export type ActionResult = GenericActionResult<MemoryState>;

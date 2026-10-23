@@ -44,7 +44,7 @@ and never follow the moving end of a tool loop.
 | `todo`                | Active plan only; completed plans render nothing                   |
 | `bg-bash`             | Running jobs and as-yet-unsurfaced terminal jobs                   |
 | `scratchpad`          | Working notes                                                      |
-| `memory`              | Memory index and capture-assist nudge                              |
+| `memory`              | Full index once (and after compaction), then deltas; capture nudge |
 | `roleplay`, `comfyui` | Standalone reminder blocks emitted by their existing context hooks |
 
 The snapshot coordinator runs after every `context` producer. Outside the coordinated final safety passes below, other

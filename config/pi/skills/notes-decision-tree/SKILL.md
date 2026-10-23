@@ -65,8 +65,9 @@ Reach for it when:
 ### `memory` - durable, cross-session
 
 Single markdown files with `name` / `description` / `type` frontmatter (`user` / `feedback` / `project` / `reference`),
-plus a session-scoped `note` layer. Indices are injected every turn; bodies fetched on demand. Survives session
-shutdown, compaction, and new projects (global types) or returns when you re-enter the workspace (project types).
+plus a session-scoped `note` layer. The index arrives once (and after compaction), then only as change deltas; bodies
+fetched on demand. Survives session shutdown, compaction, and new projects (global types) or returns when you re-enter
+the workspace (project types).
 
 Reach for it when:
 

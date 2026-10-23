@@ -63,7 +63,9 @@ runtime behaviour. New extensions add both files **and** a row in [README.md](./
 Dynamic state belongs in standalone blocks emitted by
 [`applyContextReminder`](../../../lib/node/pi/context-reminder.ts), with a unique stable ID per producer. Return nothing
 when empty. Keep side effects in `before_agent_start`; never rebuild the leading system prompt or tool schemas for
-changing todo/job/note state. The memory index follows the same snapshot path, not a system addendum.
+changing todo/job/note state. The memory index follows the same snapshot path, not a system addendum. Because every
+captured snapshot stays in history, a large, slow-changing block should be sent in full once and then as a delta
+acknowledged via `cache-reminders:captured` (anchor: [`memory/delivery.ts`](../../../lib/node/pi/memory/delivery.ts)).
 
 The emitter alone is **not cache-safe**: even a static body disappears from an older message on the next call.
 [`cache-reminders`](./cache-reminders.md) is default-on and finalizes all producers in `context_with_system`, capturing

@@ -111,4 +111,10 @@ describe('slugFromEnv', () => {
     expect(slugFromEnv('rp', '/tmp/pi-test')).toBe('rp');
     expect(slugFromEnv('  rp  ', '/renamed/elsewhere')).toBe('rp');
   });
+
+  test('ignores an override that is not a single path segment', () => {
+    for (const bad of ['../escape', 'a/b', 'a\\b', '.', '..']) {
+      expect(slugFromEnv(bad, '/tmp/pi-test')).toBe('--tmp-pi-test--');
+    }
+  });
 });
