@@ -106,8 +106,30 @@ write.
 
 The index reaches the model through the `memory-index` reminder, captured by [`cache-reminders`](./cache-reminders.md)
 once per run into a distinct, persisted snapshot. Earlier snapshots stay byte-identical and the leading system prompt is
-never rebuilt. Because the coordinator keeps every earlier snapshot, the producer avoids stacking a fresh copy of an
-unchanged index on every run:
+never rebuilt.
+
+**Where it lands.** The snapshot is its own user-role message placed immediately after the input that started the run it
+was captured in, never inside your message, a tool result, or the system prompt. Its bytes and position are persisted,
+so every later request replays it at the same spot and the cached prefix up to it stays valid. In a typical session the
+full index therefore sits right after the first user message, and later deltas sit after the user message of the run
+that captured them:
+
+```text
+[system prompt + tools]                     never touched by memory
+user: <turn-1 input>
+user: <system-reminder id="memory-index">   full index, captured on turn 1
+assistant / tool calls ...
+user: <turn-N input>
+user: <system-reminder id="memory-index">   "## Memory changes" delta, captured on turn N
+assistant ...
+```
+
+The tradeoff: in a long session the full index sits far back in the context instead of being refreshed near the end each
+turn. Compaction (or a rolling window dropping the turn-1 message) moves it forward again, because the next run resends
+the full index after its own input.
+
+Because the coordinator keeps every earlier snapshot, the producer avoids stacking a fresh copy of an unchanged index on
+every run:
 
 - **Full index once.** With no delivered baseline (new session, or after a compaction) the run carries the full
   `## Memory` block (Global / Project / Session), capped by `PI_MEMORY_MAX_INJECTED_CHARS` (default 6000).
