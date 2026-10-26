@@ -19,6 +19,12 @@ import roleplay from '../../../../../config/pi/extensions/roleplay.ts';
 import secretRedactor from '../../../../../config/pi/extensions/secret-redactor.ts';
 import memoryExtension from '../../../../../config/pi/extensions/memory.ts';
 import { reminderRequestChars } from '../../../../../lib/node/pi/reminder-budget.ts';
+import {
+  createWindowCheckpoint,
+  WINDOW_CHECKPOINT_TYPE,
+  type WindowCheckpoint,
+} from '../../../../../lib/node/pi/roleplay/window-checkpoint.ts';
+import { createWindowState } from '../../../../../lib/node/pi/roleplay/window-state.ts';
 import type { ReminderMessage } from '../../../../../lib/node/pi/context-reminder.ts';
 import { REMINDER_CAPABILITIES } from '../../../../../lib/node/pi/reminder-lifecycle.ts';
 import { clearActivePersona, setActivePersona } from '../../../../../lib/node/pi/persona/active.ts';
@@ -136,6 +142,7 @@ interface Harness {
   records: () => ReturnType<typeof readReminderSnapshots>;
   queueEvent: () => Promise<void>;
   snapshotEntryCount: () => number;
+  windowCheckpoints: () => WindowCheckpoint[];
   /** Text of the last `ctx.ui.notify` call. */
   lastNotice: () => string;
   /** Toggle the sanitizer-required failure for later requests. */
@@ -150,6 +157,7 @@ async function harness(
     loreDepth?: number;
     noteText?: string;
     windowTokens?: number;
+    windowCheckpoint?: WindowCheckpoint;
     redactor?: 'before' | 'after';
     disableCache?: boolean;
     failSanitizer?: boolean;
@@ -241,6 +249,8 @@ async function harness(
   const hooks = new Map<string, Handler[]>();
   const commands = new Map<string, ExtensionCommandDefinition>();
   const stored: ({ type: 'custom'; customType: string; data: unknown } | { type: 'compaction' })[] = [];
+  if (options.windowCheckpoint)
+    stored.push({ type: 'custom', customType: WINDOW_CHECKPOINT_TYPE, data: options.windowCheckpoint });
   const bus = new EventEmitter();
   const pi = {
     on: (name: string, handler: Handler) => {
@@ -279,7 +289,9 @@ async function harness(
     ui: { notify, setStatus: vi.fn(), setWidget: vi.fn(), confirm: vi.fn(async () => options.confirmReveal === true) },
     sessionManager: { getBranch: () => stored, getSessionId: () => 'runtime-fixture' },
     modelRegistry: {},
-    ...(options.windowTokens ? { model: { contextWindow: options.windowTokens } } : {}),
+    ...(options.windowTokens
+      ? { model: { id: 'fixture', provider: 'fixture', contextWindow: options.windowTokens } }
+      : {}),
     abort: () => {
       aborts += 1;
     },
@@ -389,12 +401,58 @@ async function harness(
     },
     snapshotEntryCount: () =>
       stored.filter((entry) => entry.type === 'custom' && entry.customType === REMINDER_SNAPSHOT_TYPE).length,
+    windowCheckpoints: () =>
+      stored.flatMap((entry) =>
+        entry.type === 'custom' && entry.customType === WINDOW_CHECKPOINT_TYPE ? [entry.data as WindowCheckpoint] : [],
+      ),
     lastNotice: () => String(notify.mock.calls.at(-1)?.[0] ?? ''),
     setFailSanitizer: (on) => {
       failSanitizer = on;
     },
   };
 }
+
+test('a fresh roleplay runtime restores the accepted floor and calibration before its first request', async () => {
+  const warm = createWindowState();
+  warm.charsPerToken = 2;
+  const key = { cast: 'runtime-fixture', provider: 'fixture', model: 'fixture' };
+  const h = await harness({ windowTokens: 57344, windowCheckpoint: createWindowCheckpoint(warm, [], key) });
+  const older = user('older scene '.repeat(5000), 1);
+  const latest = user('latest turn '.repeat(5000), 2);
+  await h.start(latest);
+  const before = await h.request([older, latest]);
+  expect(before.some((message) => text(message).includes('older scene'))).toBe(false);
+  expect(before.some((message) => text(message).includes('latest turn'))).toBe(true);
+  const checkpoint = h.windowCheckpoints().at(-1)!;
+  expect(checkpoint.charsPerToken).toBe(2);
+  expect(checkpoint.floorAnchor).toBeDefined();
+  const count = h.windowCheckpoints().length;
+  await h.request([older, latest]);
+  expect(h.windowCheckpoints()).toHaveLength(count);
+
+  // A new factory has no RAM from the previous one, just its branch checkpoint.
+  const reloaded = await harness({ windowTokens: 57344, windowCheckpoint: checkpoint });
+  await reloaded.start(latest);
+  const after = await reloaded.request([older, latest]);
+  expect(after).toEqual(before);
+  expect(reloaded.aborts()).toBe(0);
+
+  // This is the old cold-start behavior: the same full history falsely fits at /4.
+  const cold = await harness({ windowTokens: 57344 });
+  await cold.start(latest);
+  const withoutCheckpoint = await cold.request([older, latest]);
+  expect(withoutCheckpoint.some((message) => text(message).includes('older scene'))).toBe(true);
+  expect(reminderRequestChars(withoutCheckpoint as unknown as readonly ReminderMessage[]) / 2).toBeGreaterThan(57344);
+});
+
+test('an aborted final projection never writes a window checkpoint', async () => {
+  const h = await harness({ windowTokens: 4096 });
+  const latest = user('x'.repeat(20000));
+  await h.start(latest);
+  await h.request([latest]);
+  expect(h.aborts()).toBe(1);
+  expect(h.windowCheckpoints()).toEqual([]);
+});
 
 test('actual lore and author-note snapshot freezes input order and the request prefix', async () => {
   const h = await harness({ note: true });

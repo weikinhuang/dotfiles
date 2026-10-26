@@ -382,8 +382,12 @@ roll regardless of the stride. The recap runs synchronously on the session model
 
 **Persistence.** Each roll stamps the recap and its exact coverage on the session branch, so resume, fork, and tree
 navigation continue the right recap. Each roll also refreshes the per-cast carry-over `summary/auto.md`. A genuinely new
-session seeds its recap text from that carry-over without treating any of its own messages as covered.
-`/roleplay newscene` archives the carry-overs and starts the next turn cold.
+session seeds its recap text from that carry-over without treating any of its own messages as covered. Accepted request
+projections also checkpoint the safety-floor message anchors and learned token-size calibration on the branch. `/reload`
+and resume restore that state for the same cast and model before sizing the first request, so a reload does not bring
+back history already excluded by a safety floor. Checkpoints do not contain conversation text; sessions created before
+this checkpoint support have no saved safety state to restore. `/roleplay newscene` archives the carry-overs and starts
+the next turn cold.
 
 **Compaction.** Threshold compaction is cancelled in recap mode when a summarizer resolves (otherwise pi compacts
 normally); manual `/compact` and overflow recovery still run. On those paths the evicted span is folded into the current

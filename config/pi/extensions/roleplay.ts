@@ -142,6 +142,11 @@ import {
 } from '../../../lib/node/pi/roleplay/context-window.ts';
 import { applyWindowPass, planWindowFloor } from '../../../lib/node/pi/roleplay/window-pass.ts';
 import {
+  createWindowCheckpoint,
+  restoreWindowCheckpoint,
+  WINDOW_CHECKPOINT_TYPE,
+} from '../../../lib/node/pi/roleplay/window-checkpoint.ts';
+import {
   anchorAfterCompaction,
   armForcedRecap,
   createWindowState,
@@ -489,6 +494,8 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   // ── Rolling context-window state (per process; reset on lifecycle) ──
   /** Recap / timeline text, frozen cutoffs, async-recap generation + calibration (see roleplay/window-state.ts). */
   const win = createWindowState();
+  let windowCheckpointHydrated = false;
+  let lastWindowCheckpointSignature: string | undefined;
   /** Snapshot of the last context-window pass, for `/roleplay context`. Null until the first turn is processed. */
   let lastWindowSnapshot: ContextWindowReadoutSnapshot | null = null;
   /** Lowercased fact names captured this process, to skip re-writing the same fact. */
@@ -504,6 +511,8 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   let timelineExtractorInit = false;
   const resetWindowState = (): void => {
     resetWindowStateFields(win);
+    windowCheckpointHydrated = false;
+    lastWindowCheckpointSignature = undefined;
     capturedFacts.clear();
     lastWindowSnapshot = null;
   };
@@ -1780,6 +1789,21 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         // Fresh / shorter conversation (new run, branch switch, resume): drop stale state.
         if (natural < win.committedCutoff) resetWindowState();
 
+        // Restore safety independently of recap hydration, before either floor
+        // sizes the request. A reload must not re-admit held-back history using
+        // a fresh, optimistic chars/token default.
+        if (!windowCheckpointHydrated) {
+          windowCheckpointHydrated = true;
+          const entries = getBranchEntries(ctx);
+          if (entries && ctx.model) {
+            restoreWindowCheckpoint(entries, win, identified, {
+              cast: state.cast,
+              provider: ctx.model.provider,
+              model: ctx.model.id,
+            });
+          }
+        }
+
         // Calibrate chars/token against the PREVIOUS turn's reported usage
         // (ground truth) so the span-budget math is measured, not guessed.
         try {
@@ -2233,6 +2257,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     pi.events.on(REMINDER_PROJECTED, (data) => {
       if (activeCast() === null) return;
       const request = data as ReminderProjectedRequest;
+      const ctx = request.context as ExtensionContext;
       win.lastSentEstChars = reminderRequestChars(request.messages);
       if (lastWindowSnapshot) {
         const sent = Math.round(win.lastSentEstChars / win.charsPerToken);
@@ -2243,6 +2268,18 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
           estFullPromptTokens: Math.max(sent, lastWindowSnapshot.estFullPromptTokens),
           estSavedTokens: Math.max(0, lastWindowSnapshot.estFullPromptTokens - sent),
         };
+      }
+      if (contextWindowEnabled && ctx.model) {
+        const checkpoint = createWindowCheckpoint(win, lastMessages as readonly ReminderMessage[], {
+          cast: state.cast,
+          provider: ctx.model.provider,
+          model: ctx.model.id,
+        });
+        const signature = JSON.stringify(checkpoint);
+        if (signature !== lastWindowCheckpointSignature) {
+          pi.appendEntry(WINDOW_CHECKPOINT_TYPE, checkpoint);
+          lastWindowCheckpointSignature = signature;
+        }
       }
     }),
   );

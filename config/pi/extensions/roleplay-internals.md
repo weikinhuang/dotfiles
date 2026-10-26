@@ -246,6 +246,21 @@ forward every turn. It is deliberately not re-cut on a roll: a session draining 
 re-cutting there would wiggle the drop boundary. The applied drop is `max(recapCutoff, floorCutoff)`. With recap mode
 off and the floor engaged, the oldest turns are hard-dropped; otherwise the condense-only path runs.
 
+### Reload-safe safety state
+
+After an accepted final reminder projection, a compact `roleplay-context-window-state` custom entry checkpoints the raw
+and final safety-floor anchors plus the learned characters-per-token ratio. Identical checkpoints are not repeated.
+[`window-checkpoint.ts`](../../../lib/node/pi/roleplay/window-checkpoint.ts) restores the latest matching cast/model
+checkpoint from the active branch before window planning, independently of recap availability. Anchors resolve against
+the current message identities instead of replaying stale array offsets. Compaction invalidates older floors, and a
+`roleplay-newscene` marker shadows older checkpoints. Missing anchors are recomputed by the normal safety passes.
+
+Without this checkpoint a reload discarded both held floors and calibration: the first request could re-admit old
+history while estimating it at the default four characters per token. Removing a lore-budget option and reloading again
+did not recover the lost state. Older sessions without a checkpoint cannot recover that previous floor from this entry.
+Request-size samples are deliberately not restored: a locally accepted projection may still fail at the provider, so its
+size must not be paired with an earlier successful response's usage.
+
 ### Compaction interplay
 
 - **Threshold** compaction is cancelled in recap mode when a summarizer resolves; otherwise pi compacts normally.
