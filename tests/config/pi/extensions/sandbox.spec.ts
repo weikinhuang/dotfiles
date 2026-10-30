@@ -1,10 +1,9 @@
 /**
  * Tests for the `config/pi/extensions/sandbox.ts` extension shell.
  *
- * Sits under `tests/config/pi/extensions/` to document extension
- * behaviour, but - per project convention - only drives the
- * underlying pure lib helpers (`sandbox/wrapper-slot.ts` and the
- * marker-sanitization helpers exported from `sandbox.ts` itself).
+ * Exercises the real hook-only factory plus the marker, wrapper-slot,
+ * command-help, and completion helpers. The default factory's runtime
+ * pipeline is exercised separately in sandbox-runtime.spec.ts.
  *
  * Coverage:
  *
@@ -21,8 +20,9 @@
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
-// Pure helpers live under lib/ so the spec doesn't have to import
-// the extension shell (which depends on `@earendil-works/*`).
+import { sandboxFactoryHookOnly } from '../../../../config/pi/extensions/sandbox.ts';
+
+// Pure helpers complement the real hook-only factory above.
 import { completePositional, completeSubverbs } from '../../../../lib/node/pi/commands/complete.ts';
 import { isHelpArg } from '../../../../lib/node/pi/commands/help.ts';
 import {
@@ -36,6 +36,11 @@ import {
   SANDBOX_ALLOW_WRITE_USAGE,
   SANDBOX_DENY_USAGE,
   SANDBOX_DISABLE_USAGE,
+  SANDBOX_ENABLE_USAGE,
+  SANDBOX_NETWORK_USAGE,
+  SANDBOX_RESET_USAGE,
+  SANDBOX_EXPLAIN_USAGE,
+  SANDBOX_TEST_USAGE,
   SANDBOX_RECHECK_USAGE,
   SANDBOX_RESCAN_USAGE,
   SANDBOX_USAGE,
@@ -44,7 +49,6 @@ import {
 import {
   installSandboxWrapper,
   isSandboxWrapperInstalled,
-  requestSandboxWrap,
   type SandboxWrapFn,
   uninstallSandboxWrapper,
 } from '../../../../lib/node/pi/sandbox/wrapper-slot.ts';
@@ -71,43 +75,6 @@ interface FakeExtensionAPI {
   on(event: 'tool_call', handler: FakeToolCallHandler): void;
 }
 
-/**
- * Mirror the bash hook's mutate-in-place pattern from
- * `config/pi/extensions/sandbox.ts`. We reproduce it here instead of
- * importing the full extension default export because vitest does not
- * have pi's runtime API on the test path - same tactic the
- * `bash-permissions-subagent.spec.ts` spec uses.
- *
- * The factory:
- *   1. skips non-bash events,
- *   2. skips already-wrapped commands (re-entry guard),
- *   3. sanitizes pre-existing marker prefixes from the user input,
- *   4. asks the wrapper slot for a wrap; identity-wraps when the
- *      slot is empty,
- *   5. mutates `event.input.command` and stashes the original on
- *      `SANDBOX_ORIGINAL_SYMBOL`.
- */
-function sandboxFactoryMirror(pi: FakeExtensionAPI): void {
-  pi.on('tool_call', async (event, ctx) => {
-    if (event.toolName !== 'bash') return undefined;
-    const rawCmd = event.input.command;
-    const original = typeof rawCmd === 'string' ? rawCmd : '';
-    if (!original.trim()) return undefined;
-    if (alreadyWrapped(original)) return undefined;
-
-    const safe = stripMarkerFromUserInput(original);
-    const result = await requestSandboxWrap(safe, { hasUI: ctx.hasUI, cwd: ctx.cwd });
-    if (!result.wrapped) return undefined;
-
-    Object.defineProperty(event.input, SANDBOX_ORIGINAL_SYMBOL, {
-      value: original,
-      enumerable: false,
-    });
-    (event.input as { command: string }).command = result.command;
-    return undefined;
-  });
-}
-
 function buildChildSessionAndMount(): {
   fire(event: FakeBashEvent, ctx: FakeChildCtx): Promise<FakeToolCallResult>;
 } {
@@ -117,7 +84,7 @@ function buildChildSessionAndMount(): {
       if (event === 'tool_call') installed = handler;
     },
   };
-  sandboxFactoryMirror(api);
+  sandboxFactoryHookOnly(api as unknown as Parameters<typeof sandboxFactoryHookOnly>[0]);
   return {
     async fire(event, ctx) {
       if (!installed) throw new Error('factory did not register a tool_call handler');
@@ -134,9 +101,8 @@ const childCtx = (overrides: Partial<FakeChildCtx> = {}): FakeChildCtx => ({
 
 // ─────────────────────────────────────────────────────────────────
 // Help convention (§4.4) - each `/sandbox*` command guards its
-// handler with `isHelpArg(args)` → notify(USAGE). The shell can't be
-// imported under vitest, so we assert the contract against the shared
-// helper + the USAGE consts the handlers notify.
+// handler with `isHelpArg(args)` → notify(USAGE). These assertions cover
+// the shared help contract; sandbox-runtime.spec.ts mounts the shell.
 // ─────────────────────────────────────────────────────────────────
 
 describe('sandbox command help convention', () => {
@@ -149,6 +115,11 @@ describe('sandbox command help convention', () => {
     { command: '/sandbox-rescan', usage: SANDBOX_RESCAN_USAGE },
     { command: '/sandbox-recheck', usage: SANDBOX_RECHECK_USAGE },
     { command: '/sandbox-disable', usage: SANDBOX_DISABLE_USAGE },
+    { command: '/sandbox-enable', usage: SANDBOX_ENABLE_USAGE },
+    { command: '/sandbox-network', usage: SANDBOX_NETWORK_USAGE },
+    { command: '/sandbox-reset', usage: SANDBOX_RESET_USAGE },
+    { command: '/sandbox-explain', usage: SANDBOX_EXPLAIN_USAGE },
+    { command: '/sandbox-test', usage: SANDBOX_TEST_USAGE },
   ];
 
   for (const { command, usage } of cases) {
@@ -260,18 +231,15 @@ describe('sandbox tool_call mutate-in-place', () => {
     expect(wrapFn).toHaveBeenCalledTimes(1);
   });
 
-  test('re-entry guard: pre-wrapped commands are skipped', async () => {
-    const wrapFn = vi.fn<SandboxWrapFn>().mockResolvedValue({ command: 'NEVER', wrapped: true });
+  test('re-entry guard skips only an event the real hook already wrapped', async () => {
+    const wrapFn = vi.fn<SandboxWrapFn>().mockResolvedValue({ command: 'WRAPPED', wrapped: true });
     installSandboxWrapper(wrapFn);
-
     const child = buildChildSessionAndMount();
-    const original = '__PI_SANDBOX_WRAPPED=1 sh -c true';
-    const event: FakeBashEvent = { toolName: 'bash', input: { command: original } };
-    const r = await child.fire(event, childCtx());
-
-    expect(r).toBeUndefined();
-    expect(event.input.command).toBe(original);
-    expect(wrapFn).not.toHaveBeenCalled();
+    const event: FakeBashEvent = { toolName: 'bash', input: { command: 'echo safe' } };
+    await child.fire(event, childCtx());
+    await child.fire(event, childCtx());
+    expect(event.input.command).toBe('WRAPPED');
+    expect(wrapFn).toHaveBeenCalledTimes(1);
   });
 
   test('marker sanitization: pre-existing marker in user input is stripped before wrapping', async () => {
@@ -284,20 +252,15 @@ describe('sandbox tool_call mutate-in-place', () => {
     installSandboxWrapper(wrapFn);
 
     const child = buildChildSessionAndMount();
-    // Model attempt: prefix the command with the marker AND a leading
-    // marker-and-marker stack to try to bypass the wrap. The bash hook
-    // should detect the leading marker and skip; but if the input has
-    // SOME leading whitespace before the marker, alreadyWrapped() still
-    // detects it. The strip path only fires when alreadyWrapped is
-    // false but the command contains a stacked marker; here we exercise
-    // a DIFFERENT route - a non-leading payload that looks ordinary.
-    const event: FakeBashEvent = { toolName: 'bash', input: { command: 'echo __PI_SANDBOX_WRAPPED=1' } };
+    const original = '__PI_SANDBOX_WRAPPED=1 __PI_SANDBOX_WRAPPED=1 echo safe';
+    const event: FakeBashEvent = { toolName: 'bash', input: { command: original } };
     const r = await child.fire(event, childCtx());
 
     expect(r).toBeUndefined();
     expect(wrapFn).toHaveBeenCalledTimes(1);
     // The rewritten command came from the wrapper; the original is preserved.
-    expect((event.input as Record<symbol, unknown>)[SANDBOX_ORIGINAL_SYMBOL]).toBe('echo __PI_SANDBOX_WRAPPED=1');
+    expect((event.input as Record<symbol, unknown>)[SANDBOX_ORIGINAL_SYMBOL]).toBe(original);
+    expect(wrapFn.mock.calls[0][0]).toBe('echo safe');
   });
 
   test('non-bash tool calls are passthrough (factory only intercepts bash)', async () => {
@@ -339,8 +302,7 @@ describe('sandbox tool_call mutate-in-place', () => {
 // ─────────────────────────────────────────────────────────────────
 // Argument completion (§4.1). The shell builds these specs over the
 // shared `completeSubverbs` / `completePositional` helpers; this block
-// mirrors the exact specs the shell passes so the two stay in lockstep
-// (the shell itself can't be imported under vitest).
+// mirrors the exact specs the shell passes so the two stay in lockstep.
 // ─────────────────────────────────────────────────────────────────
 
 describe('sandbox command completion', () => {

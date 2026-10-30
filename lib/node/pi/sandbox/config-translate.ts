@@ -36,6 +36,7 @@ import type { SandboxRuntimeConfig } from '@anthropic-ai/sandbox-runtime';
 import { expandTilde } from '../path-expand.ts';
 
 import type { FilesystemPolicy, FilesystemRules } from '../filesystem-policy/schema.ts';
+import { pathSpellings, securityPolicyPaths } from '../filesystem-policy/security-paths.ts';
 
 import type { SandboxConfig } from './config-schema.ts';
 import { loopbackAllowEntries } from './localhost-proxy.ts';
@@ -50,6 +51,9 @@ export interface TranslateToASRTOptions {
   cwd: string;
   /** Home directory; defaults to `os.homedir()`. Override for tests. */
   homeDir?: string;
+  /** Optional layout injection; production defaults honor PI_CODING_AGENT_DIR. */
+  agentDir?: string;
+  env?: NodeJS.ProcessEnv;
   /** Target platform. `unsupported` is treated like `darwin` for the
    *  glob-based output - callers should be checking platform.kind
    *  themselves and not invoking the sandbox at all on `unsupported`. */
@@ -462,7 +466,14 @@ export function translateToASRT(options: TranslateToASRTOptions): TranslateToASR
   // platforms. ASRT >= 0.0.80 gives denyWrite precedence over allowWrite
   // on Linux too, so this holds even when the package sits under a
   // write-allowed root.
-  for (const p of options.protectPaths ?? []) {
+  // Append AFTER carve-back filtering. Policy files can never be carved
+  // back open, including absent files and symlinked config targets. Keep
+  // ~/.pi write-allowed above: it also hosts ordinary runtime state.
+  const protectedPaths = new Set([
+    ...securityPolicyPaths(cwd, { homeDir: home, agentDir: options.agentDir, env: options.env }),
+    ...(options.protectPaths ?? []).flatMap(pathSpellings),
+  ]);
+  for (const p of protectedPaths) {
     denyWrite.push(literalPathEntry(p));
   }
 

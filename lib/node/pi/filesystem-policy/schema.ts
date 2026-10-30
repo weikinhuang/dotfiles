@@ -23,10 +23,14 @@
  * live in [`../../../../tests/lib/node/pi/filesystem-policy/schema.spec.ts`].
  */
 
-/** Why a path matched. The four `deny-*` reasons mirror the existing
- *  `paths.ts::Reason` values plus a new `outside-allowed-write` for the
- *  allow-only write model. */
-export type FilesystemReason = 'deny-basename' | 'deny-segment' | 'deny-path-prefix' | 'outside-allowed-write';
+/** Why a path matched. `security-policy` is a hard write block, not an
+ *  overridable approval prompt like the ordinary policy matches. */
+export type FilesystemReason =
+  | 'deny-basename'
+  | 'deny-segment'
+  | 'deny-path-prefix'
+  | 'outside-allowed-write'
+  | 'security-policy';
 
 export interface FilesystemMatch {
   reason: FilesystemReason;

@@ -69,7 +69,12 @@
  *   /sandbox-rescan           recompile Linux rules (basenames/segments
  *                             -> literal paths via ripgrep).
  *   /sandbox-recheck          re-run dependency detection.
- *   /sandbox-disable          session-only bypass; statusline badge hidden.
+ *   /sandbox-disable          session-only full bypass; badge hidden.
+ *   /sandbox-enable           clear full bypass for new commands.
+ *   /sandbox-network <verb>   enable/disable/status for network only.
+ *   /sandbox-reset            clear sandbox session grants and overrides.
+ *   /sandbox-explain <kind>   explain path or host policy without probing.
+ *   /sandbox-test             native synthetic filesystem self-test.
  *
  * Pure helpers (config schema, layered loader, ASRT translator,
  * platform probe, Linux rule compilation, violations JSONL,
@@ -106,6 +111,11 @@ import {
   SANDBOX_ALLOW_WRITE_USAGE,
   SANDBOX_DENY_USAGE,
   SANDBOX_DISABLE_USAGE,
+  SANDBOX_ENABLE_USAGE,
+  SANDBOX_NETWORK_USAGE,
+  SANDBOX_RESET_USAGE,
+  SANDBOX_EXPLAIN_USAGE,
+  SANDBOX_TEST_USAGE,
   SANDBOX_RECHECK_USAGE,
   SANDBOX_RESCAN_USAGE,
   SANDBOX_USAGE,
@@ -117,6 +127,13 @@ import { computeExcludableStubs, spliceManagedBlock } from '../../../lib/node/pi
 import { buildNetworkAskCallback, type NetworkAskAnswer } from '../../../lib/node/pi/sandbox/network-ask.ts';
 import { annotateBashResult, prependBashHint } from '../../../lib/node/pi/sandbox/result-annotate.ts';
 import { buildSandboxStatusReport } from '../../../lib/node/pi/sandbox/status-report.ts';
+import {
+  applyNetworkSandboxOverride,
+  buildNetworkControlStatus,
+  type NetworkSandboxOverride,
+} from '../../../lib/node/pi/sandbox/session-controls.ts';
+import { buildSandboxExplanation } from '../../../lib/node/pi/sandbox/explain.ts';
+import { runSandboxSelfTest } from '../../../lib/node/pi/sandbox/self-test.ts';
 import { detectLoopbackFailure } from '../../../lib/node/pi/sandbox/loopback-hint.ts';
 import { prependLocalhostProxyEnv } from '../../../lib/node/pi/sandbox/localhost-proxy.ts';
 import { type FilesystemPolicyLayer, loadFilesystemPolicy } from '../../../lib/node/pi/filesystem-policy/load.ts';
@@ -135,7 +152,10 @@ import {
   activeReconfigure,
   beginActiveReconfigure,
   clearActiveSandbox,
+  getActiveSandbox,
+  hashSandboxConfig,
   publishActiveSandbox,
+  runActiveSandboxOperation,
 } from '../../../lib/node/pi/sandbox/active.ts';
 import {
   type AsrtModule,
@@ -277,7 +297,7 @@ interface ResolvedAll {
   fsWarnings: FilesystemPolicyWarning[];
   sandboxResult: ReturnType<typeof loadSandboxConfig>;
   compiled?: CompiledPolicyReport;
-  asrtConfig: unknown;
+  asrtConfig: ReturnType<typeof translateToASRT>['config'];
   lossyNotes: string[];
   platform: SandboxPlatformInfo;
 }
@@ -290,6 +310,7 @@ function resolveAll(
   cwd: string,
   platform: SandboxPlatformInfo,
   sessionWriteAllowPaths: readonly string[] = [],
+  networkOverride?: NetworkSandboxOverride,
 ): ResolvedAll {
   const { fsLayers, sandboxLayers } = buildLayers(cwd);
   const persona = getActivePersona();
@@ -301,6 +322,7 @@ function resolveAll(
     sessionWriteAllowPaths,
   });
   const sandboxResult = loadSandboxConfig(sandboxLayers, sandboxEnvOverlay());
+  sandboxResult.config = applyNetworkSandboxOverride(sandboxResult.config, networkOverride);
 
   let compiled: CompiledPolicyReport | undefined;
   if (platform.kind === 'linux') {
@@ -348,8 +370,12 @@ interface RuntimeState {
   sessionCtx?: ExtensionContext;
   /** True after `manager.initialize()` returned successfully. */
   initialized: boolean;
+  /** Reject new work once shutdown starts, including queued wraps. */
+  stopping: boolean;
   /** Session-only bypass toggled by `/sandbox-disable`. */
   bypassed: boolean;
+  /** Highest-precedence, session-only network mode; undefined restores files/env. */
+  networkOverride?: NetworkSandboxOverride;
   /** Reason string surfaced in the statusline tooltip (latest). */
   reason?: string;
   /** Last resolved snapshot - used by `/sandbox` rendering. */
@@ -393,6 +419,8 @@ interface RuntimeState {
    *  sandbox still relies on its mount points. Drained on
    *  `session_shutdown`. See `lib/node/pi/sandbox/wrap-ledger.ts`. */
   ledger: WrapLedger;
+  /** Origin cwd for each in-flight wrap, used to protect shared proxy policy. */
+  wrapCwds: Map<string, string>;
   /** The loaded ASRT module (set by {@link ensureManager}); used for
    *  schema validation in {@link reconfigure}. */
   asrt?: AsrtModule;
@@ -408,10 +436,8 @@ interface RuntimeState {
   /** Cwd whose `dangerousProtected` Set was last computed. Used to
    *  invalidate the cache when the user runs `cd` mid-session. */
   dangerousProtectedCwd?: string;
-  /** Cached set of git-tracked dangerous-stub paths under
-   *  {@link dangerousProtectedCwd}. Passed as `isProtected` to
-   *  `createDangerousFileStubs` / `sweepOrphanDangerousStubs` so
-   *  user-authored 0-byte files are never adopted + deleted.
+  /** Extra git-tracked protection for stub creation and git-exclude entries.
+   *  Stub ownership is checked separately, including for untracked paths.
    *  Recomputed on cwd change via {@link refreshDangerousProtected}. */
   dangerousProtected: Set<string>;
   /** Absolute path of the git exclude file (`<git-common-dir>/info/exclude`)
@@ -426,6 +452,7 @@ function newState(platform: SandboxPlatformInfo): RuntimeState {
   return {
     platform,
     initialized: false,
+    stopping: false,
     bypassed: false,
     fsWarnings: createNotifyOnce({ tag: 'sandbox' }),
     sandboxWarnings: createNotifyOnce({ tag: 'sandbox' }),
@@ -435,6 +462,7 @@ function newState(platform: SandboxPlatformInfo): RuntimeState {
     sessionAllowedDomains: new Set(),
     sessionWriteAllow: new Set(),
     ledger: createWrapLedger(),
+    wrapCwds: new Map(),
     configIssues: [],
     dependencyNotes: [],
     configIssueWarnings: createNotifyOnce({ tag: 'sandbox' }),
@@ -446,14 +474,9 @@ function newState(platform: SandboxPlatformInfo): RuntimeState {
  * Recompute {@link RuntimeState.dangerousProtected} for `cwd` if it
  * differs from the cached value. The protected set is the subset of
  * the dangerous-stub paths under `cwd` that are tracked in `cwd`'s
- * git index, so a user-authored 0-byte file (e.g. a freshly-created
- * `.npmrc`) is never adopted by the orphan-sweep on session_start or
- * the adopt-on-EEXIST path inside `createDangerousFileStubs`.
- *
- * Synchronous: `gitTrackedSubset` runs `git ls-files` once per cwd
- * change with a 2s timeout and folds every failure mode into
- * `tracked = ∅`, which is the safe-but-permissive default for
- * non-git scratch directories.
+ * git index. This is an extra filter, not evidence of stub ownership:
+ * unknown files are preserved even when git is unavailable.
+ * `gitTrackedSubset` runs once per cwd change with a 2s timeout.
  */
 function refreshDangerousProtected(state: RuntimeState, cwd: string): void {
   if (state.dangerousProtectedCwd === cwd) return;
@@ -464,8 +487,8 @@ function refreshDangerousProtected(state: RuntimeState, cwd: string): void {
 /** Dangerous-file stubs are a bubblewrap mount-point race workaround:
  *  only Linux creates host-side mount points for absent deny paths.
  *  sandbox-exec (macOS) denies by pattern, so no stubs and no
- *  git-exclude block there. (The orphan sweep still runs everywhere to
- *  clear stubs older versions created on macOS.) */
+ *  git-exclude block there. The sweep only touches process-owned stubs;
+ *  unknown leftovers from older versions are preserved. */
 function stubsApply(state: RuntimeState): boolean {
   return state.platform.kind === 'linux';
 }
@@ -542,7 +565,12 @@ function effectiveMode(state: RuntimeState): { mode: SandboxMode; reason?: strin
 
 function publishStatusline(state: RuntimeState): void {
   const { mode, reason } = effectiveMode(state);
-  setSandboxState(reason !== undefined ? { mode, reason } : { mode });
+  const networkNote =
+    mode === 'wrapped' && state.lastResolved?.sandboxResult.config.network.unrestricted
+      ? 'network sandbox disabled; filesystem protection remains on'
+      : undefined;
+  const detail = [reason, networkNote].filter(Boolean).join('; ');
+  setSandboxState(detail ? { mode, reason: detail } : { mode });
 }
 
 // `surfaceFsWarnings` was inlined into `reconfigure` once both warning
@@ -636,16 +664,38 @@ function checkRuntimeConfig(state: RuntimeState, asrtConfig: unknown, ctx?: Exte
 /**
  * Reconfigure the live ASRT manager from the current on-disk config
  * + active persona. Returns the resolved snapshot the caller can
- * render; the active singleton is updated atomically before the
- * SandboxManager.updateConfig() call so bash hooks reading
- * `getActiveSandbox()` after `await activeReconfigure()` see
- * consistent state.
+ * render; publish only after SandboxManager.updateConfig() accepts it,
+ * so status and the shared snapshot never claim an unapplied policy.
  */
-async function reconfigure(state: RuntimeState, cwd: string, ctx?: ExtensionContext): Promise<ResolvedAll> {
+async function reconfigureUnlocked(state: RuntimeState, cwd: string, ctx?: ExtensionContext): Promise<ResolvedAll> {
   const done = beginActiveReconfigure();
-  state.lastCwd = cwd;
   try {
-    const resolved = resolveAll(cwd, state.platform, Array.from(state.sessionWriteAllow));
+    const resolved = resolveAll(cwd, state.platform, Array.from(state.sessionWriteAllow), state.networkOverride);
+    // Network namespaces cannot be changed in-place. ASRT also has a
+    // shared live proxy, so do not switch it out beneath active wraps.
+    if (
+      state.ledger.inflight.size > 0 &&
+      state.lastResolved &&
+      (state.lastResolved.sandboxResult.config.network.unrestricted === true) !==
+        (resolved.sandboxResult.config.network.unrestricted === true)
+    ) {
+      throw new Error(
+        'sandbox: different network policy/isolation requested while wrapped commands are active; stop them first, then retry',
+      );
+    }
+    // ASRT's proxy reads one live network policy for every command.
+    // Do not let a different cwd replace it under an existing job.
+    // Same-cwd trusted edits/approval commands retain live reload.
+    if (
+      [...state.wrapCwds.values()].some((origin) => origin !== cwd) &&
+      state.lastResolved &&
+      JSON.stringify(state.lastResolved.sandboxResult.config.network) !==
+        JSON.stringify(resolved.sandboxResult.config.network)
+    ) {
+      throw new Error(
+        'sandbox: a different network policy is in use by running commands; wait for them to finish, then retry',
+      );
+    }
     if (ctx) {
       const notify = ctx.ui.notify.bind(ctx.ui);
       if (resolved.fsWarnings.length > 0) state.fsWarnings.surface(notify, resolved.fsWarnings);
@@ -654,7 +704,7 @@ async function reconfigure(state: RuntimeState, cwd: string, ctx?: ExtensionCont
       }
     }
 
-    const publish = publishActiveSandbox({
+    const snapshot = {
       filesystem: resolved.fsPolicy,
       sandbox: resolved.sandboxResult.config,
       platform: state.platform.kind,
@@ -662,31 +712,36 @@ async function reconfigure(state: RuntimeState, cwd: string, ctx?: ExtensionCont
       // after translation (a new secret file found by the Linux compile,
       // a different cwd) still reaches updateConfig().
       runtime: resolved.asrtConfig,
-    });
-
-    if (state.manager && state.initialized && publish.changed) {
+    };
+    const changed = getActiveSandbox()?.configHash !== hashSandboxConfig(snapshot);
+    if (state.manager && state.initialized && changed) {
       checkRuntimeConfig(state, resolved.asrtConfig, ctx);
       try {
         state.manager.updateConfig(resolved.asrtConfig);
       } catch (e) {
-        // ASRT keeps the previous config in effect when updateConfig
-        // throws (e.g. a malformed address range). Record it instead of
-        // letting the throw escape the tool_call hook, which would make
-        // pi block every bash call.
+        // Do not publish or report a requested control change as applied
+        // while ASRT still enforces the previous policy.
         const msg = `updateConfig failed (previous config still in effect): ${e instanceof Error ? e.message : String(e)}`;
         state.configIssues = [...state.configIssues, msg];
         if (ctx) {
           state.configIssueWarnings.surface(ctx.ui.notify.bind(ctx.ui), [{ source: 'runtime config', reason: msg }]);
         }
+        throw new Error(msg);
       }
     }
 
+    publishActiveSandbox(snapshot);
+    state.lastCwd = cwd;
     state.lastResolved = resolved;
     publishStatusline(state);
     return resolved;
   } finally {
     done();
   }
+}
+
+function reconfigure(state: RuntimeState, cwd: string, ctx?: ExtensionContext): Promise<ResolvedAll> {
+  return runActiveSandboxOperation(() => reconfigureUnlocked(state, cwd, ctx));
 }
 
 /** Run ASRT's dependency probe once per init and surface its notes.
@@ -747,7 +802,7 @@ async function ensureManager(state: RuntimeState, cwd: string, ctx: ExtensionCon
   try {
     const asrt = await loadAsrtModule();
     state.asrt = asrt;
-    const resolved = state.lastResolved ?? (await reconfigure(state, cwd, ctx));
+    const resolved = state.lastResolved ?? (await reconfigureUnlocked(state, cwd, ctx));
     if (!asrt.SandboxManager.isSupportedPlatform()) {
       state.reason = 'ASRT reports platform unsupported';
       publishStatusline(state);
@@ -791,11 +846,82 @@ async function ensureManager(state: RuntimeState, cwd: string, ctx: ExtensionCon
   }
 }
 
+interface SessionControlChange {
+  bypassed?: boolean;
+  networkOverride?: NetworkSandboxOverride;
+  reset?: boolean;
+}
+
+/** Mutate controls and apply policy under the same reservation as wraps.
+ * Restore session settings if the runtime rejects a change. */
+async function changeSessionControls(
+  state: RuntimeState,
+  ctx: ExtensionContext,
+  change: SessionControlChange,
+): Promise<boolean> {
+  return runActiveSandboxOperation(async () => {
+    if (state.stopping) return false;
+    const previous = {
+      bypassed: state.bypassed,
+      networkOverride: state.networkOverride,
+      reason: state.reason,
+      domains: [...state.sessionAllowedDomains],
+      paths: [...state.sessionWriteAllow],
+    };
+    if (change.reset) {
+      state.bypassed = false;
+      state.networkOverride = undefined;
+      state.sessionAllowedDomains.clear();
+      state.sessionWriteAllow.clear();
+      state.reason = undefined;
+    }
+    if (change.bypassed !== undefined) {
+      state.bypassed = change.bypassed;
+      state.reason = change.bypassed ? '/sandbox-disable' : undefined;
+    }
+    if (change.networkOverride !== undefined) state.networkOverride = change.networkOverride;
+    try {
+      if (change.bypassed !== true || change.reset || change.networkOverride !== undefined) {
+        await reconfigureUnlocked(state, ctx.cwd, ctx);
+        if (!state.bypassed) await ensureManager(state, ctx.cwd, ctx);
+      }
+      publishStatusline(state);
+      return true;
+    } catch (e) {
+      state.bypassed = previous.bypassed;
+      state.networkOverride = previous.networkOverride;
+      state.reason = previous.reason;
+      state.sessionAllowedDomains.clear();
+      for (const host of previous.domains) state.sessionAllowedDomains.add(host);
+      state.sessionWriteAllow.clear();
+      for (const path of previous.paths) state.sessionWriteAllow.add(path);
+      publishStatusline(state);
+      ctx.ui.notify(`sandbox: controls unchanged: ${e instanceof Error ? e.message : String(e)}`, 'warning');
+      return false;
+    }
+  });
+}
+
+function networkControlStatus(state: RuntimeState): string {
+  const resolved =
+    state.lastResolved ??
+    resolveAll(state.lastCwd ?? process.cwd(), state.platform, [...state.sessionWriteAllow], state.networkOverride);
+  return buildNetworkControlStatus({
+    mode: effectiveMode(state).mode,
+    initialized: state.initialized,
+    dryRun: envTruthy(process.env.PI_SANDBOX_DRY_RUN),
+    unrestricted: resolved.sandboxResult.config.network.unrestricted === true,
+    override: state.networkOverride,
+    activeWraps: state.ledger.inflight.size,
+  });
+}
+
 /** Release one wrap: ASRT's per-command cleanup + stub refcount. Only
  *  acts for a wrap recorded in the ledger, and only once. */
 function releaseWrapHandle(state: RuntimeState, handle: SandboxWrapHandle): void {
   const outcome = releaseWrap(state.ledger, handle.commandId);
   if (!outcome.released) return;
+  if (handle.commandId) state.wrapCwds.delete(handle.commandId);
   try {
     state.manager?.cleanupAfterCommand?.();
   } catch {
@@ -872,9 +998,8 @@ async function performWrap(
     // `O_CREAT|O_WRONLY` against a 0444 stub (see dangerous-file-stubs.ts
     // module docs). sandbox-exec on macOS denies by pattern and never
     // creates mount points, so the stubs would only be noise there.
-    // The `isProtected` hook also lets the helper adopt orphan stubs a
-    // prior session leaked via SIGKILL, while leaving git-tracked 0-byte
-    // files (a freshly-cloned `.npmrc`, etc.) alone.
+    // Only process-owned stubs can be reused or removed. Unknown empty
+    // files and symlink ancestors are preserved, regardless of git status.
     if (stubsApply(state)) {
       refreshDangerousProtected(state, process.cwd());
       created = createDangerousFileStubs(process.cwd(), {
@@ -898,6 +1023,7 @@ async function performWrap(
       commandText: command,
     });
     recordWrap(state.ledger, commandId, created);
+    state.wrapCwds.set(commandId, ctx.cwd);
     logE2bigWrap(
       { wrapsAttempted: state.wrapsAttempted, lastResolvedAsrtConfig: state.lastResolved?.asrtConfig },
       command,
@@ -1016,14 +1142,29 @@ export default function sandbox(pi: ExtensionAPI): void {
   // bg_bash job started before any foreground bash finds the manager
   // uninitialized and falls back to PI_SANDBOX_DEFAULT (warn = run
   // unwrapped).
-  const slotFn: SandboxWrapFn = async (command, ctx) => {
-    const extCtx = state.sessionCtx;
-    if (extCtx) {
-      await reconfigure(state, ctx.cwd, extCtx);
-      await ensureManager(state, ctx.cwd, extCtx);
-    }
-    return performWrap(command, state, ctx);
-  };
+  const slotFn: SandboxWrapFn = (command, ctx) =>
+    runActiveSandboxOperation(async () => {
+      if (state.stopping) return { command, wrapped: false, action: 'block', reason: 'sandbox is shutting down' };
+      const extCtx = state.sessionCtx;
+      if (extCtx) {
+        try {
+          await reconfigureUnlocked(state, ctx.cwd, extCtx);
+        } catch (e) {
+          return { command, wrapped: false, action: 'block', reason: e instanceof Error ? e.message : String(e) };
+        }
+        await ensureManager(state, ctx.cwd, extCtx);
+        if (envTruthy(process.env.PI_SANDBOX_DRY_RUN) && state.manager && state.initialized && !state.bypassed) {
+          try {
+            const wrapped = await state.manager.wrapWithSandbox(command);
+            state.manager.cleanupAfterCommand?.();
+            extCtx.ui.notify(`sandbox dry-run wrap:\n  ${wrapped}`, 'info');
+          } catch {
+            // Dry-run diagnostics never prevent an explicitly unwrapped run.
+          }
+        }
+      }
+      return performWrap(command, state, ctx);
+    });
   installSandboxWrapper(slotFn, (handle) => {
     releaseWrapHandle(state, handle);
   });
@@ -1037,10 +1178,15 @@ export default function sandbox(pi: ExtensionAPI): void {
   // down (uninstalling the wrapper slot, so bg_bash / subagent bash run
   // unwrapped) while pi kept running. ASRT's own SIGINT listener has
   // the same flaw; `ensureManager` chains it via `signal-chain.ts`.
-  const cleanup = (): void => {
+  let exitCleanup: (() => void) | undefined;
+  const cleanup = (): Promise<void> => {
+    let reset = Promise.resolve();
     if (state.manager && state.initialized) {
-      // Fire-and-forget; we're shutting down.
-      void state.manager.reset();
+      try {
+        reset = state.manager.reset().catch(() => undefined);
+      } catch {
+        // A synchronous runtime failure must not prevent other teardown.
+      }
     }
     try {
       state.violationUnsubscribe?.();
@@ -1053,15 +1199,22 @@ export default function sandbox(pi: ExtensionAPI): void {
     state.manager = undefined;
     state.sessionAllowedDomains.clear();
     state.sessionWriteAllow.clear();
+    state.networkOverride = undefined;
+    state.bypassed = false;
     cleanupDangerousFileStubs(drainWrapLedger(state.ledger));
+    state.wrapCwds.clear();
     stripGitExcludeStubs(state);
     clearActiveSandbox();
     clearActiveUI();
     uninstallSandboxWrapper();
     setSandboxState({ mode: 'off' });
-    process.off('exit', cleanup);
+    if (exitCleanup) process.off('exit', exitCleanup);
+    return reset;
   };
-  process.on('exit', cleanup);
+  exitCleanup = (): void => {
+    void cleanup();
+  };
+  process.on('exit', exitCleanup);
 
   // Surface deps / platform notifications once at startup.
   pi.on('session_start', async (_event, ctx) => {
@@ -1101,20 +1254,15 @@ export default function sandbox(pi: ExtensionAPI): void {
     // Pre-resolve so /sandbox can render even before the first bash.
     await reconfigure(state, ctx.cwd, ctx);
 
-    // Sweep cwd for dangerous-file stubs leaked by a prior pi session
-    // that exited too hard for the cleanup handler to fire (SIGKILL,
-    // OOM, WSL VM kill, parent shell crash). Skips git-tracked
-    // 0-byte files / empty dirs via the same `isProtected` hook used
-    // by `createDangerousFileStubs`. No-op on a clean cwd. Runs on every
-    // platform: stubs are only created on Linux now, but earlier
-    // versions of this extension created them on macOS too.
+    // Sweep only process-owned, unused stubs. Unknown empty files and
+    // crash leftovers have no ownership record and are never deleted.
     refreshDangerousProtected(state, ctx.cwd);
     const swept = sweepOrphanDangerousStubs(ctx.cwd, {
       isProtected: (p) => state.dangerousProtected.has(p),
     });
     if (swept.length > 0) {
       ctx.ui.notify(
-        `sandbox: cleaned up ${swept.length} orphaned dangerous-file stub${swept.length === 1 ? '' : 's'} from a prior session`,
+        `sandbox: cleaned up ${swept.length} process-owned dangerous-file stub${swept.length === 1 ? '' : 's'}`,
         'info',
       );
     }
@@ -1127,8 +1275,9 @@ export default function sandbox(pi: ExtensionAPI): void {
     syncGitExcludeStubs(state, ctx.cwd);
   });
 
-  pi.on('session_shutdown', () => {
-    cleanup();
+  pi.on('session_shutdown', async () => {
+    state.stopping = true;
+    await runActiveSandboxOperation(cleanup);
   });
 
   // The main bash interceptor. Runs AFTER `bash-permissions` (later
@@ -1152,31 +1301,10 @@ export default function sandbox(pi: ExtensionAPI): void {
     // closes the fail-open on model-supplied marker prefixes.
     if (hasOriginalStash(event.input)) return undefined;
 
-    // Make sure the SandboxManager + active config are current. Lazy-init
-    // ASRT here; failure modes (unsupported platform, missing deps, init
-    // throw, ...) are folded into performWrap's structured result below
-    // so PI_SANDBOX_DEFAULT=block blocks every channel consistently.
-    await reconfigure(state, ctx.cwd, ctx);
-    await ensureManager(state, ctx.cwd, ctx);
-
+    // All channels reserve the same config/init/wrap operation. Merely
+    // awaiting reconfigure here would let a sibling cwd replace it.
     const safe = stripMarkerFromUserInput(original);
-
-    if (envTruthy(process.env.PI_SANDBOX_DRY_RUN) && state.manager && state.initialized) {
-      // Log to stderr so the user can confirm the wrap shape without
-      // running it. Only meaningful when init actually succeeded.
-      try {
-        const wrapped = await state.manager.wrapWithSandbox(safe);
-        // The command runs unwrapped, so balance ASRT's per-wrap
-        // bookkeeping right away.
-        state.manager.cleanupAfterCommand?.();
-        ctx.ui.notify(`sandbox dry-run wrap:\n  ${wrapped}`, 'info');
-      } catch {
-        // ignore
-      }
-      return undefined;
-    }
-
-    const result = await performWrap(safe, state, { hasUI: ctx.hasUI, cwd: ctx.cwd, signal: ctx.signal });
+    const result = await slotFn(safe, { hasUI: ctx.hasUI, cwd: ctx.cwd, signal: ctx.signal });
     if (result.wrapped) {
       stashOriginalCommand(event.input, original);
       stashCommandId(event.input, result.commandId);
@@ -1467,7 +1595,7 @@ export default function sandbox(pi: ExtensionAPI): void {
         ],
         recentViolations: readViolations(USER_VIOLATIONS_LOG, { limit: 10 }),
       });
-      ctx.ui.notify(report, 'info');
+      ctx.ui.notify(`${report}\n\n${networkControlStatus(state)}`, 'info');
     },
   });
 
@@ -1637,13 +1765,180 @@ export default function sandbox(pi: ExtensionAPI): void {
         ctx.ui.notify(SANDBOX_DISABLE_USAGE, 'info');
         return;
       }
-      state.bypassed = true;
-      state.reason = '/sandbox-disable';
-      publishStatusline(state);
+      if (args.trim()) {
+        ctx.ui.notify(SANDBOX_DISABLE_USAGE, 'warning');
+        return;
+      }
+      if (!(await changeSessionControls(state, ctx, { bypassed: true }))) return;
       ctx.ui.notify(
-        '\u26a0\ufe0f  sandbox: session bypass active. Bash subprocesses will run UNWRAPPED until /reload or session end.',
+        '\u26a0\ufe0f  sandbox: session bypass active. New bash subprocesses run UNWRAPPED until /sandbox-enable, /sandbox-reset, /reload, or session end.',
         'warning',
       );
+    },
+  });
+
+  pi.registerCommand('sandbox-enable', {
+    description: 'Clear the full-session sandbox bypass for new commands',
+    handler: async (args, ctx) => {
+      if (isHelpArg(args) || args.trim()) {
+        ctx.ui.notify(SANDBOX_ENABLE_USAGE, 'info');
+        return;
+      }
+      if (!(await changeSessionControls(state, ctx, { bypassed: false }))) return;
+      ctx.ui.notify(`sandbox: full-session bypass cleared.\n${networkControlStatus(state)}`, 'info');
+    },
+  });
+
+  pi.registerCommand('sandbox-network', {
+    description: 'Session-only network sandbox enable/disable/status; keeps filesystem protection',
+    getArgumentCompletions: (prefix) =>
+      completeSubverbs(prefix, {
+        enable: { description: 'Enable network isolation and configured domain filtering' },
+        disable: { description: 'Allow ALL reachable destinations; retain filesystem protection' },
+        status: { description: 'Show effective networking, full bypass, and session override' },
+      }),
+    handler: async (args, ctx) => {
+      if (isHelpArg(args)) {
+        ctx.ui.notify(SANDBOX_NETWORK_USAGE, 'info');
+        return;
+      }
+      const verb = args.trim() || 'status';
+      if (verb === 'status') {
+        ctx.ui.notify(networkControlStatus(state), 'info');
+        return;
+      }
+      if (verb !== 'enable' && verb !== 'disable') {
+        ctx.ui.notify(SANDBOX_NETWORK_USAGE, 'warning');
+        return;
+      }
+      const override = verb === 'enable' ? 'enabled' : 'disabled';
+      if (!(await changeSessionControls(state, ctx, { networkOverride: override }))) return;
+      ctx.ui.notify(networkControlStatus(state), verb === 'disable' ? 'warning' : 'info');
+    },
+  });
+
+  pi.registerCommand('sandbox-reset', {
+    description: 'Clear session-only grants and overrides; reload configured policy',
+    handler: async (args, ctx) => {
+      if (isHelpArg(args) || args.trim()) {
+        ctx.ui.notify(SANDBOX_RESET_USAGE, 'info');
+        return;
+      }
+      if (!(await changeSessionControls(state, ctx, { reset: true }))) return;
+      ctx.ui.notify(
+        `sandbox: session grants, network override, and full bypass cleared; config files unchanged.\n${networkControlStatus(state)}`,
+        'info',
+      );
+    },
+  });
+
+  pi.registerCommand('sandbox-explain', {
+    description: 'Explain effective path or host policy without performing the operation',
+    getArgumentCompletions: (prefix) =>
+      completeSubverbs(prefix, {
+        path: {
+          description: 'Explain read/write policy',
+          args: () =>
+            [...new Set([...(state.lastResolved?.fsPolicy.write.allow.paths ?? []), ...state.sessionWriteAllow])].map(
+              (label) => ({ label }),
+            ),
+        },
+        host: { description: 'Explain a host or URL', args: () => recentBlockedDomains().map((label) => ({ label })) },
+      }),
+    handler: async (args, ctx) => {
+      if (isHelpArg(args)) {
+        ctx.ui.notify(SANDBOX_EXPLAIN_USAGE, 'info');
+        return;
+      }
+      const match = /^(path|host)\s+([\s\S]+)$/.exec(args.trim());
+      if (!match) {
+        ctx.ui.notify(SANDBOX_EXPLAIN_USAGE, 'info');
+        return;
+      }
+      const kind = match[1] as 'path' | 'host';
+      const resolved = resolveAll(ctx.cwd, state.platform, [...state.sessionWriteAllow], state.networkOverride);
+      const layers = buildLayers(ctx.cwd);
+      const persona = getActivePersona();
+      const report = buildSandboxExplanation({
+        target: { kind, value: match[2].trim() },
+        cwd: ctx.cwd,
+        filesystem: resolved.fsPolicy,
+        sandbox: resolved.sandboxResult.config,
+        fsLayers: layers.fsLayers,
+        sandboxLayers: layers.sandboxLayers,
+        sessionWriteAllowPaths: [...state.sessionWriteAllow],
+        sessionAllowedDomains: [...state.sessionAllowedDomains],
+        persona: persona ? { name: persona.name, resolvedWriteRoots: persona.resolvedWriteRoots } : undefined,
+        mode: envTruthy(process.env.PI_SANDBOX_DRY_RUN) ? 'dry-run' : effectiveMode(state).mode,
+        networkOverride: state.networkOverride,
+        platform: state.platform.kind,
+      });
+      ctx.ui.notify(report, 'info');
+    },
+  });
+
+  pi.registerCommand('sandbox-test', {
+    description: 'Test native filesystem enforcement using isolated synthetic fixtures',
+    handler: async (args, ctx) => {
+      if (isHelpArg(args) || args.trim()) {
+        ctx.ui.notify(SANDBOX_TEST_USAGE, 'info');
+        return;
+      }
+      await runActiveSandboxOperation(async () => {
+        if (state.stopping) return;
+        if (state.bypassed || envTruthy(process.env.PI_SANDBOX_DRY_RUN) || planFor(state).kind !== 'wrapped') {
+          ctx.ui.notify(
+            'sandbox-test: unavailable while bypassed, degraded, or in dry-run mode; enable the sandbox and recheck dependencies first.',
+            'warning',
+          );
+          return;
+        }
+        try {
+          const resolved = await reconfigureUnlocked(state, ctx.cwd, ctx);
+          if (!(await ensureManager(state, ctx.cwd, ctx)) || !state.manager) {
+            ctx.ui.notify(
+              `sandbox-test: FAILED to initialize native runtime (${state.lastWrapError ?? state.reason ?? 'unavailable'}); no unwrapped fallback was run.`,
+              'error',
+            );
+            return;
+          }
+          const manager = state.manager;
+          ensureAsrtTmpdir();
+          const result = await runSandboxSelfTest({
+            wrap: (command, fixture) =>
+              manager.wrapWithSandbox(
+                command,
+                undefined,
+                {
+                  ...resolved.asrtConfig,
+                  filesystem: {
+                    ...resolved.asrtConfig.filesystem,
+                    allowWrite: [...resolved.asrtConfig.filesystem.allowWrite, { path: fixture.root, literal: true }],
+                    denyRead: [...resolved.asrtConfig.filesystem.denyRead, { path: fixture.readDenied, literal: true }],
+                    denyWrite: [
+                      ...resolved.asrtConfig.filesystem.denyWrite,
+                      { path: fixture.writeDenied, literal: true },
+                    ],
+                  },
+                },
+                ctx.signal,
+                { commandId: `pi-self-test-${randomUUID()}`, commandText: command },
+              ),
+            release: () => {
+              manager.cleanupAfterCommand?.();
+            },
+          });
+          ctx.ui.notify(
+            `sandbox self-test: ${result.ok ? 'PASS' : 'FAIL'}\n${result.lines.join('\n')}`,
+            result.ok ? 'info' : 'error',
+          );
+        } catch (e) {
+          ctx.ui.notify(
+            `sandbox-test: FAILED (${e instanceof Error ? e.message : String(e)}); no unwrapped fallback was run.`,
+            'error',
+          );
+        }
+      });
     },
   });
 }

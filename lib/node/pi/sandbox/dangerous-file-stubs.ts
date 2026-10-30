@@ -42,8 +42,11 @@
  * Pure module - no pi imports - so it's unit-testable under vitest.
  */
 
-import { closeSync, constants, mkdirSync, openSync, readdirSync, rmdirSync, statSync, unlinkSync } from 'node:fs';
-import { resolve, sep } from 'node:path';
+import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, rmdirSync, unlinkSync } from 'node:fs';
+import type { Stats } from 'node:fs';
+import { dirname, resolve, sep } from 'node:path';
+
+import { createGlobalSlot } from '../global-slot.ts';
 
 /**
  * Vendored copy of ASRT's `DANGEROUS_FILES`
@@ -68,12 +71,9 @@ export const ASRT_DANGEROUS_FILES: readonly string[] = [
  * `dangerous-file-stubs.spec.ts`. */
 export const ASRT_DANGEROUS_DIRECTORIES: readonly string[] = ['.vscode', '.idea', '.claude/commands', '.claude/agents'];
 
-/** Per-call hook used to protect user-authored files / directories
- *  from adoption + cleanup. Return `true` to skip a path. The default
- *  (`undefined`) protects nothing - safe at the lib level because the
- *  size + DANGEROUS_*_STUBS membership filter already excludes any
- *  populated file or non-empty directory. The sandbox extension layers
- *  a git-tracked check on top via this hook. */
+/** Additional per-call protection filter. Return `true` to skip a path.
+ *  Ownership is always required independently of this hook: an empty
+ *  file or directory is never evidence that this process created it. */
 export interface DangerousStubOptions {
   isProtected?: (abs: string) => boolean;
 }
@@ -105,94 +105,78 @@ export const DANGEROUS_FILE_STUBS: readonly string[] = Object.freeze([
  *  applies without a code change here. */
 export const DANGEROUS_DIR_STUBS: readonly string[] = Object.freeze([...ASRT_DANGEROUS_DIRECTORIES]);
 
-/**
- * Best-effort touch each dangerous-file basename at `cwd` with
- * `O_CREAT|O_EXCL` mode `0644`, and `mkdir` each dangerous-directory
- * component under `cwd` with mode `0755`. Returns the absolute paths
- * we actually created (callers track these for cleanup). Items that
- * already exist (EEXIST) are skipped and NOT returned, so we never
- * delete a real user file or directory.
- *
- * For nested directory stubs (`.claude/commands`), each missing
- * intermediate component is created and tracked separately so cleanup
- * can rmdir them deepest-first.
- *
- * Errors other than EEXIST are swallowed: a permission error on the
- * cwd would have made the original bwrap-side create fail regardless,
- * so we'd just degrade to the same state we were in before this
- * mitigation existed.
- */
-export function createDangerousFileStubs(cwd: string, opts: DangerousStubOptions = {}): string[] {
-  const isProtected = opts.isProtected ?? (() => false);
-  const created: string[] = [];
-  for (const name of DANGEROUS_FILE_STUBS) {
-    const abs = resolve(cwd, name);
-    try {
-      const fd = openSync(abs, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o644);
-      closeSync(fd);
-      created.push(abs);
-    } catch {
-      // EEXIST: this stub may be a leftover from a previous session
-      // that exited via SIGKILL / OOM / WSL VM kill before the
-      // shutdown handler could fire. Adopt it for cleanup iff it is
-      // still a 0-byte regular file AND the caller's `isProtected`
-      // hook (typically a git-tracked check) does not flag it as
-      // user-authored. Real, populated user files are filtered by
-      // the size guard; freshly-cloned 0-byte files are guarded by
-      // the git-tracked hook on top.
-      if (isProtected(abs)) continue;
-      try {
-        const st = statSync(abs);
-        if (st.isFile() && st.size === 0) created.push(abs);
-      } catch {
-        // stat failed (race / permissions); leave it alone.
-      }
+interface OwnedStub {
+  dev: number;
+  ino: number;
+  birthtimeMs: number;
+  mtimeMs: number;
+  ctimeMs: number;
+  directory: boolean;
+}
+
+// Shared across extension module copies. Refcounts remain the caller's
+// responsibility; this registry records provenance, not active users.
+const getOwnership = createGlobalSlot<{ paths: Map<string, OwnedStub> }>(
+  '@dotfiles/pi/sandbox/dangerous-file-stubs',
+  () => ({ paths: new Map() }),
+);
+
+/** Refuse symlinks in every ancestor, including cwd itself. */
+function hasSafeAncestors(abs: string): boolean {
+  try {
+    let parent = dirname(abs);
+    for (;;) {
+      const st = lstatSync(parent);
+      if (!st.isDirectory() || st.isSymbolicLink()) return false;
+      const next = dirname(parent);
+      if (next === parent) return true;
+      parent = next;
     }
+  } catch {
+    return false;
   }
-  for (const name of DANGEROUS_DIR_STUBS) {
-    const abs = resolve(cwd, name);
-    // Defensive: refuse to walk a name that escapes cwd.
-    if (abs !== cwd && !abs.startsWith(cwd + sep)) continue;
-    const rel = abs.slice(cwd.length + 1);
-    const parts = rel.split(sep).filter((p) => p.length > 0);
-    let cur = cwd;
-    for (const p of parts) {
-      cur = cur + sep + p;
-      try {
-        mkdirSync(cur, { mode: 0o755 });
-        created.push(cur);
-      } catch {
-        // EEXIST or other: adopt the directory for cleanup iff it is
-        // an EMPTY directory AND the caller has not flagged it as
-        // protected. Populated dirs are skipped by the readdir guard;
-        // tracked-empty dirs (rare) are guarded by `isProtected`.
-        if (isProtected(cur)) continue;
-        try {
-          const st = statSync(cur);
-          if (st.isDirectory() && readdirSync(cur).length === 0) created.push(cur);
-        } catch {
-          // stat failed; bail this component but keep walking deeper
-          // in case the leaf itself is reachable. (mkdirSync on the
-          // next component will just throw and we'll handle it the
-          // same way.)
-        }
-      }
+}
+
+function rememberStub(abs: string, st: Stats): void {
+  getOwnership().paths.set(abs, {
+    dev: st.dev,
+    ino: st.ino,
+    birthtimeMs: st.birthtimeMs,
+    mtimeMs: st.mtimeMs,
+    ctimeMs: st.ctimeMs,
+    directory: st.isDirectory(),
+  });
+}
+
+/** lstat identity, not a basename / size heuristic, establishes ownership. */
+function ownedStub(abs: string): OwnedStub | undefined {
+  const paths = getOwnership().paths;
+  const owned = paths.get(abs);
+  if (!owned) return undefined;
+  try {
+    if (hasSafeAncestors(abs)) {
+      const st = lstatSync(abs);
+      const sameIdentity = st.dev === owned.dev && st.ino === owned.ino && st.birthtimeMs === owned.birthtimeMs;
+      // Directory mtimes change as we create/remove nested stubs. File
+      // timestamps also catch user edits that truncate back to zero.
+      const sameShape = owned.directory
+        ? st.isDirectory()
+        : st.isFile() && st.size === 0 && st.mtimeMs === owned.mtimeMs && st.ctimeMs === owned.ctimeMs;
+      if (!st.isSymbolicLink() && sameIdentity && sameShape) return owned;
     }
+  } catch {
+    // Missing, replaced, or inaccessible: relinquish ownership.
   }
-  return created;
+  paths.delete(abs);
+  return undefined;
 }
 
 /**
- * Enumerate every absolute path that the create-side helper might
- * touch under `cwd`: every DANGEROUS_FILE_STUBS basename plus every
- * intermediate component of every DANGEROUS_DIR_STUBS entry. Used by
- * the orphan-sweep helper to drive `cleanupDangerousFileStubs` over
- * the leaked-stub set on session start.
- *
- * Path-escape guard mirrors `createDangerousFileStubs` - directory
- * names that would walk outside `cwd` are silently skipped.
+ * Enumerate every candidate mount point under cwd. A candidate name is
+ * never evidence that this process owns an existing file or directory.
  */
 export function listDangerousStubPaths(cwd: string): string[] {
+  cwd = resolve(cwd);
   const out: string[] = [];
   for (const name of DANGEROUS_FILE_STUBS) {
     out.push(resolve(cwd, name));
@@ -212,9 +196,48 @@ export function listDangerousStubPaths(cwd: string): string[] {
 }
 
 /**
- * Remove each stub in `created`. Files are unlinked only if they are
- * still zero-byte regular files; directories are rmdir'd only if they
- * are still empty. Cleanup walks deepest-first (longest path wins)
+ * Best-effort create missing mount points, returning newly created and
+ * already-owned paths. Unknown EEXIST entries are never adopted, even
+ * when empty. Reused owned directories may contain our nested stubs;
+ * callers must retain all returned paths in their parallel-wrap ledger.
+ * Symlink leaves and ancestors are never traversed intentionally.
+ */
+export function createDangerousFileStubs(cwd: string, opts: DangerousStubOptions = {}): string[] {
+  const isProtected = opts.isProtected ?? (() => false);
+  const created = new Set<string>();
+  for (const abs of new Set(listDangerousStubPaths(cwd))) {
+    if (isProtected(abs) || !hasSafeAncestors(abs)) continue;
+    const directory = !DANGEROUS_FILE_STUBS.some((name) => resolve(cwd, name) === abs);
+    try {
+      if (directory) {
+        mkdirSync(abs, { mode: 0o755 });
+        rememberStub(abs, lstatSync(abs));
+      } else {
+        const fd = openSync(
+          abs,
+          constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW,
+          0o644,
+        );
+        try {
+          rememberStub(abs, fstatSync(fd));
+        } finally {
+          closeSync(fd);
+        }
+      }
+    } catch {
+      // EEXIST is reusable only with matching process-local ownership.
+      // Other errors are best-effort failures; unknown paths stay unknown.
+    }
+    if (ownedStub(abs)) created.add(abs);
+  }
+  return [...created];
+}
+
+/**
+ * Remove only process-owned stubs with unchanged lstat identities and
+ * no symlink ancestors. Files must also remain unmodified and zero-byte;
+ * directories must still be empty. Unknown paths are ignored even if
+ * explicitly passed by the caller. Cleanup walks deepest-first (longest path wins)
  * so nested dir stubs (`.claude/commands` before `.claude`) clear
  * correctly when we own all the levels. Returns the paths actually
  * removed.
@@ -227,35 +250,31 @@ export function cleanupDangerousFileStubs(created: Iterable<string>): string[] {
   const removed: string[] = [];
   const items = [...created].sort((a, b) => b.length - a.length);
   for (const abs of items) {
+    const owned = ownedStub(abs);
+    if (!owned) continue;
     try {
-      const st = statSync(abs);
-      if (st.isFile() && st.size === 0) {
+      if (owned.directory) {
+        // Non-recursive rmdir refuses a directory that gained entries.
+        rmdirSync(abs);
+      } else {
         unlinkSync(abs);
-        removed.push(abs);
-      } else if (st.isDirectory()) {
-        if (readdirSync(abs).length === 0) {
-          rmdirSync(abs);
-          removed.push(abs);
-        }
       }
+      getOwnership().paths.delete(abs);
+      removed.push(abs);
     } catch {
-      // Stub may already be gone, or stat failed; ignore.
+      // Stub may have gained content or become inaccessible; leave it.
     }
   }
   return removed;
 }
 
 /**
- * Sweep `cwd` for leaked dangerous-file stubs from a prior pi session
- * that exited too hard for the `exit` / `session_shutdown` cleanup
- * to fire (SIGKILL, OOM, WSL VM kill, parent shell crash). Adopts any
- * 0-byte stub file or empty stub directory not flagged by
- * `opts.isProtected` and removes it via `cleanupDangerousFileStubs`,
- * which already enforces the deepest-first + zero-byte + empty-dir
- * invariants. Returns the absolute paths actually unlinked / rmdir'd.
- *
- * Safe to run unconditionally on session start: in a clean cwd the
- * stat() calls all fail with ENOENT and the function is a no-op.
+ * Sweep only stubs whose ownership is known to this process, subject
+ * to the additional `isProtected` filter. Name, emptiness, and git
+ * tracking cannot prove ownership. Crash leftovers from prior processes
+ * are deliberately left alone; no ownership metadata is persisted.
+ * Callers must exclude paths still held by their parallel-wrap ledger.
+ * Returns the absolute paths actually unlinked / rmdir'd.
  */
 export function sweepOrphanDangerousStubs(cwd: string, opts: DangerousStubOptions = {}): string[] {
   const isProtected = opts.isProtected ?? (() => false);

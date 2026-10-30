@@ -120,6 +120,9 @@ prior op is rejected as a plan conflict — splice the changes into one `Update 
   directory remembers it as a prefix for the rest of the session. `apply_patch` carries its OWN session allowlist (not
   shared with `filesystem`'s) — approving the same path under one tool does not auto-vouch it for the other. This is a
   deliberate v1 limitation; if it bites in practice we'll hoist the allowlist into a shared bus.
+- **Security policies are not model-editable.** Writes, deletes, and moves affecting user/project `sandbox.json`,
+  `filesystem.json`, or `bash-permissions.json` are blocked before approval dialogs, session/persona grants, or
+  permissive fallbacks. Edit those files manually outside model tools or use trusted policy slash commands.
 - **[`edit-recovery.ts`](./edit-recovery.md) — does NOT engage.** `edit-recovery` hooks `tool_result` on the `edit` tool
   specifically; it sees nothing on `apply_patch`. Hunk-locate failures are formatted by
   [`format-recovery.ts`](../../../lib/node/pi/apply-patch/format-recovery.ts) and returned as a second text part on the

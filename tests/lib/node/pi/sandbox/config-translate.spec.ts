@@ -7,11 +7,11 @@
  * object shape.
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { SandboxRuntimeConfigSchema } from '@anthropic-ai/sandbox-runtime';
 
@@ -30,9 +30,11 @@ const HOME = '/home/tester';
 
 beforeEach(() => {
   cwd = mkdtempSync(join(tmpdir(), 'pi-translate-'));
+  vi.stubEnv('PI_CODING_AGENT_DIR', '');
 });
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   rmSync(cwd, { recursive: true, force: true });
 });
 
@@ -41,6 +43,111 @@ const basePolicy = (): FilesystemPolicy => emptyPolicy();
 /** Flags / credentials added after these fixtures were written. */
 const LATER_FLAGS = { allowNestedUserNamespaces: false, protectSandboxRuntime: true } as const;
 const NO_CREDENTIALS = (): SandboxConfig['credentials'] => ({ denyEnv: [] });
+
+describe('translateToASRT - security policy protection', () => {
+  const compiled = (paths: string[] = []): CompiledPolicyReport => ({
+    read: { paths: [], inertBasenames: [], inertSegments: [], inertPaths: [] },
+    write: { paths, inertBasenames: [], inertSegments: [], inertPaths: [] },
+  });
+
+  test.each(['darwin', 'linux'] as const)('%s: absent policies are denied without denying session state', (mode) => {
+    const { config } = translateToASRT({
+      policy: basePolicy(),
+      sandbox: baseSandbox(),
+      cwd,
+      homeDir: HOME,
+      mode,
+      compiled: compiled(),
+    });
+    for (const dir of [`${HOME}/.pi/agent`, join(cwd, '.pi')]) {
+      for (const name of ['sandbox.json', 'filesystem.json', 'bash-permissions.json']) {
+        expect(config.filesystem.denyWrite).toContain(join(dir, name));
+      }
+      expect(config.filesystem.denyWrite).not.toContain(dir);
+      expect(config.filesystem.denyWrite).not.toContain(join(dir, 'sessions'));
+    }
+    expect(config.filesystem.allowWrite).toContain(`${HOME}/.pi`);
+  });
+
+  test.each(['darwin', 'linux'] as const)('%s: crafted carve-backs cannot remove protected policy paths', (mode) => {
+    const policies = ['sandbox.json', 'filesystem.json', 'bash-permissions.json'];
+    const policy = mergePolicies({
+      write: {
+        allow: { paths: ['/'], basenames: policies, segments: ['.pi'] },
+        deny: { basenames: policies, segments: ['.pi'] },
+      },
+    });
+    const { config } = translateToASRT({
+      policy,
+      sandbox: baseSandbox(),
+      cwd,
+      homeDir: HOME,
+      mode,
+      compiled: compiled(policies.map((name) => join(cwd, '.pi', name))),
+    });
+    for (const name of policies) {
+      expect(config.filesystem.denyWrite).toContain(join(cwd, '.pi', name));
+      expect(config.filesystem.denyWrite).toContain(`${HOME}/.pi/agent/${name}`);
+    }
+    expect(config.filesystem.allowWrite).toContain('/');
+  });
+
+  test.each(['darwin', 'linux'] as const)('%s: agent override and glob characters stay literal', (mode) => {
+    const agentDir = join(cwd, 'agent[*]?');
+    vi.stubEnv('PI_CODING_AGENT_DIR', agentDir);
+    const { config } = translateToASRT({
+      policy: basePolicy(),
+      sandbox: baseSandbox(),
+      cwd,
+      homeDir: HOME,
+      mode,
+      compiled: compiled(),
+    });
+    expect(config.filesystem.denyWrite).toContainEqual({ path: join(agentDir, 'sandbox.json'), literal: true });
+    expect(config.filesystem.denyWrite).not.toContain(`${HOME}/.pi/agent/sandbox.json`);
+    const injected = translateToASRT({
+      policy: basePolicy(),
+      sandbox: baseSandbox(),
+      cwd,
+      homeDir: HOME,
+      agentDir: '/injected-agent',
+      mode,
+      compiled: compiled(),
+    });
+    expect(injected.config.filesystem.denyWrite).toContain('/injected-agent/sandbox.json');
+  });
+
+  test.each(['darwin', 'linux'] as const)(
+    '%s: protects real config and runtime targets through symlink spellings',
+    (mode) => {
+      const target = join(cwd, 'physical');
+      mkdirSync(target);
+      const alias = join(cwd, 'alias');
+      symlinkSync(target, alias);
+      const projectDir = join(cwd, '.pi');
+      mkdirSync(projectDir);
+      const policyTarget = join(target, 'policy[*]');
+      writeFileSync(policyTarget, '{}');
+      symlinkSync(policyTarget, join(projectDir, 'filesystem.json'));
+      const { config } = translateToASRT({
+        policy: basePolicy(),
+        sandbox: baseSandbox(),
+        cwd,
+        homeDir: HOME,
+        agentDir: join(alias, 'missing-agent'),
+        mode,
+        compiled: compiled(),
+        protectPaths: [alias],
+      });
+      expect(config.filesystem.denyWrite).toContain(join(projectDir, 'filesystem.json'));
+      expect(config.filesystem.denyWrite).toContainEqual({ path: realpathSync(policyTarget), literal: true });
+      expect(config.filesystem.denyWrite).toContain(join(alias, 'missing-agent/sandbox.json'));
+      expect(config.filesystem.denyWrite).toContain(join(realpathSync(target), 'missing-agent/sandbox.json'));
+      expect(config.filesystem.denyWrite).toContain(alias);
+      expect(config.filesystem.denyWrite).toContain(realpathSync(target));
+    },
+  );
+});
 
 describe('translateToASRT - macOS mode', () => {
   test('always auto-adds ~/.pi to allowWrite', () => {
@@ -396,6 +503,7 @@ describe('translateToASRT - Linux mode', () => {
         policy: basePolicy(),
         sandbox: baseSandbox(),
         cwd,
+        homeDir: HOME,
         mode: 'linux',
       }),
     ).toThrow(/compileLinuxPolicy/);
@@ -415,7 +523,7 @@ describe('translateToASRT - Linux mode', () => {
       compiled: c,
     });
     expect(config.filesystem.denyRead).toEqual(['/repo/conf/secrets.yml']);
-    expect(config.filesystem.denyWrite).toEqual(['/repo/.env']);
+    expect(config.filesystem.denyWrite).toEqual(expect.arrayContaining(['/repo/.env']));
     // No allowRead emitted - bwrap doesn't get a translation.
     expect(config.filesystem.allowRead).toBeUndefined();
   });
@@ -633,7 +741,7 @@ describe('translateToASRT - ASRT 0.0.81 features', () => {
       compiled: linuxCompiled(['/repo/app/[slug]/.env', '/repo/.env'], ['/repo/a*b/.envrc']),
     });
     expect(config.filesystem.denyRead).toEqual([{ path: '/repo/app/[slug]/.env', literal: true }, '/repo/.env']);
-    expect(config.filesystem.denyWrite).toEqual([{ path: '/repo/a*b/.envrc', literal: true }]);
+    expect(config.filesystem.denyWrite).toEqual(expect.arrayContaining([{ path: '/repo/a*b/.envrc', literal: true }]));
   });
 
   test('macOS: resolved paths are literal when needed, basename globs stay patterns', () => {
@@ -670,18 +778,21 @@ describe('translateToASRT - ASRT 0.0.81 features', () => {
       ],
     });
     expect(
-      translateToASRT({ policy: basePolicy(), sandbox: baseSandbox(), cwd, mode: 'darwin' }).config.credentials,
+      translateToASRT({ policy: basePolicy(), sandbox: baseSandbox(), cwd, homeDir: HOME, mode: 'darwin' }).config
+        .credentials,
     ).toBeUndefined();
   });
 
   test('flags.allowNestedUserNamespaces maps to the top-level ASRT option', () => {
     const sandbox = baseSandbox();
     expect(
-      translateToASRT({ policy: basePolicy(), sandbox, cwd, mode: 'darwin' }).config.allowNestedUserNamespaces,
+      translateToASRT({ policy: basePolicy(), sandbox, cwd, homeDir: HOME, mode: 'darwin' }).config
+        .allowNestedUserNamespaces,
     ).toBeUndefined();
     sandbox.flags.allowNestedUserNamespaces = true;
     expect(
-      translateToASRT({ policy: basePolicy(), sandbox, cwd, mode: 'darwin' }).config.allowNestedUserNamespaces,
+      translateToASRT({ policy: basePolicy(), sandbox, cwd, homeDir: HOME, mode: 'darwin' }).config
+        .allowNestedUserNamespaces,
     ).toBe(true);
   });
 

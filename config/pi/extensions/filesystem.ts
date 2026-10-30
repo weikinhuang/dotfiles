@@ -177,6 +177,14 @@ function makeFilesystemToolCallHandler(
       personaWriteRoots: active?.resolvedWriteRoots,
     });
     if (accessDecision.kind === 'allow') return undefined;
+    if (accessDecision.match.reason === 'security-policy') {
+      return {
+        block: true,
+        reason:
+          `Security policy writes are blocked for model tools: "${inputPath}". ` +
+          'Ask the user to edit it manually or use trusted policy slash commands.',
+      };
+    }
 
     // Session-allow scopes offered in the dialog: the file itself, its
     // parent directory, and (when inside a repo) the git root. Picking

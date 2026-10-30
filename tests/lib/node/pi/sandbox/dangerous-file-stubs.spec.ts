@@ -12,18 +12,33 @@
  *     populated `.idea/`, etc.).
  *   - File stubs use mode 0644 so a second openSync(O_CREAT|O_EXCL)
  *     does not return EACCES the way ASRT's 0444 stubs do.
- *   - cleanupDangerousFileStubs only unlinks zero-byte files and
- *     rmdirs empty dirs, deepest-first.
+ *   - cleanupDangerousFileStubs only removes unchanged process-owned
+ *     files and empty dirs, deepest-first, without following symlinks.
  *   - The file basename list stays a superset of ASRT's hard-coded
  *     DANGEROUS_FILES. The directory list mirrors
  *     getDangerousDirectories() verbatim.
  */
 
-import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import {
+  closeSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  openSync,
+  readdirSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import {
   cleanupDangerousFileStubs,
@@ -42,7 +57,9 @@ import {
 let cwd: string;
 
 beforeEach(() => {
-  cwd = mkdtempSync(join(tmpdir(), 'sandbox-stubs-'));
+  // macOS /tmp and /var are symlinks. Use their canonical spelling so
+  // the normal fixture has no symlink ancestors at all.
+  cwd = mkdtempSync(join(realpathSync(tmpdir()), 'sandbox-stubs-'));
 });
 
 afterEach(() => {
@@ -131,9 +148,8 @@ describe('createDangerousFileStubs - directories', () => {
 
   test('does not record an intermediate that already exists with content', () => {
     // Simulate a project that already uses .claude/. The directory is
-    // populated, so we must not adopt it for cleanup. (An EMPTY
-    // pre-existing .claude/ is treated as an orphan stub - covered by
-    // the adopt-on-EEXIST suite below.)
+    // populated, so we must not adopt it for cleanup. Empty unknown
+    // intermediates must also survive, as covered below.
     mkdirSync(join(cwd, '.claude'));
     writeFileSync(join(cwd, '.claude/.keep'), '', 'utf8');
     const created = createDangerousFileStubs(cwd);
@@ -187,6 +203,54 @@ describe('cleanupDangerousFileStubs', () => {
     expect(existsSync(filled)).toBe(true);
   });
 
+  test('does not delete or re-adopt user replacements, even when empty', () => {
+    const created = createDangerousFileStubs(cwd);
+    const file = join(cwd, '.npmrc');
+    const dir = join(cwd, '.vscode');
+    // Keep originals alive elsewhere so inode reuse cannot mask the test.
+    renameSync(file, join(cwd, 'original-file'));
+    renameSync(dir, join(cwd, 'original-dir'));
+    writeFileSync(file, '');
+    mkdirSync(dir);
+
+    const reused = createDangerousFileStubs(cwd);
+    expect(reused).not.toContain(file);
+    expect(reused).not.toContain(dir);
+    const removed = cleanupDangerousFileStubs(created);
+    expect(removed).not.toContain(file);
+    expect(removed).not.toContain(dir);
+    expect(sweepOrphanDangerousStubs(cwd)).toEqual([]);
+    expect(existsSync(file)).toBe(true);
+    expect(existsSync(dir)).toBe(true);
+  });
+
+  test('checks replacement identity during cleanup without a prior create', () => {
+    const created = createDangerousFileStubs(cwd);
+    const file = join(cwd, '.npmrc');
+    const dir = join(cwd, '.vscode');
+    renameSync(file, join(cwd, 'original-file'));
+    renameSync(dir, join(cwd, 'original-dir'));
+    writeFileSync(file, '');
+    mkdirSync(dir);
+
+    const removed = cleanupDangerousFileStubs(created);
+    expect(removed).not.toContain(file);
+    expect(removed).not.toContain(dir);
+    expect(existsSync(file)).toBe(true);
+    expect(existsSync(dir)).toBe(true);
+  });
+
+  test('keeps an owned file edited and truncated back to zero', () => {
+    const created = createDangerousFileStubs(cwd);
+    const file = join(cwd, '.npmrc');
+    writeFileSync(file, 'user edit');
+    writeFileSync(file, '');
+    // Make the timestamp difference deterministic on coarse filesystems.
+    utimesSync(file, 1, 1);
+    expect(cleanupDangerousFileStubs(created)).not.toContain(file);
+    expect(existsSync(file)).toBe(true);
+  });
+
   test('tolerates entries that no longer exist on disk', () => {
     const created = createDangerousFileStubs(cwd);
     rmSync(join(cwd, '.bashrc'));
@@ -195,20 +259,48 @@ describe('cleanupDangerousFileStubs', () => {
   });
 });
 
-describe('createDangerousFileStubs - adopt-on-EEXIST', () => {
-  test('adopts a leaked 0-byte stub file from a prior session for cleanup', () => {
-    // Simulate a SIGKILL-leaked stub: 0-byte file the previous pi
-    // process never got to clean up.
-    const leaked = join(cwd, '.bashrc');
-    closeSync(openSync(leaked, 'w', 0o644));
-    expect(statSync(leaked).size).toBe(0);
+describe('createDangerousFileStubs - ownership on EEXIST', () => {
+  test('does not adopt an unknown zero-byte .npmrc, including crash leftovers', () => {
+    const unknown = join(cwd, '.npmrc');
+    writeFileSync(unknown, '');
 
     const created = createDangerousFileStubs(cwd);
 
-    // Now in this session's tracked set, so cleanup will GC it.
-    expect(created).toContain(leaked);
-    cleanupDangerousFileStubs(created);
-    expect(existsSync(leaked)).toBe(false);
+    expect(created).not.toContain(unknown);
+    cleanupDangerousFileStubs([...created, unknown]);
+    expect(existsSync(unknown)).toBe(true);
+  });
+
+  test('reuses known owned EEXIST files and non-empty intermediate dirs', () => {
+    const first = createDangerousFileStubs(cwd);
+    const second = createDangerousFileStubs(cwd);
+
+    // Each concurrent wrap must return all owned levels to its caller's
+    // refcount ledger, including .claude while its children exist.
+    expect(new Set(second)).toEqual(new Set(first));
+    expect(second).toContain(join(cwd, '.claude'));
+    expect(second).toContain(join(cwd, '.claude/commands'));
+    expect(second).toContain(join(cwd, '.npmrc'));
+    expect(new Set(cleanupDangerousFileStubs(second))).toEqual(new Set(first));
+  });
+
+  test('shares ownership across independent module copies without disk metadata', async () => {
+    const first = createDangerousFileStubs(cwd);
+    expect(readdirSync(cwd).sort()).toEqual([...DANGEROUS_FILE_STUBS, '.vscode', '.idea', '.claude'].sort());
+    vi.resetModules();
+    const otherCopy = await import('../../../../../lib/node/pi/sandbox/dangerous-file-stubs.ts');
+
+    expect(new Set(otherCopy.createDangerousFileStubs(cwd))).toEqual(new Set(first));
+    expect(new Set(otherCopy.cleanupDangerousFileStubs(first))).toEqual(new Set(first));
+    expect(cleanupDangerousFileStubs(first)).toEqual([]);
+  });
+
+  test('isProtected additionally excludes known owned entries from reuse', () => {
+    const first = createDangerousFileStubs(cwd);
+    const protectedPaths = new Set([join(cwd, '.npmrc'), join(cwd, '.vscode')]);
+    const second = createDangerousFileStubs(cwd, { isProtected: (abs) => protectedPaths.has(abs) });
+    for (const abs of protectedPaths) expect(second).not.toContain(abs);
+    cleanupDangerousFileStubs(first);
   });
 
   test('does NOT adopt a 0-byte file flagged by isProtected', () => {
@@ -233,17 +325,20 @@ describe('createDangerousFileStubs - adopt-on-EEXIST', () => {
     expect(statSync(real).size).toBeGreaterThan(0);
   });
 
-  test('adopts a leaked empty stub directory for rmdir', () => {
-    // Pre-create the dangerous-dir stub like a prior session would
-    // have. createDangerousFileStubs gets EEXIST and should adopt.
-    const leakedDir = join(cwd, '.vscode');
-    mkdirSync(leakedDir, { mode: 0o755 });
+  test('does not adopt an unknown empty .vscode or intermediate directory', () => {
+    const unknown = join(cwd, '.vscode');
+    const intermediate = join(cwd, '.claude');
+    mkdirSync(unknown, { mode: 0o755 });
+    mkdirSync(intermediate);
 
     const created = createDangerousFileStubs(cwd);
 
-    expect(created).toContain(leakedDir);
-    cleanupDangerousFileStubs(created);
-    expect(existsSync(leakedDir)).toBe(false);
+    expect(created).not.toContain(unknown);
+    expect(created).not.toContain(intermediate);
+    expect(created).toContain(join(intermediate, 'commands'));
+    cleanupDangerousFileStubs([...created, unknown, intermediate]);
+    expect(existsSync(unknown)).toBe(true);
+    expect(existsSync(intermediate)).toBe(true);
   });
 
   test('does NOT adopt a populated dangerous directory', () => {
@@ -269,6 +364,108 @@ describe('createDangerousFileStubs - adopt-on-EEXIST', () => {
   });
 });
 
+describe('symlink safety', () => {
+  test('never creates nested stubs through a .claude symlink', () => {
+    const external = join(cwd, 'external');
+    const claude = join(cwd, '.claude');
+    mkdirSync(external);
+    symlinkSync(external, claude, 'dir');
+
+    const created = createDangerousFileStubs(cwd);
+    for (const abs of [claude, join(claude, 'commands'), join(claude, 'agents')]) {
+      expect(created).not.toContain(abs);
+    }
+    cleanupDangerousFileStubs(created);
+    sweepOrphanDangerousStubs(cwd);
+    expect(lstatSync(claude).isSymbolicLink()).toBe(true);
+    expect(readdirSync(external)).toEqual([]);
+  });
+
+  test('cleanup and sweep reject an ancestor replaced with a symlink to the original', () => {
+    const created = createDangerousFileStubs(cwd);
+    const claude = join(cwd, '.claude');
+    const external = join(cwd, 'external');
+    renameSync(claude, external);
+    symlinkSync(external, claude, 'dir');
+    // Leaf identities still match. Only the ancestor check prevents
+    // deleting the original leaf directories through the new symlink.
+    const removed = cleanupDangerousFileStubs(created);
+    expect(removed).not.toContain(join(claude, 'commands'));
+    expect(removed).not.toContain(join(claude, 'agents'));
+    sweepOrphanDangerousStubs(cwd);
+    expect(lstatSync(claude).isSymbolicLink()).toBe(true);
+    expect(readdirSync(external).sort()).toEqual(['agents', 'commands']);
+  });
+
+  test('sweep independently rejects symlink ancestors of known owned leaves', () => {
+    createDangerousFileStubs(cwd);
+    const claude = join(cwd, '.claude');
+    const external = join(cwd, 'external');
+    renameSync(claude, external);
+    symlinkSync(external, claude, 'dir');
+
+    const removed = sweepOrphanDangerousStubs(cwd);
+    expect(removed).not.toContain(join(claude, 'commands'));
+    expect(removed).not.toContain(join(claude, 'agents'));
+    expect(readdirSync(external).sort()).toEqual(['agents', 'commands']);
+  });
+
+  test('leaves pre-existing file and directory symlinks and empty targets untouched', () => {
+    const external = join(cwd, 'external');
+    mkdirSync(external);
+    const fileTarget = join(external, 'file');
+    const dirTarget = join(external, 'dir');
+    writeFileSync(fileTarget, '');
+    mkdirSync(dirTarget);
+    const fileLink = join(cwd, '.npmrc');
+    const dirLink = join(cwd, '.vscode');
+    symlinkSync(fileTarget, fileLink);
+    symlinkSync(dirTarget, dirLink, 'dir');
+
+    const created = createDangerousFileStubs(cwd);
+    expect(created).not.toContain(fileLink);
+    expect(created).not.toContain(dirLink);
+    cleanupDangerousFileStubs([...created, fileLink, dirLink]);
+    sweepOrphanDangerousStubs(cwd);
+    expect(lstatSync(fileLink).isSymbolicLink()).toBe(true);
+    expect(lstatSync(dirLink).isSymbolicLink()).toBe(true);
+    expect(statSync(fileTarget).size).toBe(0);
+    expect(readdirSync(dirTarget)).toEqual([]);
+  });
+
+  test('does not remove owned leaves replaced by symlinks, even to their original inodes', () => {
+    const created = createDangerousFileStubs(cwd);
+    const fileLink = join(cwd, '.npmrc');
+    const dirLink = join(cwd, '.vscode');
+    const fileTarget = join(cwd, 'original-file');
+    const dirTarget = join(cwd, 'original-dir');
+    renameSync(fileLink, fileTarget);
+    renameSync(dirLink, dirTarget);
+    symlinkSync(fileTarget, fileLink);
+    symlinkSync(dirTarget, dirLink, 'dir');
+
+    const removed = cleanupDangerousFileStubs(created);
+    expect(removed).not.toContain(fileLink);
+    expect(removed).not.toContain(dirLink);
+    sweepOrphanDangerousStubs(cwd);
+    expect(lstatSync(fileLink).isSymbolicLink()).toBe(true);
+    expect(lstatSync(dirLink).isSymbolicLink()).toBe(true);
+    expect(existsSync(fileTarget)).toBe(true);
+    expect(existsSync(dirTarget)).toBe(true);
+  });
+
+  test('refuses creation when cwd itself is a symlink', () => {
+    const external = join(cwd, 'external');
+    const link = join(cwd, 'linked-cwd');
+    mkdirSync(external);
+    symlinkSync(external, link, 'dir');
+
+    expect(createDangerousFileStubs(link)).toEqual([]);
+    expect(sweepOrphanDangerousStubs(link)).toEqual([]);
+    expect(readdirSync(external)).toEqual([]);
+  });
+});
+
 describe('listDangerousStubPaths', () => {
   test('includes every dangerous-file basename', () => {
     const paths = listDangerousStubPaths(cwd);
@@ -286,20 +483,22 @@ describe('listDangerousStubPaths', () => {
 });
 
 describe('sweepOrphanDangerousStubs', () => {
-  test('removes leaked 0-byte stubs and empty stub dirs', () => {
-    // Hand-craft the leaked state: stubs that were created by a prior
-    // session whose shutdown handler never fired.
-    const leakedFile = join(cwd, '.bashrc');
-    const leakedDir = join(cwd, '.vscode');
-    closeSync(openSync(leakedFile, 'w', 0o644));
-    mkdirSync(leakedDir);
+  test('preserves unknown zero-byte .npmrc and empty .vscode', () => {
+    // Neither a matching name nor emptiness proves process ownership.
+    const unknownFile = join(cwd, '.npmrc');
+    const unknownDir = join(cwd, '.vscode');
+    writeFileSync(unknownFile, '');
+    mkdirSync(unknownDir);
 
-    const removed = sweepOrphanDangerousStubs(cwd);
+    expect(sweepOrphanDangerousStubs(cwd, { isProtected: () => false })).toEqual([]);
+    expect(existsSync(unknownFile)).toBe(true);
+    expect(existsSync(unknownDir)).toBe(true);
+  });
 
-    expect(removed).toContain(leakedFile);
-    expect(removed).toContain(leakedDir);
-    expect(existsSync(leakedFile)).toBe(false);
-    expect(existsSync(leakedDir)).toBe(false);
+  test('removes only known process-owned stubs', () => {
+    const created = createDangerousFileStubs(cwd);
+    expect(new Set(sweepOrphanDangerousStubs(cwd))).toEqual(new Set(created));
+    for (const abs of created) expect(existsSync(abs)).toBe(false);
   });
 
   test('keeps user-authored files (non-empty) and populated directories', () => {
@@ -317,11 +516,10 @@ describe('sweepOrphanDangerousStubs', () => {
     expect(existsSync(join(realDir, 'workspace.xml'))).toBe(true);
   });
 
-  test('respects isProtected for both 0-byte files and empty dirs', () => {
+  test('respects isProtected for both owned zero-byte files and empty dirs', () => {
+    createDangerousFileStubs(cwd);
     const protectedFile = join(cwd, '.bashrc');
     const protectedDir = join(cwd, '.vscode');
-    closeSync(openSync(protectedFile, 'w', 0o644));
-    mkdirSync(protectedDir);
 
     const removed = sweepOrphanDangerousStubs(cwd, {
       isProtected: (abs) => abs === protectedFile || abs === protectedDir,
@@ -339,14 +537,11 @@ describe('sweepOrphanDangerousStubs', () => {
   });
 
   test('removes nested dir stubs deepest-first', () => {
-    // Both .claude and .claude/commands leaked from the prior session.
-    mkdirSync(join(cwd, '.claude'));
-    mkdirSync(join(cwd, '.claude/commands'));
-    mkdirSync(join(cwd, '.claude/agents'));
+    createDangerousFileStubs(cwd);
 
     const removed = sweepOrphanDangerousStubs(cwd);
 
-    // All three rmdir'd in a single sweep.
+    // All three process-owned directories are removed in a single sweep.
     expect(removed).toContain(join(cwd, '.claude/commands'));
     expect(removed).toContain(join(cwd, '.claude/agents'));
     expect(removed).toContain(join(cwd, '.claude'));

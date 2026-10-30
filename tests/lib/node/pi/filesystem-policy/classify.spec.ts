@@ -2,9 +2,11 @@
  * Tests for lib/node/pi/filesystem-policy/classify.ts.
  */
 
-import { homedir } from 'node:os';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
+import { join } from 'node:path';
 
-import { describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import {
   basenameOf,
@@ -29,6 +31,96 @@ const CWD = '/tmp/some-project';
 const HOME_CWD = `${HOME}/work/some-project`;
 
 const defaults = (): FilesystemPolicy => mergePolicies(DEFAULT_POLICY);
+
+describe('security policy write protection', () => {
+  let root: string;
+  let cwd: string;
+  let agentDir: string;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'pi-classify-security-'));
+    cwd = join(root, 'project');
+    agentDir = join(root, 'agent[*]?');
+    mkdirSync(cwd);
+    vi.stubEnv('PI_CODING_AGENT_DIR', agentDir);
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test('default policy blocks absent user and project policies before outer allow checks', () => {
+    for (const dir of [agentDir, join(cwd, '.pi')]) {
+      for (const name of ['sandbox.json', 'filesystem.json', 'bash-permissions.json']) {
+        expect(classifyWrite(join(dir, name), cwd, defaults())?.reason).toBe('security-policy');
+      }
+    }
+    vi.stubEnv('PI_CODING_AGENT_DIR', '');
+    expect(classifyWrite('~/.pi/agent/sandbox.json', cwd, defaults())?.reason).toBe('security-policy');
+  });
+
+  test('permissive policy and matching carve-back cannot override the hard block', () => {
+    const policy = mergePolicies({
+      write: {
+        allow: { paths: ['/'], basenames: ['*'], segments: ['.pi', 'agent[*]?'] },
+        deny: { basenames: ['sandbox.json'], segments: ['.pi'] },
+      },
+    });
+    for (const path of ['.pi/sandbox.json', '.pi/filesystem.json/child', '.pi', cwd]) {
+      expect(classifyWrite(path, cwd, policy)?.reason).toBe('security-policy');
+    }
+    expect(classifyWrite(join(agentDir, 'bash-permissions.json'), cwd, policy)?.reason).toBe('security-policy');
+    expect(classifyWrite('.pi/sessions/a.jsonl', cwd, policy)).toBeNull();
+  });
+
+  test('session and persona scopes cannot bypass security protection, but reads are unaffected', () => {
+    for (const inputPath of ['.pi/filesystem.json', join(agentDir, 'sandbox.json')]) {
+      const options = {
+        inputPath,
+        cwd,
+        policy: defaults(),
+        sessionAllowPaths: new Set(['/']),
+        personaWriteRoots: ['/'],
+      };
+      expect(classifyFilesystemAccess({ ...options, operation: 'write' })).toMatchObject({
+        kind: 'prompt',
+        match: { reason: 'security-policy' },
+      });
+      expect(classifyFilesystemAccess({ ...options, operation: 'read' }).kind).toBe('allow');
+    }
+  });
+
+  test('symlinked policies, directory aliases and direct targets are protected', () => {
+    mkdirSync(join(cwd, '.pi'));
+    const target = join(root, 'policy-target');
+    writeFileSync(target, '{}');
+    symlinkSync(target, join(cwd, '.pi/filesystem.json'));
+    const alias = join(root, 'policy-alias');
+    symlinkSync(target, alias);
+    const projectAlias = join(root, 'project-alias');
+    symlinkSync(cwd, projectAlias);
+    for (const inputPath of [target, alias, join(projectAlias, '.pi/sandbox.json')]) {
+      expect(
+        classifyFilesystemAccess({
+          operation: 'write',
+          inputPath,
+          cwd,
+          policy: defaults(),
+          sessionAllowPaths: new Set(['/']),
+          personaWriteRoots: ['/'],
+        }),
+      ).toMatchObject({ kind: 'prompt', match: { reason: 'security-policy' } });
+    }
+  });
+
+  test('ordinary project and user session state remains writable when allowed', () => {
+    const policy = mergePolicies(DEFAULT_POLICY, { write: { allow: { paths: [agentDir] } } });
+    expect(classifyWrite('.pi/sessions/a.jsonl', cwd, policy)).toBeNull();
+    expect(classifyWrite('.pi/todo.json', cwd, policy)).toBeNull();
+    expect(classifyWrite(join(agentDir, 'sessions/a.jsonl'), cwd, policy)).toBeNull();
+  });
+});
 
 // ──────────────────────────────────────────────────────────────────────
 // Path helpers

@@ -55,6 +55,8 @@ export interface ActiveSandboxSnapshot {
 
 interface ActiveSandboxSlot {
   active?: ActiveSandboxSnapshot;
+  /** Serialize config selection, initialization, and wrapping together. */
+  operations?: Promise<void>;
   /** In-flight reconfigure promise. `activeReconfigure()` awaits this
    *  if set; `beginActiveReconfigure()` installs a fresh one. */
   inflight?: Promise<void>;
@@ -156,6 +158,23 @@ export function clearActiveSandbox(): void {
   const slot = getSlot();
   slot.active = undefined;
   slot.inflight = undefined;
+}
+
+/** Hold the shared runtime until an entire config/init/wrap operation
+ * finishes. Waiting for a reconfigure alone does not reserve its config:
+ * another session could replace it before the first caller wraps. */
+export function runActiveSandboxOperation<T>(action: () => Promise<T>): Promise<T> {
+  const slot = getSlot();
+  const run = (slot.operations ?? Promise.resolve()).then(action, action);
+  const settled = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  slot.operations = settled;
+  void settled.then(() => {
+    if (slot.operations === settled) slot.operations = undefined;
+  });
+  return run;
 }
 
 /**

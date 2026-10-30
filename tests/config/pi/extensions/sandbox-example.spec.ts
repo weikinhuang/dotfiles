@@ -70,7 +70,14 @@ describe('config/pi/sandbox-example.json', () => {
       },
     });
     expect(asrt.filesystem.denyRead).toEqual([]);
-    expect(asrt.filesystem.denyWrite).toEqual([]);
+    expect(asrt.filesystem.denyWrite).toEqual(
+      expect.arrayContaining([
+        '/repo/.pi/sandbox.json',
+        '/repo/.pi/filesystem.json',
+        '/repo/.pi/bash-permissions.json',
+        '/home/tester/.pi/agent/sandbox.json',
+      ]),
+    );
     // ~/.pi auto-add still happens.
     expect(asrt.filesystem.allowWrite).toContain('/home/tester/.pi');
   });

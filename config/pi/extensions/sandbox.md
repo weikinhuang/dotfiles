@@ -50,6 +50,8 @@ File resolution order, additive within categories:
    `PI_SANDBOX_ALLOW_LOCALHOST`, `PI_SANDBOX_NETWORK_UNRESTRICTED`. Only variables that are set override the files.
 5. Persona overlay: the active persona's resolved `writeRoots` are merged into `filesystem.write.allow.paths` so the
    kernel sandbox sees the same write surface the in-process gate sees.
+6. Sandbox session grants and `/sandbox-network enable|disable` overrides. Network enable forces filtering on even above
+   an unrestricted file/env setting; reset removes the override and restores configured policy.
 
 The extension explicitly does **not** read `~/.srt-settings.json` (the path the standalone `srt` CLI uses). Pi reads its
 own files so a developer running `srt` from a shell prompt keeps a separate policy.
@@ -68,8 +70,12 @@ the unified policy:
   writeRoots) with `rg --files --hidden --no-ignore-vcs --max-depth N` and turns each basename / segment rule into the
   set of literal paths it currently matches. Re-run after a `git checkout` or a fresh dotfile commit via
   `/sandbox-rescan`. Default depth `3`, override via `flags.linuxRuleDepth` (clamped 1..10).
-- `~/.pi` is auto-added to `filesystem.write.allow.paths` so any extension that ever writes through a wrapped shell
-  doesn't EPERM. This is cheap insurance - paths under it are pi-internal session/scratch files anyway.
+- `~/.pi` remains write-allowed for runtime state, but `sandbox.json`, `filesystem.json`, and `bash-permissions.json` in
+  the user agent dir and active project's `.pi/` are mandatory write-denies. These denies are appended after carve-back
+  translation and include lexical and resolved symlink targets, even for absent files. The in-process `write` / `edit` /
+  `apply_patch` gates also reject these writes before session/persona allowances or permissive fallbacks. Change
+  policies manually outside model tools or through the existing trusted slash commands; those host-side saves still
+  work. This protects policy paths, not arbitrary hard-link aliases or extension source code.
 - **ASRT's sandbox `TMPDIR` is pre-created on the host before every wrap.** ASRT unconditionally sets
   `TMPDIR=$CLAUDE_CODE_TMPDIR || $CLAUDE_TMPDIR || /tmp/claude` inside every sandboxed child (whenever a filesystem
   policy is active) and includes that dir in its default write-allow set. But its Linux binder **skips any write-allow
@@ -125,8 +131,9 @@ the unified policy:
   ASRT's own `checkDependencies()` writable-install warning is suppressed while the protection is on; other warnings are
   shown once and listed in `/sandbox`.
 - **Validation.** The ASRT library does not validate its config (only the `srt` CLI does), so the extension runs the
-  translated config through `SandboxRuntimeConfigSchema` and reports issues once plus in `/sandbox`. `updateConfig()` is
-  guarded: a throw keeps the last applied config instead of blocking every bash call.
+  translated config through `SandboxRuntimeConfigSchema` and reports issues once plus in `/sandbox`. An `updateConfig()`
+  failure keeps the last applied snapshot, blocks new wraps until corrected, and rolls back requested session-control
+  changes rather than reporting them as applied.
 - **Change detection.** The active-sandbox hash covers the translated ASRT config, not just the policy files, so a newly
   compiled Linux literal (a `.env` created mid-session) or a cwd change re-applies `updateConfig()`.
 
@@ -139,9 +146,21 @@ Releasing an entry calls `cleanupAfterCommand()` and drops its stub references e
 never wrapped never release, so ASRT's Linux active-sandbox count cannot drop to zero while another sandbox is still
 running (which would delete mount points that sandbox relies on).
 
-Slot consumers (`bg_bash`, subagent bash) run the same per-call `reconfigure` + lazy `initialize()` as the foreground
-bash hook, so a `bg_bash` job started before any foreground bash is still wrapped instead of falling back to
-`PI_SANDBOX_DEFAULT`.
+Foreground bash, `bg_bash`, and subagent bash share a serialized config-selection → lazy initialization → wrapping
+operation. The lock covers the whole operation, not just config loading, so a parallel worktree cannot replace the
+selected policy before a wrap finishes. A `bg_bash` job started before any foreground bash is still wrapped instead of
+falling back to `PI_SANDBOX_DEFAULT`. Shutdown waits for queued setup and runtime reset before replacement.
+
+ASRT's network proxy uses one live policy. If commands from another cwd are still active, selecting a different network
+policy is blocked until those commands finish, regardless of `PI_SANDBOX_DEFAULT`; retry afterward. Calls from different
+cwds with identical network policies can still run concurrently. Trusted same-cwd allow/deny changes remain live and may
+also affect already-running jobs. Switching filtered/unrestricted isolation is refused while **any wrapped command**
+remains active, including in the same cwd. Stop those jobs, retry the toggle, and restart clients afterward.
+
+Linux mount-point stubs are reused and deleted only when a process-local ownership record matches their `lstat`
+identity. Unknown pre-existing empty files/directories and symlinks are left alone. There is no persisted ownership
+metadata, so leftovers after a crash require manual inspection rather than automatic deletion. Symlinked cwd ancestors
+cause conservative no-op stub handling; path checks do not provide an atomic defense against concurrent host renames.
 
 ASRT's `initialize()` installs a `process.once('SIGINT', reset)` listener that never re-raises, which would make the
 first Ctrl-C on `pi -p` tear the sandbox down while pi kept running.
@@ -163,11 +182,51 @@ first Ctrl-C on `pi -p` tear the sandbox down while pi kept running.
 - `/sandbox-rescan` - re-run the Linux rule compilation. macOS prints a no-op message.
 - `/sandbox-recheck` - re-run dependency detection (`bubblewrap`, `socat`, `ripgrep`). Useful after
   `apt install bubblewrap` without restarting pi.
-- `/sandbox-disable` - session-only bypass with a yellow warning notify; the statusline badge is hidden for the duration
-  of the session. Cleared on `session_shutdown`. Does **not** write a config file.
+- `/sandbox-disable` - session-only full bypass with a yellow warning; the statusline badge is hidden. Does not write
+  config. Cleared by `/sandbox-enable`, `/sandbox-reset`, `/reload`, or session end.
+- `/sandbox-enable` - clear only the full bypass and initialize wrapping for new commands. Keeps session grants and any
+  network-only override; reports pending/degraded enforcement honestly if initialization fails.
+- `/sandbox-network [enable|disable|status]` - bare command shows status. `disable` shares the host network and permits
+  **all reachable destinations**, while retaining filesystem and unix-socket restrictions. `enable` forces network
+  isolation/domain filtering on above files/env. Neither changes a full sandbox bypass. Session-only, no config writes.
+- `/sandbox-reset` - clear sandbox-owned session host grants, reactive write grants, network override, and full bypass;
+  reload configured policy. Leaves persistent rules, other extensions' approvals, and running processes untouched. If
+  restoring network isolation would conflict with running wrapped jobs, the entire reset is refused without partial
+  changes.
+- `/sandbox-explain path <path>` or `/sandbox-explain host <host[:port]|URL>` - diagnostic read/write or host decisions,
+  matching rules, and contributing sources. No connections, writes, or approval prompts. Host reports include deny
+  precedence, port scopes, and session grants, but not DNS/SSRF/transport checks. Filesystem reports describe the
+  in-process gate, not a proof of equivalent kernel translation. URL credentials are not echoed.
+- `/sandbox-test` - native filesystem-enforcement smoke with synthetic temporary fixtures: an allowed write must
+  succeed, and explicitly denied reads/writes must fail after the shell reaches each probe. Fixture rules augment the
+  current runtime policy without changing session settings; releases and cleanup are balanced. Setup failures/timeouts
+  are failures, never successful denials, and there is no unwrapped fallback. Network connectivity is **not actively
+  probed**.
 
 Deliberately omitted: `/sandbox-allow-read <path>` to add an `allowRead`-within-deny override. Footgun-shaped; users
 edit `~/.pi/agent/filesystem.json` by hand for that.
+
+### WSL2 and Windows Chrome CDP
+
+For clients that connect directly rather than honoring the proxy, keep filesystem protection and temporarily disable
+only network isolation:
+
+```text
+/sandbox-network status
+/sandbox-network disable
+```
+
+Retry the Chrome CDP client, then stop it before restoring filtering:
+
+```text
+/sandbox-network enable
+```
+
+The toggle refuses isolation changes while wrapped jobs are active. It cannot change an existing process's namespace;
+full-bypass processes are not tracked or retroactively confined. The Chrome endpoint must also be reachable from
+unsandboxed WSL2: Windows/WSL networking mode and Chrome's listening address are separate from this sandbox. CDP uses
+HTTP and WebSockets; `network.allowLocalhost` remains the narrower option for proxy-aware clients, but a hostname allow
+alone does not bridge raw TCP/WebSocket loopback out of Linux's isolated namespace.
 
 ## Network ask-callback
 
@@ -394,8 +453,10 @@ actual syscall denial (still requires the model-turn smoke above) but proves the
   `bubblewrap` / `socat` / `ripgrep`, no `/reload` needed.
 - **Linux literal-path rule compilation** -- recomputed on `reconfigure`; force a fresh walk with `/sandbox-rescan`
   after a `git checkout` or a fresh dotfile commit.
-- **Session-only state** (`/sandbox-disable`, the reactive write-allow set) -- cleared on `session_shutdown`; a
-  `/reload` resets it.
+- **Session-only state** (full bypass, network override, sandbox host grants, reactive write grants) -- cleared on
+  `session_shutdown` or `/sandbox-reset`; `/reload` resets it. `/sandbox-enable` clears only the full bypass.
+  `PI_SANDBOX_DISABLED=1` skips the extension entirely, so commands cannot override it; restart without that env
+  setting.
 - **The extension code itself** -- edits to [`sandbox.ts`](./sandbox.ts) or the helpers under
   [`../../../lib/node/pi/sandbox/`](../../../lib/node/pi/sandbox) need `/reload`. In-flight bash children keep their old
   policy until they exit.
@@ -414,12 +475,14 @@ actual syscall denial (still requires the model-turn smoke above) but proves the
   (the client never sends loopback traffic to the proxy). `network.allowLocalhost` fixes this for proxy-aware clients.
   The `tool_result` hook detects this signature ([`loopback-hint.ts`](../../../lib/node/pi/sandbox/loopback-hint.ts))
   and tells the model to: `docker exec` into the container, start + curl the service within the **same** bash command
-  (shared namespace), or set `network.unrestricted` / `/sandbox-disable`. macOS (`sandbox-exec` + `allowLocalBinding`)
-  does not have this limitation.
+  (shared namespace), or use `/sandbox-network disable` / `network.unrestricted`. macOS (`sandbox-exec` +
+  `allowLocalBinding`) does not have this limitation.
 - DNS-over-UDP exfil is not blocked (`dig @8.8.8.8 ...`). ASRT proxies HTTP/HTTPS/SOCKS5 but not raw UDP - documented as
   future work in
-- A long-running `bg_bash` job started under sandbox-config-A keeps that policy until it exits, even if the user later
-  edits `.pi/sandbox.json`. `updateConfig()` only affects new spawns. Plan section 9.9.
+- A long-running job keeps its filesystem restrictions until it exits. Network filtering is shared/live: trusted
+  same-cwd allow/deny edits can affect existing connections. A conflicting network-policy switch from another cwd is
+  blocked while commands from a different cwd remain active; filtered/unrestricted isolation switches require all
+  wrapped jobs to finish first.
 - macOS `sandbox-exec` silently drops `write.deny.paths` rules pointing at not-yet-existing files; Linux/bwrap enforces
   them via overlay (EROFS on the write). Plan section 9.20. The lossy-translation report in `/sandbox` flags inert rules
   per platform.

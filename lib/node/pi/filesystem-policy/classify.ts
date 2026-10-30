@@ -30,6 +30,7 @@ import { relative, resolve, sep } from 'node:path';
 import { expandTilde as expandTildeWith } from '../path-expand.ts';
 
 import { type FilesystemMatch, type FilesystemPolicy, type FilesystemRules } from './schema.ts';
+import { protectedSecurityPolicyPath } from './security-paths.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Path helpers (shared with sandbox/* and ported from paths.ts so the
@@ -175,6 +176,12 @@ export function classifyRead(inputPath: string, cwd: string, policy: FilesystemP
   return denied;
 }
 
+/** Non-overridable guard shared by direct writes and session/persona gating. */
+function classifySecurityPolicyWrite(absolute: string, cwd: string): FilesystemMatch | null {
+  const protectedPath = protectedSecurityPolicyPath(absolute, cwd);
+  return protectedPath ? { reason: 'security-policy', detail: `Security policy (${protectedPath})` } : null;
+}
+
 /**
  * Classify an `inputPath` for a `write` / `edit` tool call. Returns
  * null when the path is safe.
@@ -197,6 +204,8 @@ export function classifyRead(inputPath: string, cwd: string, policy: FilesystemP
  */
 export function classifyWrite(inputPath: string, cwd: string, policy: FilesystemPolicy): FilesystemMatch | null {
   const absolute = resolve(cwd, expandTilde(inputPath));
+  const securityMatch = classifySecurityPolicyWrite(absolute, cwd);
+  if (securityMatch) return securityMatch;
 
   // Allow-only check: must be inside at least one `write.allow.paths`.
   let insideAllowed = false;
@@ -250,6 +259,10 @@ export interface ClassifyFilesystemAccessOptions {
 export function classifyFilesystemAccess(options: ClassifyFilesystemAccessOptions): FilesystemAccessDecision {
   const { operation, inputPath, cwd, policy, sessionAllowPaths, personaWriteRoots = [] } = options;
   const absolutePath = resolve(cwd, expandTilde(inputPath));
+  if (operation === 'write') {
+    const match = classifySecurityPolicyWrite(absolutePath, cwd);
+    if (match) return { kind: 'prompt', absolutePath, match };
+  }
 
   // Session allowlist is prefix-aware: an entry may be the exact file
   // the user OK'd, or a directory they chose to trust for the session

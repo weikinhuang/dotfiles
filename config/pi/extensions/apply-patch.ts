@@ -140,6 +140,16 @@ async function gatePaths(
       personaWriteRoots: active?.resolvedWriteRoots,
     });
     if (accessDecision.kind === 'allow') continue;
+    if (accessDecision.match.reason === 'security-policy') {
+      return {
+        block: {
+          path: inputPath,
+          reason:
+            `Security policy writes are blocked for model tools: "${inputPath}". ` +
+            'Ask the user to edit it manually or use trusted policy slash commands.',
+        },
+      };
+    }
 
     if (!ctx.hasUI) {
       if (defaultFallback === 'allow') continue;

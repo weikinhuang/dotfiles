@@ -37,13 +37,22 @@ Defaults (`DEFAULT_POLICY` in
 | `write.deny.basenames` | `.env`, `.env.*`                                                                   |
 | `write.deny.segments`  | `.git/hooks`, `.git/config`, `node_modules`                                        |
 
-Tilde paths (`~/`, `~`) are expanded; `~user/` syntax is **not** supported. Symlink-following is intentionally not
-attempted - the classifier uses `path.resolve()` (lexical), so a symlink that escapes a protected path is treated as its
-link path. This is asymmetric with the kernel sandbox (which enforces by realpath via bwrap / sandbox-exec); the
-[`sandbox.ts`](./sandbox.md) deep doc surfaces the divergence in `/sandbox`'s lossy-translation report.
+Tilde paths (`~/`, `~`) are expanded; `~user/` syntax is **not** supported. Apart from the mandatory security-policy
+write protection below, symlink-following is intentionally not attempted - the classifier uses `path.resolve()`
+(lexical), so a symlink that escapes a protected path is treated as its link path. This is asymmetric with the kernel
+sandbox (which enforces by realpath via bwrap / sandbox-exec); the [`sandbox.ts`](./sandbox.md) deep doc surfaces the
+divergence in `/sandbox`'s lossy-translation report.
 
 `grep`, `find`, and `ls` are intentionally **not** gated. Their output is bounded by pi's built-in size limits, and the
 kernel sandbox already covers the read channel for any of them invoked via bash.
+
+## Security policy write protection
+
+Model-issued writes to `sandbox.json`, `filesystem.json`, and `bash-permissions.json` in the user agent dir or active
+project's `.pi/` are always blocked, including resolved symlink targets and replacement of their parent directories.
+This check precedes session approvals, persona write roots, carve-backs, and `PI_FILESYSTEM_DEFAULT=allow`. Reads and
+ordinary sibling runtime-state writes are unaffected. Edit policies manually outside model tools or use the existing
+trusted policy slash commands. The kernel sandbox enforces corresponding write-denies for shell commands.
 
 ## Approval flow
 

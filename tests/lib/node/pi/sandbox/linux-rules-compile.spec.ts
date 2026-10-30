@@ -1,8 +1,8 @@
 /**
  * Tests for lib/node/pi/sandbox/linux-rules-compile.ts.
  *
- * The ripgrep runner is dependency-injected so we replay an arbitrary
- * basename-search oracle without spawning a real rg.
+ * Stub runners cover compiler behavior; isolated real-ripgrep fixtures
+ * verify glob matching and NUL-delimited filename handling.
  */
 
 import { execFileSync } from 'node:child_process';
@@ -40,15 +40,14 @@ const rules = (over: Partial<FilesystemRules> = {}): FilesystemRules => ({
 /** Stub `rg` that records calls and returns a per-glob fixture. */
 function stubRg(table: Record<string, string[]>): { runner: RipgrepRunner; calls: string[][] } {
   const calls: string[][] = [];
-  const runner: RipgrepRunner = (args, runCwd) => {
+  const runner: RipgrepRunner = (args) => {
     calls.push(args);
     const globIdx = args.indexOf('--glob');
     if (globIdx === -1) return '';
     const glob = args[globIdx + 1];
     const matches = table[glob] ?? [];
-    // Tests pass relative paths in `table`; resolve under runCwd to
-    // mimic how rg emits them.
-    return matches.map((m) => join(runCwd, m)).join('\0') + (matches.length ? '\0' : '');
+    // Like a real `rg --files`, emit paths relative to the search root.
+    return matches.join('\0') + (matches.length ? '\0' : '');
   };
   return { runner, calls };
 }
@@ -76,14 +75,36 @@ describe('compileLinuxRules', () => {
     expect(r.inertBasenames).toEqual([]);
   });
 
+  test('NUL-delimited basename hits preserve whitespace and embedded newlines', () => {
+    const filenames = [' secret ', '\tsecret\n', ' \nfolder/secret\n ', ' \t\n'];
+    const { runner } = stubRg({ '*': filenames });
+    const r = compileLinuxRules(rules({ basenames: ['*'] }), { cwd, runRipgrep: runner });
+    expect(r.paths).toEqual(filenames.map((filename) => join(cwd, filename)).sort());
+    expect(r.inertBasenames).toEqual([]);
+    expect(r.errors).toEqual([]);
+  });
+
+  test('segment rule matching an exact file preserves whitespace in its parent path', () => {
+    const filename = ' \t\nworkspace/secret/config';
+    const { runner } = stubRg({ '{**/secret/config,**/secret/config/**}': [filename] });
+    const r = compileLinuxRules(rules({ segments: ['secret/config'] }), { cwd, runRipgrep: runner });
+    expect(r.paths).toEqual([join(cwd, filename)]);
+    expect(r.inertSegments).toEqual([]);
+    expect(r.errors).toEqual([]);
+  });
+
   test('segment rule hits collapse to the segment dir, not per-file', () => {
     const { runner } = stubRg({
       // Per-file rg matches are collapsed to the outermost segment
       // ancestor; bwrap's deny mount is recursive so this is both
       // sufficient and necessary - emitting per-file paths blew the
       // wrap past Linux MAX_ARG_STRLEN in node_modules-heavy repos.
-      '**/node_modules/**': ['node_modules/foo/index.js', 'node_modules/foo/pkg/sub.js', 'sub/node_modules/baz/x.ts'],
-      '**/.terraform/**': [],
+      '{**/node_modules,**/node_modules/**}': [
+        'node_modules/foo/index.js',
+        'node_modules/foo/pkg/sub.js',
+        'sub/node_modules/baz/x.ts',
+      ],
+      '{**/.terraform,**/.terraform/**}': [],
     });
     const r = compileLinuxRules(rules({ segments: ['node_modules', '.terraform'] }), { cwd, runRipgrep: runner });
     expect(r.paths.sort()).toEqual([join(cwd, 'node_modules'), join(cwd, 'sub/node_modules')]);
@@ -92,7 +113,7 @@ describe('compileLinuxRules', () => {
 
   test('multi-segment rule (`.git/hooks`) collapses to the multi-segment dir', () => {
     const { runner } = stubRg({
-      '**/.git/hooks/**': ['.git/hooks/pre-commit.sample', '.git/hooks/post-update.sample'],
+      '{**/.git/hooks,**/.git/hooks/**}': ['.git/hooks/pre-commit.sample', '.git/hooks/post-update.sample'],
     });
     const r = compileLinuxRules(rules({ segments: ['.git/hooks'] }), { cwd, runRipgrep: runner });
     expect(r.paths).toEqual([join(cwd, '.git/hooks')]);
@@ -103,7 +124,7 @@ describe('compileLinuxRules', () => {
     // outer `node_modules` mount - emitting the inner path would just
     // double up bwrap binds.
     const { runner } = stubRg({
-      '**/node_modules/**': ['node_modules/p/node_modules/inner/idx.js'],
+      '{**/node_modules,**/node_modules/**}': ['node_modules/p/node_modules/inner/idx.js'],
     });
     const r = compileLinuxRules(rules({ segments: ['node_modules'] }), { cwd, runRipgrep: runner });
     expect(r.paths).toEqual([join(cwd, 'node_modules')]);
@@ -235,6 +256,43 @@ describe.skipIf(!hasRealRg())('compileLinuxRules — real ripgrep integration', 
     expect(r.inertBasenames).toEqual([]);
   });
 
+  test('basename hits preserve leading and trailing whitespace and embedded newlines with real rg', () => {
+    const filenames = [' secret ', '\tsecret\n', ' \nfolder/secret\n '];
+    mkdirSync(join(cwd, ' \nfolder'));
+    for (const filename of filenames) writeFileSync(join(cwd, filename), 'sensitive');
+    writeFileSync(join(cwd, 'unrelated'), 'public');
+    const r = compileLinuxRules(rules({ basenames: ['*secret*'] }), { cwd });
+    expect(r.paths).toEqual(filenames.map((filename) => join(cwd, filename)).sort());
+    expect(r.inertBasenames).toEqual([]);
+    expect(r.errors).toEqual([]);
+  });
+
+  test('file-valued segments match at the root and below whitespace-prefixed parents with real rg', () => {
+    const parent = ' \t\nworkspace';
+    for (const prefix of ['', parent]) {
+      mkdirSync(join(cwd, prefix, 'secret'), { recursive: true });
+      writeFileSync(join(cwd, prefix, 'secret/config'), 'sensitive');
+      writeFileSync(join(cwd, prefix, 'secret/configuration'), 'public');
+    }
+    mkdirSync(join(cwd, 'not-secret'));
+    writeFileSync(join(cwd, 'not-secret/config'), 'public');
+    // Use a custom segment, not ASRT's separately protected `.git/config`.
+    const r = compileLinuxRules(rules({ segments: ['secret/config'] }), { cwd });
+    expect(r.paths).toEqual([join(cwd, 'secret/config'), join(cwd, parent, 'secret/config')].sort());
+    expect(r.inertSegments).toEqual([]);
+    expect(r.errors).toEqual([]);
+  });
+
+  test('directory-valued segments retain recursive descendant matching with real rg', () => {
+    const segmentDir = join(cwd, ' \t\nworkspace', 'secret/config');
+    mkdirSync(join(segmentDir, 'nested'), { recursive: true });
+    writeFileSync(join(segmentDir, 'nested', 'credentials'), 'sensitive');
+    const r = compileLinuxRules(rules({ segments: ['secret/config'] }), { cwd, depth: 5 });
+    expect(r.paths).toEqual([segmentDir]);
+    expect(r.inertSegments).toEqual([]);
+    expect(r.errors).toEqual([]);
+  });
+
   test('segment hits parse correctly when spawning a real rg', () => {
     mkdirSync(join(cwd, 'node_modules', 'foo'), { recursive: true });
     writeFileSync(join(cwd, 'node_modules', 'foo', 'index.js'), '//');
@@ -266,7 +324,7 @@ describe('compileLinuxPolicy', () => {
     const { runner } = stubRg({
       'secrets.yml': ['conf/secrets.yml'],
       '.env': ['src/.env'],
-      '**/node_modules/**': ['node_modules/foo/index.js'],
+      '{**/node_modules,**/node_modules/**}': ['node_modules/foo/index.js'],
     });
     const report = compileLinuxPolicy(policy, { cwd, runRipgrep: runner });
     expect(report.read.paths).toEqual([join(cwd, 'conf/secrets.yml')]);
@@ -354,8 +412,8 @@ describe('wrap-size stability under repeated compilation', () => {
     ];
     const { runner } = stubRg({
       '.env': ['src/.env'],
-      '**/node_modules/**': nmFiles,
-      '**/.git/hooks/**': hookFiles,
+      '{**/node_modules,**/node_modules/**}': nmFiles,
+      '{**/.git/hooks,**/.git/hooks/**}': hookFiles,
     });
 
     const sizes: number[] = [];

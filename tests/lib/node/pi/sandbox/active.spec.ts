@@ -12,6 +12,7 @@ import {
   getActiveSandbox,
   hashSandboxConfig,
   publishActiveSandbox,
+  runActiveSandboxOperation,
 } from '../../../../../lib/node/pi/sandbox/active.ts';
 import { emptySandboxConfig } from '../../../../../lib/node/pi/sandbox/config-schema.ts';
 import { emptyPolicy } from '../../../../../lib/node/pi/filesystem-policy/schema.ts';
@@ -50,6 +51,34 @@ describe('hashSandboxConfig', () => {
     a.sandbox.network.allow.push('a.com', 'b.com');
     b.sandbox.network.allow.push('b.com', 'a.com');
     expect(hashSandboxConfig(a)).not.toBe(hashSandboxConfig(b));
+  });
+});
+
+describe('runActiveSandboxOperation', () => {
+  test('holds configuration ownership through async wrapping', async () => {
+    const gate = Promise.withResolvers<void>();
+    const order: string[] = [];
+    const first = runActiveSandboxOperation(async () => {
+      order.push('config A');
+      await gate.promise;
+      order.push('wrap A');
+    });
+    const second = runActiveSandboxOperation(() => {
+      order.push('config B', 'wrap B');
+      return Promise.resolve();
+    });
+    await Promise.resolve();
+    expect(order).toEqual(['config A']);
+    gate.resolve();
+    await Promise.all([first, second]);
+    expect(order).toEqual(['config A', 'wrap A', 'config B', 'wrap B']);
+  });
+
+  test('a rejected operation does not poison the queue', async () => {
+    const first = runActiveSandboxOperation(() => Promise.reject(new Error('failed wrap')));
+    const second = runActiveSandboxOperation(() => Promise.resolve('next wrap'));
+    await expect(first).rejects.toThrow('failed wrap');
+    await expect(second).resolves.toBe('next wrap');
   });
 });
 

@@ -29,6 +29,8 @@
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
+import { sandboxFactoryHookOnly } from '../../../../config/pi/extensions/sandbox.ts';
+
 import {
   collectSubagentInjections,
   registerSubagentInjection,
@@ -36,7 +38,6 @@ import {
 } from '../../../../lib/node/pi/subagent/extension-injection.ts';
 import {
   installSandboxWrapper,
-  requestSandboxWrap,
   type SandboxWrapFn,
   uninstallSandboxWrapper,
 } from '../../../../lib/node/pi/sandbox/wrapper-slot.ts';
@@ -62,31 +63,6 @@ type FakeToolCallHandler = (
 
 interface FakeExtensionAPI {
   on(event: 'tool_call', handler: FakeToolCallHandler): void;
-}
-
-/**
- * Mirror of `sandboxFactoryHookOnly` from
- * `config/pi/extensions/sandbox.ts`. We reproduce the structure here
- * to keep the spec runtime-free; the integration claim is
- * "runOneShotAgent injects this factory into the child session, the
- * factory mounts a tool_call handler, the handler calls
- * requestSandboxWrap, the slot returns the parent's installed wrap."
- *
- * The behavioural contract (env-var short-circuits, marker
- * sanitisation, re-entry guard) is covered exhaustively by
- * `sandbox.spec.ts`; here we only verify the wrap-routing.
- */
-function sandboxHookOnlyMirror(pi: FakeExtensionAPI): void {
-  pi.on('tool_call', async (event, ctx) => {
-    if (event.toolName !== 'bash') return undefined;
-    const rawCmd = event.input.command;
-    const command = typeof rawCmd === 'string' ? rawCmd : '';
-    if (!command.trim()) return undefined;
-    const result = await requestSandboxWrap(command, { hasUI: ctx.hasUI, cwd: ctx.cwd });
-    if (!result.wrapped) return undefined;
-    (event.input as { command: string }).command = result.command;
-    return undefined;
-  });
 }
 
 /**
@@ -152,7 +128,7 @@ describe('subagent + sandbox integration', () => {
   });
 
   test('subagent injection registry surfaces the sandbox factory to spawned children', () => {
-    registerSubagentInjection('sandbox-test', sandboxHookOnlyMirror);
+    registerSubagentInjection('sandbox-test', sandboxFactoryHookOnly);
     const factories = collectSubagentInjections();
     // The exact id list across the suite changes as other specs add
     // their own factories; just assert OURS is present.
@@ -166,7 +142,7 @@ describe('subagent + sandbox integration', () => {
       return Promise.resolve({ command: `WRAP[${cmd}]`, wrapped: true });
     };
     installSandboxWrapper(wrapFn);
-    registerSubagentInjection('sandbox-test', sandboxHookOnlyMirror);
+    registerSubagentInjection('sandbox-test', sandboxFactoryHookOnly);
 
     const child = buildFakeChildWithInjections();
     expect(child.factoryCount).toBeGreaterThanOrEqual(1);
@@ -180,7 +156,7 @@ describe('subagent + sandbox integration', () => {
 
   test('child bash call falls through unchanged when no parent wrap is installed', async () => {
     // No installSandboxWrapper - the slot is empty.
-    registerSubagentInjection('sandbox-test', sandboxHookOnlyMirror);
+    registerSubagentInjection('sandbox-test', sandboxFactoryHookOnly);
 
     const child = buildFakeChildWithInjections();
     const event: FakeBashEvent = { toolName: 'bash', input: { command: 'git log -1' } };
@@ -197,7 +173,7 @@ describe('subagent + sandbox integration', () => {
       wrapCalls++;
       return Promise.resolve({ command: cmd, wrapped: true });
     });
-    registerSubagentInjection('sandbox-test', sandboxHookOnlyMirror);
+    registerSubagentInjection('sandbox-test', sandboxFactoryHookOnly);
 
     const child = buildFakeChildWithInjections();
     const event = { toolName: 'read', input: { command: 'whatever' } } as unknown as FakeBashEvent;

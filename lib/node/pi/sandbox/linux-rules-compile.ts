@@ -10,8 +10,8 @@
  *      `.gitignore`-aware pruning when asked, and is already a
  *      hard dep of the sandbox extension (`platform.ts` checks for it).
  *   2. For `segments`, walk a separate `rg --files` invocation with the
- *      segment as a literal directory glob (`<seg>/*`). Both result
- *      sets are deduped + sorted before being returned.
+ *      segment glob matching the exact file or directory descendants.
+ *      Both result sets are deduped + sorted before being returned.
  *   3. Search roots are `cwd` plus any `personaWriteRoots` (per
  *      plan section 9.20). Default depth is 3, configurable via
  *      `flags.linuxRuleDepth`.
@@ -157,15 +157,23 @@ function rgArgsForBasename(glob: string, depth: number): string[] {
 function rgArgsForSegment(segment: string, depth: number): string[] {
   // Bwrap's deny model walks paths recursively from the deny root, so
   // we just need ONE file inside the segment dir to lock in the rule -
-  // any descendants are covered by the bwrap mount.
-  return ['--files', ...RG_BASE_FLAGS, '--max-depth', String(depth), '-0', '--glob', `**/${segment}/**`];
+  // any descendants are covered by the bwrap mount. Also match the
+  // segment itself when it names a file (rg ignores empty alternatives).
+  return [
+    '--files',
+    ...RG_BASE_FLAGS,
+    '--max-depth',
+    String(depth),
+    '-0',
+    '--glob',
+    `{**/${segment},**/${segment}/**}`,
+  ];
 }
 
 function parseRgOutput(out: string, cwd: string): string[] {
   if (!out) return [];
   return out
     .split('\0')
-    .map((line) => line.trim())
     .filter((line) => line.length > 0)
     .map((line) => resolve(cwd, line));
 }
