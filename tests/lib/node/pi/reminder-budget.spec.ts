@@ -48,7 +48,7 @@ test('a frozen late floor never reintroduces earlier history and only advances o
     charsPerToken: 4,
   });
   expect(first.fits).toBe(true);
-  expect(first.floorAnchor).toBe(reminderMessageAnchor(users[2]));
+  expect(first.floorAnchor).toBe(reminderMessageAnchor(users[1]));
   const next = limitReminderContext({
     messages: [...users, { role: 'toolResult', content: 'result' }],
     preview: (messages) => messages,
@@ -57,7 +57,7 @@ test('a frozen late floor never reintroduces earlier history and only advances o
     windowTokens: 4096,
     charsPerToken: 4,
   });
-  expect(next.messages).toEqual([users[2], { role: 'toolResult', content: 'result' }]);
+  expect(next.messages).toEqual([users[1], users[2], { role: 'toolResult', content: 'result' }]);
   expect(next.floorAnchor).toBe(first.floorAnchor);
 });
 
@@ -91,6 +91,25 @@ test('an indivisible oversized trigger cannot be silently dropped or sent over b
   });
   expect(result.fits).toBe(false);
   expect(result.messages).toEqual([current]);
+});
+
+test('when the reserve target is impossible, keeps the earliest suffix that fits the hard limit', () => {
+  const users = [input(1), input(2), input(3)];
+  const messages: ReminderMessage[] = [
+    { role: 'system', content: 'x'.repeat(6000) },
+    { ...users[0], content: 'x'.repeat(7000) },
+    ...users.slice(1),
+  ];
+  const result = limitReminderContext({
+    messages,
+    preview: (candidate) => candidate,
+    origin: reminderMessageAnchor(users[2]),
+    windowTokens: 4096,
+    charsPerToken: 4,
+  });
+  expect(result.fits).toBe(true);
+  expect(result.messages).toEqual([messages[0], users[1], users[2]]);
+  expect(result.floorAnchor).toBe(reminderMessageAnchor(users[1]));
 });
 
 test('request accounting includes system tool declarations and SDK summary messages', () => {

@@ -370,7 +370,11 @@ so an assistant tool call is never separated from its result.
 Recaps are generated only when a summarize model (see [Configuration](#configuration)) and the summarizer agent resolve.
 Recap mode cancels pi's threshold compaction only while a summarizer resolves; without one it covers nothing, so pi's
 threshold compaction runs normally and summarizes the history instead. In every mode with the window on, a hard safety
-floor drops the oldest whole turns if the reduced prompt would still overflow the session model's context window.
+floor drops the oldest whole turns if the reduced prompt would still overflow the session model's context window. Sizing
+uses the condensed request, not the raw transcript. The final reminder-budget pass includes the recap and timeline in
+every candidate and attaches them to the first retained user message, so another safety cut cannot remove the scene
+memory. If no candidate meets the preferred output reserve, the earliest suffix that meets the hard limit is kept
+instead of unnecessarily falling back to only the current turn.
 
 **The recap** is a thin narrative layer (recent events, mood, open threads) written by the
 [`roleplay-summarizer`](../agents/roleplay-summarizer.md) agent. It rolls every `recapStride` aged messages (default:

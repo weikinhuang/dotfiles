@@ -136,6 +136,8 @@ import {
   deriveMaxSpanChars,
   effectiveFoldRefreshTurns,
   estimateChars,
+  injectRecap,
+  injectTimeline,
   shouldForceRecap,
   updateCharsPerToken,
   type WindowOptions,
@@ -2090,6 +2092,8 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
             charsPerToken: win.charsPerToken,
             frozenFloorCutoff: win.frozenFloorCutoff,
             recapCutoff: win.recapCutoff,
+            committedCutoff: win.committedCutoff,
+            opts,
           });
           // NB never keyed on `rollFired`: a session draining a recap backlog
           // rolls every turn, which would wiggle the floor and defeat the freeze.
@@ -2107,6 +2111,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
           floorCutoff,
           committedCutoff: win.committedCutoff,
           recapText: win.recapText,
+          deferMemory: remindersEnabled,
           timelineBlock:
             recapMode && win.timelineText.trim()
               ? renderTimelineBlock(win.timelineText, {
@@ -2243,15 +2248,29 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       const ctx = request.context as ExtensionContext;
       const windowTokens = ctx.model?.contextWindow;
       if (typeof windowTokens !== 'number' || !Number.isFinite(windowTokens) || windowTokens <= 0) return;
+      // Memory must follow the accepted floor, not the first user in the raw
+      // window: the final snapshot budget can discard that earlier anchor.
+      const timelineBlock =
+        recapMode && win.timelineText.trim()
+          ? renderTimelineBlock(win.timelineText, {
+              maxChars: loadRoleplayConfig(cwd, envCharBudget).timelineMaxInjectChars,
+            })
+          : null;
+      const withMemory = (messages: readonly ReminderMessage[]): ReminderMessage[] => {
+        let out = messages as readonly Record<string, unknown>[];
+        if (recapMode && win.recapText.trim()) out = injectRecap(out, win.recapText);
+        if (timelineBlock) out = injectTimeline(out, timelineBlock);
+        return out as ReminderMessage[];
+      };
       const result = limitReminderContext({
         messages: request.messages,
-        preview: request.preview,
+        preview: (candidate) => request.preview(withMemory(candidate)),
         origin: request.origin,
         floorAnchor: win.projectedFloorAnchor,
         windowTokens,
         charsPerToken: win.charsPerToken,
       });
-      request.result = result;
+      request.result = { ...result, messages: withMemory(result.messages) };
       if (result.fits) win.projectedFloorAnchor = result.floorAnchor;
     }),
     pi.events.on(REMINDER_PROJECTED, (data) => {

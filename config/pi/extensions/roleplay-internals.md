@@ -238,13 +238,21 @@ the child loads with `noExtensions`. The persona's sampler does not leak into th
 
 ### Hard safety floor
 
-`planWindowFloor` guarantees the reduced prompt fits the session model's window even when recap coverage cannot advance
-(empty recap after a cold resume, dead recap endpoint). It fits the conversation into
-`window - (system + injected recap/timeline) - 3072` tokens by dropping the oldest whole user turns. The floor is frozen
-between rolls and only re-cut when holding it would leave less than 1024 tokens of output margin, so it does not creep
-forward every turn. It is deliberately not re-cut on a roll: a session draining a recap backlog rolls often, and
-re-cutting there would wiggle the drop boundary. The applied drop is `max(recapCutoff, floorCutoff)`. With recap mode
-off and the floor engaged, the oldest turns are hard-dropped; otherwise the condense-only path runs.
+`planWindowFloor` sizes the reduced prompt against the session model's window even when recap coverage cannot advance
+(empty recap after a cold resume, dead recap endpoint). It measures the same condensed messages that the request will
+send, including at the initial zero floor. If the held suffix leaves less than 1024 tokens of output margin, it fits the
+conversation into `window - (system + injected recap/timeline) - 3072` tokens by dropping the oldest whole user turns.
+The floor is otherwise frozen, so it does not creep forward every turn or cut history merely to reach the preferred
+reserve. It is deliberately not re-cut on a roll: a session draining a recap backlog rolls often, and re-cutting there
+would wiggle the drop boundary. The applied drop is `max(recapCutoff, floorCutoff)`. With recap mode off and the floor
+engaged, the oldest turns are hard-dropped; otherwise the condense-only path runs.
+
+With the reminder coordinator enabled, recap and timeline delivery is deferred to the final budget pass. Every preview
+includes both memory blocks before the coordinator adds historical snapshots and pending reminders. The accepted suffix
+receives the same blocks on its first retained user message; the early anchor is not carried through a later cut. When
+no candidate meets the preferred 3072-token reserve, the limiter keeps the earliest suffix that satisfies the hard
+1024-token margin. An oversized mandatory head still fails closed. Without the coordinator, the context hook injects
+scene memory directly as before.
 
 ### Reload-safe safety state
 

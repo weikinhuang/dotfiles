@@ -70,6 +70,8 @@ beforeEach(() => {
     'PI_ROLEPLAY_ROOT',
   ])
     vi.stubEnv(flag, '');
+  // This harness exercises only the context hook, without the final coordinator.
+  vi.stubEnv('PI_CACHE_REMINDERS_DISABLED', '1');
   for (const aspect of ['LOREBOOK', 'DEPTH_INJECT', 'EVENTS', 'AVATAR', 'SCENEGEN', 'REPETITION']) {
     vi.stubEnv(`PI_ROLEPLAY_DISABLE_${aspect}`, '1');
   }

@@ -19,6 +19,7 @@ import {
   applyLayeredWindow,
   computeCutoff,
   DEFAULT_CHARS_PER_TOKEN,
+  DEFAULT_WINDOW_OPTIONS,
   deriveKeepTurns,
   estimateChars,
   freezeFloorCutoff,
@@ -49,6 +50,9 @@ export interface PlanWindowFloorInput {
   frozenFloorCutoff: number;
   /** Current recap drop boundary (a recap that already drops more shrinks the held suffix). */
   recapCutoff: number;
+  /** Size the same condensed boundary that the request will actually send. */
+  committedCutoff?: number;
+  opts?: WindowOptions;
 }
 
 export interface WindowFloorPlan {
@@ -77,13 +81,18 @@ export function planWindowFloor(input: PlanWindowFloorInput): WindowFloorPlan {
   const cpt = input.charsPerToken > 0 ? input.charsPerToken : DEFAULT_CHARS_PER_TOKEN;
   const overheadTokens = Math.round((sysChars + injectChars) / cpt);
   const convBudget = windowTokens - overheadTokens - FLOOR_RESERVE_TOKENS;
-  const fitTurns = convBudget > 0 ? deriveKeepTurns(messages, convBudget, cpt, 1, 100000) : 1;
+  const sizedMessages = applyContextWindowAt(
+    messages,
+    input.committedCutoff ?? 0,
+    input.opts ?? DEFAULT_WINDOW_OPTIONS,
+  ).messages;
+  const fitTurns = convBudget > 0 ? deriveKeepTurns(sizedMessages, convBudget, cpt, 1, 100000) : 1;
   const rawFloor = computeCutoff(messages, fitTurns);
   const overflowLimit = windowTokens - overheadTokens - FLOOR_MIN_OUTPUT_TOKENS;
   // Estimate from where the drop actually holds: the larger of the frozen
   // floor and the recap drop boundary.
   const heldStart = Math.max(frozenFloorCutoff, recapCutoff);
-  const heldConvTokens = heldStart > 0 ? estimateChars(messages.slice(heldStart)) / cpt : Infinity;
+  const heldConvTokens = estimateChars(sizedMessages.slice(heldStart)) / cpt;
   const overflow = overflowLimit > 0 && heldConvTokens > overflowLimit;
   const next = freezeFloorCutoff({ frozen: frozenFloorCutoff, rawFloor, overflow });
   return { frozenFloorCutoff: next, floorCutoff: next };
@@ -103,6 +112,8 @@ export interface ApplyWindowPassInput {
   recapText: string;
   /** Rendered timeline block (recap mode only; null / blank is a no-op). */
   timelineBlock: string | null;
+  /** The final reminder limiter will inject memory after choosing its retained anchor. */
+  deferMemory?: boolean;
   opts: WindowOptions;
 }
 
@@ -123,11 +134,11 @@ export function applyWindowPass(input: ApplyWindowPassInput): { messages: readon
       changed = true;
     }
     // A blank recap must not splice an empty block (nor flip `changed`).
-    if (recapText.trim()) {
+    if (!input.deferMemory && recapText.trim()) {
       messages = injectRecap(messages, recapText);
       changed = true;
     }
-    if (timelineBlock) {
+    if (!input.deferMemory && timelineBlock) {
       messages = injectTimeline(messages, timelineBlock);
       changed = true;
     }

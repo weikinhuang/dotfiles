@@ -52,9 +52,9 @@ describe('planWindowFloor', () => {
     }
   });
 
-  it('cuts to the fit floor on the first pass (nothing frozen yet => held estimate is unbounded)', () => {
-    const plan = planWindowFloor({ ...base, windowTokens: FLOOR_RESERVE_TOKENS + 2000 });
-    // ~2000 tokens * 4 chars fits 19 ~404-char messages => 9 user turns kept.
+  it('cuts to the fit floor on the first pass only when the held transcript overflows', () => {
+    const plan = planWindowFloor({ ...base, windowTokens: FLOOR_RESERVE_TOKENS + 1900 });
+    // ~1900 tokens * 4 chars fits 18 ~404-char messages => 9 user turns kept.
     expect(plan.floorCutoff).toBe(computeCutoff(messages, 9));
     expect(plan.floorCutoff).toBe(22);
     expect(plan.frozenFloorCutoff).toBe(plan.floorCutoff);
@@ -63,6 +63,33 @@ describe('planWindowFloor', () => {
 
   it('keeps a transcript that fits entirely at floor 0', () => {
     expect(planWindowFloor({ ...base, windowTokens: 100_000 })).toEqual({ frozenFloorCutoff: 0, floorCutoff: 0 });
+  });
+
+  it('does not discard scene turns merely to fill the larger output reserve on a cold pass', () => {
+    const windowTokens = FLOOR_RESERVE_TOKENS + 2000;
+    expect(estimateChars(messages) / 4).toBeGreaterThan(windowTokens - FLOOR_RESERVE_TOKENS);
+    expect(estimateChars(messages) / 4).toBeLessThan(windowTokens - FLOOR_MIN_OUTPUT_TOKENS);
+    expect(planWindowFloor({ ...base, windowTokens }).floorCutoff).toBe(0);
+  });
+
+  it('sizes the condensed boundary before deciding to discard uncovered history', () => {
+    const long = transcript(20, 1000);
+    const opts = { ...DEFAULT_WINDOW_OPTIONS, assistantChars: 40, userChars: 40 };
+    const committedCutoff = computeCutoff(long, 2);
+    const condensed = applyWindowPass({
+      messages: long,
+      recapMode: false,
+      committedCutoff,
+      dropCutoff: 0,
+      floorCutoff: 0,
+      recapText: '',
+      timelineBlock: null,
+      opts,
+    });
+    const windowTokens = 4096;
+    expect(estimateChars(long) / 4).toBeGreaterThan(windowTokens);
+    expect(estimateChars(condensed.messages) / 4).toBeLessThan(windowTokens - FLOOR_MIN_OUTPUT_TOKENS);
+    expect(planWindowFloor({ ...base, messages: long, windowTokens, committedCutoff, opts }).floorCutoff).toBe(0);
   });
 
   it('holds the frozen floor while the held suffix stays under the looser overflow limit', () => {
@@ -167,6 +194,22 @@ describe('applyWindowPass', () => {
     const out = applyWindowPass({ ...base, recapMode: true, recapText: '   \n' });
     expect(out).toEqual({ messages, changed: false });
     expect(out.messages).toBe(messages);
+  });
+
+  it('defers memory to the final limiter while retaining the normal window reduction', () => {
+    const out = applyWindowPass({
+      ...base,
+      recapMode: true,
+      dropCutoff: 4,
+      committedCutoff: 8,
+      recapText: 'RECAP',
+      timelineBlock: 'BEATS',
+      deferMemory: true,
+    });
+    expect(out.messages).toHaveLength(messages.length - 4);
+    expect(firstText(out.messages[0])).toContain('chars trimmed');
+    expect(JSON.stringify(out.messages)).not.toContain('RECAP');
+    expect(JSON.stringify(out.messages)).not.toContain('BEATS');
   });
 
   it('recap mode ignores floorCutoff except through dropCutoff', () => {

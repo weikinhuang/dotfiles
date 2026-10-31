@@ -48,6 +48,7 @@ type Message = ContextEvent['messages'][number];
 type ExtensionCommandDefinition = Parameters<ExtensionAPI['registerCommand']>[1];
 type Handler = (event: unknown, ctx: ExtensionContext) => unknown;
 type MessageResult = { messages?: Message[]; systemPrompt?: string } | undefined;
+type StoredEntry = { type: 'custom'; customType: string; data: unknown } | { type: 'compaction' };
 const dirs: string[] = [];
 const shutdowns: (() => Promise<void>)[] = [];
 
@@ -143,6 +144,7 @@ interface Harness {
   queueEvent: () => Promise<void>;
   snapshotEntryCount: () => number;
   windowCheckpoints: () => WindowCheckpoint[];
+  branchEntries: () => StoredEntry[];
   /** Text of the last `ctx.ui.notify` call. */
   lastNotice: () => string;
   /** Toggle the sanitizer-required failure for later requests. */
@@ -158,6 +160,7 @@ async function harness(
     noteText?: string;
     windowTokens?: number;
     windowCheckpoint?: WindowCheckpoint;
+    branchEntries?: StoredEntry[];
     redactor?: 'before' | 'after';
     disableCache?: boolean;
     failSanitizer?: boolean;
@@ -174,7 +177,11 @@ async function harness(
   const agentDir = join(dir, 'agent');
   mkdirSync(agentDir);
   vi.stubEnv('PI_CODING_AGENT_DIR', agentDir);
+  const seededMemory = options.branchEntries?.some(
+    (entry) => entry.type === 'custom' && entry.customType === 'roleplay-context-recap',
+  );
   if (options.windowTokens) vi.stubEnv('PI_ROLEPLAY_DISABLE_CONTEXT_WINDOW', '');
+  if (seededMemory) vi.stubEnv('PI_ROLEPLAY_DISABLE_SUMMARIZE', '');
   if (options.disableCache) vi.stubEnv('PI_CACHE_REMINDERS_DISABLED', '1');
   if (options.memory) {
     vi.stubEnv('PI_MEMORY_ROOT', join(dir, 'memory'));
@@ -192,6 +199,8 @@ async function harness(
     JSON.stringify({
       imageMode: 'off',
       depthLoreInlineTail: options.inline ?? true,
+      // Seeded scene memory needs no child generation: all fixture turns remain verbatim.
+      ...(seededMemory ? { keepTurns: 32 } : {}),
       events: options.events ?? ['QUEUED_EVENT_MARKER'],
       ...(options.eventMaxChars ? { eventMaxChars: options.eventMaxChars } : {}),
       ...(options.sceneFoldDelivery ? { sceneFoldDelivery: options.sceneFoldDelivery } : {}),
@@ -248,7 +257,7 @@ async function harness(
 
   const hooks = new Map<string, Handler[]>();
   const commands = new Map<string, ExtensionCommandDefinition>();
-  const stored: ({ type: 'custom'; customType: string; data: unknown } | { type: 'compaction' })[] = [];
+  const stored: StoredEntry[] = structuredClone(options.branchEntries ?? []);
   if (options.windowCheckpoint)
     stored.push({ type: 'custom', customType: WINDOW_CHECKPOINT_TYPE, data: options.windowCheckpoint });
   const bus = new EventEmitter();
@@ -405,6 +414,7 @@ async function harness(
       stored.flatMap((entry) =>
         entry.type === 'custom' && entry.customType === WINDOW_CHECKPOINT_TYPE ? [entry.data as WindowCheckpoint] : [],
       ),
+    branchEntries: () => structuredClone(stored),
     lastNotice: () => String(notify.mock.calls.at(-1)?.[0] ?? ''),
     setFailSanitizer: (on) => {
       failSanitizer = on;
@@ -818,6 +828,105 @@ test('identical event text queued during context preparation is delivered on the
   await h.start(thirdInput);
   await h.request([firstInput, secondInput, thirdInput]);
   expect(h.records()).toHaveLength(2);
+});
+
+const SCENE_RECAP =
+  'BRANCH_RECAP_MARKER: Mira promised to return the compass before dawn. ' + 'Prior scene detail. '.repeat(70);
+const SCENE_TIMELINE = '- Day 1: BRANCH_TIMELINE_MARKER: Mira hid the compass beneath the ruined pier.';
+const SCENE_MEMORY_ENTRIES: StoredEntry[] = [
+  { type: 'custom', customType: 'roleplay-context-recap', data: { applied: true, coveredTo: 0, recap: SCENE_RECAP } },
+  { type: 'custom', customType: 'roleplay-timeline', data: { version: 2, beats: SCENE_TIMELINE } },
+];
+
+function expectSceneMemory(messages: Message[], budgetTokens: number): void {
+  const body = messages.map(text).join('\n');
+  expect(body.match(/BRANCH_RECAP_MARKER/g) ?? []).toHaveLength(1);
+  expect(body.match(/BRANCH_TIMELINE_MARKER/g) ?? []).toHaveLength(1);
+  expect(body).toContain(SCENE_RECAP.trim());
+  expect(body).toContain(SCENE_TIMELINE);
+  expect(reminderRequestChars(messages as unknown as ReminderMessage[]) / 4).toBeLessThanOrEqual(budgetTokens);
+}
+
+test('late snapshot limiting retains recap and timeline after dropping their original user anchor', async () => {
+  const h = await harness({
+    note: true,
+    inline: false,
+    authorDepth: 0,
+    noteText: 'Keep the scene grounded in sensory detail. '.repeat(150),
+    windowTokens: 8192,
+    branchEntries: SCENE_MEMORY_ENTRIES,
+  });
+  const history: Message[] = [];
+  let lateCut = false;
+  for (let i = 0; i < 8; i++) {
+    const input = user(`SCENE_TURN_${i}: ` + 'Mira searches the quiet pier for her compass. '.repeat(4), i + 1);
+    history.push(input);
+    await h.start(input);
+    const output = await h.request(history);
+    await h.command('roleplay', 'context');
+    // Raw narrative + memory easily fits. Only replayed notes can force the late cut.
+    expect(h.lastNotice()).toContain('natural=0  drop=0  recap=0  floor=0(frozen)');
+    expect(h.windowCheckpoints().at(-1)?.floorAnchor).toBeUndefined();
+    expect(h.aborts()).toBe(0);
+    expect(output.some((message) => message.role === 'user' && text(message).includes(`SCENE_TURN_${i}:`))).toBe(true);
+    const droppedAnchor = !output.some((message) => message.role === 'user' && text(message).includes('SCENE_TURN_0:'));
+    lateCut ||= droppedAnchor;
+    expect(Boolean(h.windowCheckpoints().at(-1)?.projectedFloorAnchor)).toBe(droppedAnchor);
+    // A mandatory head can make the preferred reserve impossible; hard-fit fallback is valid.
+    expectSceneMemory(output, 8192 - 1024);
+  }
+  expect(lateCut).toBe(true);
+  expect(h.records()).toHaveLength(8);
+  expect(h.aborts()).toBe(0);
+});
+
+test.each(['reload', 'tool-call', 'tool-result'] as const)(
+  'a held projected floor preserves restored scene memory during %s',
+  async (tail) => {
+    const options = {
+      note: true,
+      inline: false,
+      authorDepth: 0,
+      noteText: 'Keep the scene grounded in sensory detail. '.repeat(150),
+      windowTokens: 8192,
+    };
+    // Freeze a real late floor and historical snapshots, then reload that same memory-bearing branch.
+    const warm = await harness({ ...options, branchEntries: SCENE_MEMORY_ENTRIES });
+    const history: Message[] = [];
+    for (let i = 0; i < 8; i++) {
+      const input = user(`SCENE_TURN_${i}: ` + 'Mira searches the quiet pier for her compass. '.repeat(4), i + 1);
+      history.push(input);
+      await warm.start(input);
+      await warm.request(history);
+    }
+    const checkpoint = warm.windowCheckpoints().at(-1)!;
+    expect(checkpoint.floorAnchor).toBeUndefined();
+    expect(checkpoint.projectedFloorAnchor).toBeDefined();
+    const reloaded = await harness({ ...options, branchEntries: warm.branchEntries() });
+    if (tail === 'reload') await reloaded.start(history.at(-1)!);
+    const exchange = toolExchange('Mira finds only salt and driftwood.', 20);
+    const continued = await reloaded.request([
+      ...history,
+      ...(tail === 'tool-call' ? [exchange[0]] : tail === 'tool-result' ? exchange : []),
+    ]);
+    expect(reloaded.aborts()).toBe(0);
+    expect(continued.some((message) => message.role === 'user' && text(message).includes('SCENE_TURN_0:'))).toBe(false);
+    expect(continued.some((message) => message.role === 'user' && text(message).includes('SCENE_TURN_7:'))).toBe(true);
+    expect(reloaded.windowCheckpoints().at(-1)?.projectedFloorAnchor).toBe(checkpoint.projectedFloorAnchor);
+    expect(reloaded.records()).toEqual(warm.records());
+    expectSceneMemory(continued, 8192 - 1024);
+    expect(reloaded.aborts()).toBe(0);
+  },
+);
+
+test('branch scene memory still injects when the reminder coordinator is disabled', async () => {
+  const h = await harness({ windowTokens: 8192, disableCache: true, branchEntries: SCENE_MEMORY_ENTRIES });
+  const input = user('Mira returns to the pier.', 1);
+  await h.start(input);
+  expectSceneMemory(await h.request([input]), 8192 - 1024);
+  expectSceneMemory(await h.request([input, ...toolExchange()]), 8192 - 1024);
+  expect(h.records()).toEqual([]);
+  expect(h.aborts()).toBe(0);
 });
 
 test('final safety floor accounts historical snapshots and pending notes on every turn', async () => {

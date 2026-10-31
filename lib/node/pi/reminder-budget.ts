@@ -54,12 +54,26 @@ export function limitReminderContext(params: {
         index > start && index <= originIndex && (message.role === 'user' || index === originIndex),
     );
   let selectedAnchor: string | undefined;
+  let hardFit: ReminderLimitResult | undefined;
   for (const { message, index } of boundaries) {
     selected = cut(index);
     selectedAnchor = reminderMessageAnchor(message);
     projectedChars = reminderRequestChars(preview(selected));
-    if (projectedChars / cpt <= fitTarget) break;
+    if (projectedChars / cpt <= fitTarget) {
+      hardFit = undefined;
+      break;
+    }
+    if (!hardFit && projectedChars / cpt <= hardLimit)
+      hardFit = {
+        messages: selected,
+        fits: true,
+        projectedChars,
+        ...(selectedAnchor ? { floorAnchor: selectedAnchor } : {}),
+      };
   }
+  // A large mandatory head may make the preferred reserve impossible. Do not
+  // erase every earlier scene turn when a larger suffix already fits safely.
+  if (hardFit) return hardFit;
   return {
     messages: selected,
     fits: projectedChars / cpt <= hardLimit,
