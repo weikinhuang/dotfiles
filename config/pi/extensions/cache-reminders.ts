@@ -84,7 +84,7 @@ export default function cacheReminders(pi: ExtensionAPI): void {
   pi.on('context', (event, ctx) => ({
     messages: identify(event.messages as unknown as ReminderMessage[], ctx) as unknown as typeof event.messages,
   }));
-  pi.on('context_with_system', (event, ctx) => {
+  pi.on('context_with_system', async (event, ctx) => {
     try {
       const messages = identify(event.messages as unknown as ReminderMessage[], ctx);
       const prepared = lifecycle.prepare(messages);
@@ -104,14 +104,16 @@ export default function cacheReminders(pi: ExtensionAPI): void {
         preview: (candidate) => sanitize(lifecycle.preview(candidate, prepared)),
       };
       pi.events.emit(REMINDER_LIMIT, limit);
-      const selected = limit.result?.messages ?? messages;
+      const limited = await limit.result;
+      const selected = limited?.messages ?? messages;
       const projected = sanitize(lifecycle.preview(selected, prepared));
-      if (sanitationFailed || (capabilities.limiterRequired && !limit.result) || limit.result?.fits === false) {
+      if (sanitationFailed || (capabilities.limiterRequired && !limited) || limited?.fits === false) {
         return abortContext(
           ctx,
           sanitationFailed
             ? 'Reminder sanitization failed; request aborted.'
-            : 'Projected context exceeds the model window; reduce the latest input, toolset, or lore budget.',
+            : (limited?.reason ??
+                'Projected context exceeds the model window; reduce the latest input, toolset, or lore budget.'),
         );
       }
       const result = lifecycle.project(selected, prepared, (snapshot) =>

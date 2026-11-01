@@ -58,19 +58,21 @@ windows are evaluated; only the accepted first request stores their resolved tar
 consume pending capture, or acknowledge scene events. Persistence must succeed before the in-memory capture is
 committed.
 
-Synchronous event bridges keep the late passes independent of factory registration order:
+Event bridges keep the late passes independent of factory registration order:
 
 - `cache-reminders:capabilities` declares required sanitizer and limiter passes.
-- `cache-reminders:limit` previews full candidate requests, including historical and pending snapshots. Roleplay cuts
-  whole earlier turns, retains the trigger and startup guidance, and freezes the retained boundary between overflows.
+- `cache-reminders:limit` previews full candidate requests, including historical and pending snapshots. A limiter may
+  assign its result synchronously or assign a promise. The coordinator awaits that promise before preview/commit, so
+  roleplay can preserve uncovered history with a safety recap before cutting whole earlier turns.
 - `cache-reminders:sanitize` redacts a detached projected copy, including standalone depth messages. Original messages
   and persisted snapshot bodies stay untouched; reveal approvals intentionally change later rendered bytes.
 - `cache-reminders:projected` reports final request size for usage calibration and context diagnostics.
 
-Listeners must finish synchronously; the SDK event bus does not await them. A missing required result, failed sanitizer,
-or indivisible latest turn that cannot fit the estimated budget aborts the request with a data-free context. No snapshot
-is persisted and no one-shot event is consumed. Token sizing remains an estimate with output/tool slack, not exact
-provider tokenization. Unrelated `context_with_system` handlers must not add content after these final safety passes.
+The SDK event bus does not await listeners: an asynchronous limiter must assign its result promise before returning. A
+missing required result, rejected promise, failed sanitizer, or indivisible latest turn that cannot fit the estimated
+budget aborts the request with a data-free context. No snapshot is persisted and no one-shot event is consumed. Token
+sizing remains an estimate with output/tool slack, not exact provider tokenization. Unrelated `context_with_system`
+handlers must not add content after these final safety passes.
 
 ## Configuration
 

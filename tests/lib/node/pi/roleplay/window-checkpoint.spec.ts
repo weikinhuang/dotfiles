@@ -23,7 +23,7 @@ function entry(data: unknown): Record<string, unknown> {
 }
 
 function checkpoint(overrides: Partial<WindowCheckpoint> = {}): WindowCheckpoint {
-  return { ...key, version: 1, charsPerToken: 2, ...overrides };
+  return { ...key, version: 2, charsPerToken: 2, ...overrides };
 }
 
 function limit(win: WindowState, messages: readonly ReminderMessage[]): ReturnType<typeof limitReminderContext> {
@@ -196,7 +196,7 @@ describe('window checkpoint', () => {
     null,
     [],
     'checkpoint',
-    { version: 2 },
+    { version: 1 },
     { cast: '' },
     { cast: 1 },
     { provider: ' ' },
@@ -219,6 +219,14 @@ describe('window checkpoint', () => {
     expect(restoreWindowCheckpoint([entry(data)], win, [], key)).toBe(false);
     expect(restoreWindowCheckpoint([entry(checkpoint()), entry(data)], win, [], key)).toBe(true);
     expect(win.charsPerToken).toBe(2);
+  });
+
+  it('rejects legacy v1 hard-drop floors rather than restoring uncovered history cuts', () => {
+    const win = createWindowState();
+    const before = { ...win };
+    const legacy = { ...checkpoint({ floorAnchor: 'entry:2', projectedFloorAnchor: 'entry:2' }), version: 1 };
+    expect(restoreWindowCheckpoint([entry(legacy)], win, [user(1), user(2)], key)).toBe(false);
+    expect(win).toEqual(before);
   });
 
   it.each([1, 20])('accepts calibration at the valid boundary %s', (charsPerToken) => {

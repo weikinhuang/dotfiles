@@ -18,8 +18,17 @@ import { setActivePersona, clearActivePersona } from '../../../../../lib/node/pi
 import { emptyCharacterMeta, emptyLoreMeta, serializeEntry } from '../../../../../lib/node/pi/roleplay/store.ts';
 import { fileFor as memoryFileFor } from '../../../../../lib/node/pi/memory-paths.ts';
 import { serializeMemory } from '../../../../../lib/node/pi/memory-reducer.ts';
+import { REMINDER_SNAPSHOT_TYPE } from '../../../../../lib/node/pi/reminder-lifecycle.ts';
+import { reminderRequestChars } from '../../../../../lib/node/pi/reminder-budget.ts';
+import type { ReminderMessage } from '../../../../../lib/node/pi/context-reminder.ts';
+import { updateCharsPerToken } from '../../../../../lib/node/pi/roleplay/context-window.ts';
 import type * as summarizeModule from '../../../../../lib/node/pi/roleplay/summarize.ts';
 import type * as eventModule from '../../../../../lib/node/pi/roleplay/event.ts';
+import type * as childModule from '../../../../../lib/node/pi/ext/roleplay-child-session.ts';
+vi.mock('../../../../../lib/node/pi/ext/roleplay-child-session.ts', async (original) => ({
+  ...(await original<typeof childModule>()),
+  loadRoleplayAgent: () => null,
+}));
 
 const summary = vi.hoisted(() => ({
   detailed:
@@ -120,11 +129,13 @@ function history(turns: number, marker = 'OLD_SCENE_MARKER', from = 0): Message[
 interface LifecycleHarness {
   start: (prompt: string) => Promise<void>;
   request: (messages: Message[]) => Promise<string>;
+  projected: () => Message[];
   command: (args: string) => Promise<void>;
   dispatch: (name: string, event?: unknown) => Promise<unknown>;
   seed: (cast: string, body: string) => void;
   stored: Record<string, unknown>[];
   ctx: ExtensionContext;
+  abort: ReturnType<typeof vi.fn>;
   agent: string;
   system: () => string;
   carry: (cast: string) => string;
@@ -153,10 +164,25 @@ async function harness(config: Record<string, unknown> = {}): Promise<LifecycleH
   );
   writeFileSync(join(agent, 'roleplay-summarize.json'), JSON.stringify({ summarizeModel: 'fixture/fixture' }));
   persona('cast-a');
+  if (typeof config._authorNote === 'string') {
+    vi.stubEnv('PI_ROLEPLAY_DISABLE_DEPTH_INJECT', '');
+    setActivePersona({
+      name: 'cast-a',
+      cast: 'cast-a',
+      roleplay: true,
+      tools: ['read', 'roleplay'],
+      resolvedWriteRoots: [],
+      authorNote: config._authorNote,
+      authorNoteDepth: 0,
+    });
+  }
+  const basePrompt = typeof config._systemText === 'string' ? config._systemText : 'STATIC_BASE';
+  let systemPrompt = basePrompt;
   const hooks = new Map<string, Handler[]>();
   const commands = new Map<string, Parameters<ExtensionAPI['registerCommand']>[1]>();
   const stored: Record<string, unknown>[] = [];
   const bus = new EventEmitter();
+  const abort = vi.fn();
   const pi = {
     on: (name: string, handler: Handler) => {
       hooks.set(name, [...(hooks.get(name) ?? []), handler]);
@@ -191,9 +217,14 @@ async function harness(config: Record<string, unknown> = {}): Promise<LifecycleH
           .map((entry) => ({ sourceEntry: entry, messages: [entry.message] })),
       }),
     },
-    model: { id: 'fixture', provider: 'fixture', contextWindow: 128000 },
+    model: {
+      id: 'fixture',
+      provider: 'fixture',
+      contextWindow: typeof config._windowTokens === 'number' ? config._windowTokens : 128000,
+    },
+    getSystemPrompt: () => systemPrompt,
     modelRegistry: { find: () => undefined },
-    abort: vi.fn(),
+    abort,
   } as unknown as ExtensionContext;
   if (config.memory === true) memoryExtension(pi);
   roleplay(pi);
@@ -212,7 +243,6 @@ async function harness(config: Record<string, unknown> = {}): Promise<LifecycleH
     }
     return last;
   };
-  let systemPrompt = 'STATIC_BASE';
   const promptOptions = {
     cwd: root,
     selectedTools: [],
@@ -226,7 +256,7 @@ async function harness(config: Record<string, unknown> = {}): Promise<LifecycleH
     skills: [],
   } as NormalizedBuildSystemPromptOptions;
   const start = async (prompt: string): Promise<void> => {
-    systemPrompt = 'STATIC_BASE';
+    systemPrompt = basePrompt;
     for (const fn of hooks.get('before_agent_start') ?? []) {
       const out = (await fn(
         { type: 'before_agent_start', messageType: 'user', prompt, systemPrompt, systemPromptOptions: promptOptions },
@@ -235,12 +265,16 @@ async function harness(config: Record<string, unknown> = {}): Promise<LifecycleH
       if (out?.systemPrompt) systemPrompt = out.systemPrompt;
     }
   };
+  let projected: Message[] = [];
   const request = async (messages: Message[]): Promise<string> => {
     const out = await ExtensionRunner.prototype.emitContext.call(runner, [
-      { role: 'system', content: systemPrompt, timestamp: 0 },
+      config._structuredHead === true
+        ? { role: 'system', content: '', sections: { base: systemPrompt }, timestamp: 0 }
+        : { role: 'system', content: systemPrompt, timestamp: 0 },
       ...messages,
     ]);
     expect(errors).toEqual([]);
+    projected = out;
     return out.map(text).join('\n');
   };
   const command = async (args: string): Promise<void> => {
@@ -261,11 +295,13 @@ async function harness(config: Record<string, unknown> = {}): Promise<LifecycleH
   return {
     start,
     request,
+    projected: () => projected,
     command,
     dispatch,
     seed,
     stored,
     ctx,
+    abort,
     agent,
     system: () => systemPrompt,
     carry: (cast: string) => join(agent, 'roleplay', 'casts', cast, 'summary', 'auto.md'),
@@ -290,6 +326,203 @@ test('roleplay: meaningful short spans wait for the summarizer minimum instead o
   expect(summary.detailed.mock.calls[0][1]).toContain('SILVER_COMPASS_MARKER turn 0');
   const committed = h.stored.findLast((entry) => entry.customType === 'roleplay-context-recap')?.data;
   expect(committed).toMatchObject({ coveredFrom: 0, coveredTo: 4, applied: true });
+});
+
+test('roleplay: keepTurns 50 preserves the beginning through 13 structured-head requests and budget pressure', async () => {
+  const h = await harness({
+    keepTurns: 50,
+    recapChunk: 8,
+    recapStride: 8,
+    capture: true,
+    timeline: true,
+    timelineMaxInjectChars: 3000,
+    loreCharBudget: 8000,
+    recapAsync: true,
+    depthLoreInlineTail: true,
+    _windowTokens: 53248,
+    _systemText: 'SYSTEM_GUIDANCE '.repeat(7000),
+    _structuredHead: true,
+    _authorNote: 'AUTHOR_GUIDANCE '.repeat(270),
+  });
+  const dialogue: Message[] = [];
+  const marker = 'SCENE_BEGINNING_MUST_SURVIVE';
+  let firstSnapshot: Record<string, unknown> | undefined;
+  let firstSnapshotBytes = '';
+  summary.detailed.mockImplementation(async (_ctx, span, prior = '') => ({
+    recap: `${prior}\n${span}`.slice(0, 5000),
+    raw: `${prior}\n${span}`.slice(0, 5000),
+  }));
+  for (let turn = 1; turn <= 13; turn++) {
+    const prompt = turn === 1 ? `${marker} ${'opening '.repeat(100)}` : `CONTINUE_${turn} ${'scene '.repeat(180)}`;
+    const message = user(prompt, turn * 2);
+    dialogue.push(message);
+    await h.start(prompt);
+    const output = await h.request(dialogue);
+    expect(output).toContain(marker);
+    expect(h.abort).not.toHaveBeenCalled();
+    expect(h.projected()[0]).toMatchObject({ role: 'system', content: '', sections: { base: h.system() } });
+    firstSnapshot ??= h.stored.find((entry) => entry.customType === REMINDER_SNAPSHOT_TYPE);
+    expect(firstSnapshot).toBeDefined();
+    firstSnapshotBytes ||= JSON.stringify(firstSnapshot);
+    expect(JSON.stringify(firstSnapshot)).toBe(firstSnapshotBytes);
+    // Synthetic provider usage tracks this exact request at three chars per input token.
+    const inputTokens = Math.ceil(
+      reminderRequestChars(h.projected() as unknown as readonly ReminderMessage[], h.system()) / 3,
+    );
+    const reply: Message = {
+      role: 'assistant',
+      content: [
+        { type: 'text', text: 'REPLY '.repeat(350) },
+        { type: 'thinking', thinking: 'THOUGHT '.repeat(300), thinkingSignature: 'fixture' },
+      ],
+      timestamp: turn * 2 + 1,
+      api: 'anthropic-messages',
+      provider: 'fixture',
+      model: 'fixture',
+      usage: { ...usage, input: inputTokens, output: 5000, totalTokens: inputTokens + 5000 },
+      stopReason: 'stop',
+    };
+    dialogue.push(reply);
+    await h.dispatch('message_end', { type: 'message_end', message: reply });
+  }
+  const emergency = h.stored
+    .filter((entry) => entry.customType === 'roleplay-context-recap')
+    .map((entry) => entry.data as Record<string, unknown>);
+  expect(emergency.some((entry) => entry.mode === 'budget' && entry.applied === true)).toBe(true);
+  expect(emergency.some((entry) => entry.mode === 'async')).toBe(false);
+  expect(firstSnapshot).toBeDefined();
+  expect(h.projected().some((message) => message.role === 'user' && message.timestamp === dialogue[0].timestamp)).toBe(
+    false,
+  );
+});
+
+test('roleplay: a short emergency recap survives the next turn and reload above natural zero', async () => {
+  const h = await harness({ keepTurns: 50, recapAsync: true, summarizeMinMessages: 20, _windowTokens: 4096 });
+  const older = user('BEGINNING_MARKER ' + 'detail '.repeat(1800), 1);
+  const latest = user('LATEST_SCENE', 2);
+  summary.detailed.mockResolvedValue({ recap: 'BEGINNING_MARKER preserved', raw: 'BEGINNING_MARKER preserved' });
+  await h.start('LATEST_SCENE');
+  expect(await h.request([older, latest])).toContain('BEGINNING_MARKER');
+  expect(summary.detailed).toHaveBeenCalledTimes(1);
+  expect(summary.detailed.mock.calls[0][1]).toContain('BEGINNING_MARKER');
+  expect(h.projected().some((message) => message.role === 'user' && message.timestamp === 1)).toBe(false);
+  const audit = h.stored.find((entry) => entry.customType === 'roleplay-context-recap')?.data as
+    | Record<string, unknown>
+    | undefined;
+  expect(audit).toMatchObject({ mode: 'budget', coveredFrom: 0, coveredTo: 1, applied: true });
+  expect(typeof audit?.anchor).toBe('string');
+  const next = user('NEXT_SCENE', 3);
+  await h.start('NEXT_SCENE');
+  expect(await h.request([older, latest, next])).toContain('BEGINNING_MARKER');
+  await h.dispatch('session_start');
+  await h.start('NEXT_SCENE');
+  expect(await h.request([older, latest, next])).toContain('BEGINNING_MARKER');
+  expect(h.projected().some((message) => message.role === 'user' && message.timestamp === 1)).toBe(false);
+  expect(summary.detailed).toHaveBeenCalledTimes(1);
+  expect(h.abort).not.toHaveBeenCalled();
+});
+
+test('roleplay: a failed safety summarizer aborts before snapshot or capture side effects', async () => {
+  const h = await harness({ keepTurns: 50, recapAsync: true, capture: true, timeline: true, _windowTokens: 4096 });
+  summary.detailed.mockResolvedValue({ recap: null, raw: null });
+  await h.start('LATEST_SCENE');
+  const out = await h.request([user('UNcovered_START ' + 'detail '.repeat(1800), 1), user('LATEST_SCENE', 2)]);
+  expect(h.abort).toHaveBeenCalledTimes(1);
+  expect(out).not.toContain('UNcovered_START');
+  expect(out).not.toContain('LATEST_SCENE');
+  expect(existsSync(h.carry('cast-a'))).toBe(false);
+  expect(h.stored.some((entry) => entry.customType === REMINDER_SNAPSHOT_TYPE)).toBe(false);
+  expect(h.stored.some((entry) => entry.customType === 'roleplay-timeline')).toBe(false);
+  expect(h.stored.some((entry) => entry.customType === 'roleplay-context-window-state')).toBe(false);
+  expect(h.stored.find((entry) => entry.customType === 'roleplay-context-recap')?.data).toMatchObject({
+    applied: false,
+    mode: 'budget',
+  });
+});
+
+test.each(['accept', 'reset'] as const)(
+  'roleplay: urgent budget wait handles a normal async recap on %s',
+  async (outcome) => {
+    const h = await harness({ keepTurns: 2, recapAsync: true });
+    interface Recap {
+      recap: string | null;
+      raw: string | null;
+    }
+    let release!: (value: Recap) => void;
+    summary.detailed.mockReturnValueOnce(
+      new Promise<Recap>((resolve) => {
+        release = resolve;
+      }),
+    );
+    const dialogue = history(6, 'ASYNC_BEGINNING ' + 'detail '.repeat(400));
+    await h.start('continue');
+    // Normal age-based async recap must not block the request.
+    expect(await h.request(dialogue)).toContain('ASYNC_BEGINNING');
+    expect(summary.detailed).toHaveBeenCalledTimes(1);
+    h.ctx.model!.contextWindow = 4096;
+    let settled = false;
+    const urgent = h.request(dialogue).then((output) => {
+      settled = true;
+      return output;
+    });
+    await flush();
+    expect(settled).toBe(false);
+    if (outcome === 'reset') await h.command('newscene');
+    release({ recap: 'ASYNC_BEGINNING safely preserved', raw: 'ASYNC_BEGINNING safely preserved' });
+    const output = await urgent;
+    const accepted = outcome === 'accept';
+    expect(output.includes('ASYNC_BEGINNING safely preserved')).toBe(accepted);
+    expect(output.includes('ASYNC_BEGINNING')).toBe(accepted);
+    expect(h.abort).toHaveBeenCalledTimes(accepted ? 0 : 1);
+    expect(summary.detailed).toHaveBeenCalledTimes(1);
+    expect(existsSync(h.carry('cast-a'))).toBe(accepted);
+    const audits = h.stored
+      .filter((entry) => entry.customType === 'roleplay-context-recap')
+      .map((entry) => entry.data as { mode?: unknown; applied?: unknown });
+    expect(audits.map((audit) => [audit.mode, audit.applied])).toEqual(accepted ? [['async', true]] : []);
+  },
+);
+
+test('roleplay: safety recaps advance in bounded user-aligned increments', async () => {
+  const h = await harness({ keepTurns: 50, recapAsync: true, recapMaxAdvance: 2, _windowTokens: 4096 });
+  summary.detailed.mockResolvedValue({
+    recap: 'BOUNDED_BEGINNING safely preserved',
+    raw: 'BOUNDED_BEGINNING safely preserved',
+  });
+  const dialogue = history(6, 'BOUNDED_BEGINNING ' + 'detail '.repeat(400));
+  await h.start('continue');
+  expect(await h.request(dialogue)).toContain('BOUNDED_BEGINNING safely preserved');
+  const audits = h.stored
+    .filter((entry) => entry.customType === 'roleplay-context-recap')
+    .map((entry) => entry.data as { mode: string; applied: boolean; coveredFrom: number; coveredTo: number });
+  expect(audits.length).toBeGreaterThan(1);
+  let covered = 0;
+  for (const audit of audits) {
+    expect(audit).toMatchObject({ mode: 'budget', applied: true, coveredFrom: covered });
+    expect(audit.coveredTo - audit.coveredFrom).toBeLessThanOrEqual(2);
+    expect(dialogue[audit.coveredTo].role).toBe('user');
+    covered = audit.coveredTo;
+  }
+  expect(h.abort).not.toHaveBeenCalled();
+});
+
+test('roleplay: calibration pairs full structured-head request with input-only message_end usage', async () => {
+  const h = await harness({ _systemText: 'STATIC_GUIDANCE '.repeat(1000), _structuredHead: true });
+  const input = user('small scene', 1);
+  await h.start('small scene');
+  await h.request([input]);
+  const chars = reminderRequestChars(h.projected() as unknown as readonly ReminderMessage[], h.system());
+  const reply = history(1)[1];
+  if (reply.role !== 'assistant') throw new Error('fixture must be assistant');
+  reply.usage = { ...usage, input: 10000, cacheRead: 2000, cacheWrite: 3000, output: 40000, totalTokens: 55000 };
+  await h.dispatch('message_end', { type: 'message_end', message: reply });
+  await h.start('next scene');
+  await h.request([input, user('next scene', 2)]);
+  const checkpoint = h.stored.findLast((entry) => entry.customType === 'roleplay-context-window-state')?.data as {
+    charsPerToken: number;
+  };
+  expect(checkpoint.charsPerToken).toBeCloseTo(updateCharsPerToken(4, chars, 15000));
+  expect(checkpoint.charsPerToken).not.toBeCloseTo(updateCharsPerToken(4, chars, 55000));
 });
 
 test('roleplay: dormant mode never cancels coding threshold compaction', async () => {

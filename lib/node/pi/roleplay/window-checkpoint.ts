@@ -13,7 +13,7 @@ export interface WindowCheckpointKey {
 }
 
 export interface WindowCheckpoint extends WindowCheckpointKey {
-  version: 1;
+  version: 2;
   charsPerToken: number;
   floorAnchor?: string;
   projectedFloorAnchor?: string;
@@ -26,7 +26,7 @@ function nonemptyString(value: unknown): value is string {
 function isCheckpoint(value: unknown): value is WindowCheckpoint {
   return (
     isRecord(value) &&
-    value.version === 1 &&
+    value.version === 2 &&
     nonemptyString(value.cast) &&
     nonemptyString(value.provider) &&
     nonemptyString(value.model) &&
@@ -45,7 +45,7 @@ export function createWindowCheckpoint(
   messages: readonly ReminderMessage[],
   key: WindowCheckpointKey,
 ): WindowCheckpoint {
-  const checkpoint: WindowCheckpoint = { ...key, version: 1, charsPerToken: win.charsPerToken };
+  const checkpoint: WindowCheckpoint = { ...key, version: 2, charsPerToken: win.charsPerToken };
   const cutoff = win.frozenFloorCutoff;
   const boundary = Number.isInteger(cutoff) && cutoff > 0 ? messages[cutoff] : undefined;
   if (boundary?.role === 'user') checkpoint.floorAnchor = reminderMessageAnchor(boundary);

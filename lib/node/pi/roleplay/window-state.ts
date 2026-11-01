@@ -17,6 +17,8 @@ export interface WindowState {
   committedCutoff: number;
   /** How much of the aged prefix the recap covers; messages[0..recapCutoff) are DROPPED in recap mode. */
   recapCutoff: number;
+  /** Stable first-uncovered message, including coverage forced before keepTurns ages anything. */
+  recapAnchor: string | undefined;
   /**
    * FROZEN hard-safety floor drop boundary. Advances only on a real overflow,
    * never per-turn, so the drop / recap-injection anchor stays byte-stable
@@ -29,6 +31,8 @@ export interface WindowState {
   recapGen: number;
   recapInFlight: boolean;
   recapAbort: AbortController | null;
+  /** The complete background chain; a safety-critical request waits for it. */
+  recapPromise: Promise<void> | null;
   /** Calibrated chars-per-token (blended toward the last turn's reported usage). Survives resets. */
   charsPerToken: number;
   /** Estimated chars of the prompt we sent last turn, for usage calibration next turn. */
@@ -64,11 +68,13 @@ export function createWindowState(): WindowState {
     timelineText: '',
     committedCutoff: 0,
     recapCutoff: 0,
+    recapAnchor: undefined,
     frozenFloorCutoff: 0,
     recapHydrated: false,
     recapGen: 0,
     recapInFlight: false,
     recapAbort: null,
+    recapPromise: null,
     charsPerToken: DEFAULT_CHARS_PER_TOKEN,
     lastSentEstChars: 0,
     projectedFloorAnchor: undefined,
@@ -86,6 +92,7 @@ export function createWindowState(): WindowState {
 export function invalidateRecap(win: WindowState): void {
   win.recapGen += 1;
   win.recapInFlight = false;
+  win.recapPromise = null;
   if (win.recapAbort) {
     try {
       win.recapAbort.abort();
@@ -107,6 +114,7 @@ export function resetWindowState(win: WindowState): void {
   win.timelineText = '';
   win.committedCutoff = 0;
   win.recapCutoff = 0;
+  win.recapAnchor = undefined;
   win.frozenFloorCutoff = 0;
   win.recapHydrated = false;
   win.lastSentEstChars = 0;
@@ -128,6 +136,7 @@ export function resetWindowState(win: WindowState): void {
 export function resetWindowCoverage(win: WindowState): void {
   invalidateRecap(win);
   win.recapCutoff = 0;
+  win.recapAnchor = undefined;
   win.committedCutoff = 0;
   win.frozenFloorCutoff = 0;
   win.lastSentEstChars = 0;
@@ -147,6 +156,7 @@ export function anchorAfterCompaction(win: WindowState, natural: number): boolea
   win.postCompaction = false;
   win.committedCutoff = Math.max(win.committedCutoff, natural);
   win.recapCutoff = 0;
+  win.recapAnchor = undefined;
   return true;
 }
 

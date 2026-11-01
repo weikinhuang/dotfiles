@@ -16,6 +16,8 @@ import { isSceneBoundary } from './scene-state.ts';
 export interface BranchRecap {
   recap: string;
   coveredTo: number;
+  /** Stable first-uncovered message for coverage advanced by the token budget. */
+  anchor?: string;
   /**
    * A pi compaction lies on the branch after the recap entry, so `coveredTo`
    * was reset to 0. The caller anchors its condense boundary at `natural`
@@ -69,6 +71,7 @@ export function scanBranchForRecap(
           cast?: unknown;
           recap?: unknown;
           coveredTo?: unknown;
+          anchor?: unknown;
           applied?: unknown;
           forced?: unknown;
           trivial?: unknown;
@@ -82,7 +85,11 @@ export function scanBranchForRecap(
     if (!text) continue;
     if (compactedAfter) return { recap: text, coveredTo: 0, compacted: true };
     const coveredTo = typeof data?.coveredTo === 'number' ? data.coveredTo : 0;
-    return { recap: text, coveredTo: Math.max(0, Math.min(coveredTo, natural)) };
+    return {
+      recap: text,
+      coveredTo: Math.max(0, Math.min(coveredTo, natural)),
+      ...(typeof data?.anchor === 'string' && data.anchor ? { anchor: data.anchor } : {}),
+    };
   }
   return null;
 }

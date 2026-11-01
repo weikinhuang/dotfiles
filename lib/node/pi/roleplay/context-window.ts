@@ -30,6 +30,7 @@
  */
 
 import { isTextPart } from '../shared.ts';
+import { isRecord } from '../shared/guards.ts';
 import { messageContentToText } from '../message-text.ts';
 
 /** A message is an opaque record; only `role` and `content` are read here. */
@@ -457,6 +458,18 @@ export function estimateChars(messages: readonly Msg[]): number {
     }
   }
   return n;
+}
+
+/** Input-only usage pairs with the projected request, unlike the context meter's output + trailing estimate. */
+export function promptInputTokens(usage: unknown): number | null {
+  if (!isRecord(usage)) return null;
+  let total = 0;
+  for (const key of ['input', 'cacheRead', 'cacheWrite']) {
+    const value = usage[key] ?? 0;
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return null;
+    total += value;
+  }
+  return Number.isFinite(total) && total > 0 ? total : null;
 }
 
 /** Fallback chars-per-token when nothing is calibrated yet (crude chars/4). */

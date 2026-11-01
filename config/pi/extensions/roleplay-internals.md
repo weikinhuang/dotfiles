@@ -210,7 +210,7 @@ summarizer and commit nothing when a reset / branch change / compaction bumped i
 re-check the same generation (and the abort signal) after their extractor resolves, before any write.
 
 The span text cap passed to the summarizer is derived from the recap model's context window (`deriveMaxSpanChars`), with
-the chars/token estimate calibrated against the previous turn's reported usage (`updateCharsPerToken`).
+the chars/token estimate calibrated against matched prompt-input usage (`updateCharsPerToken`).
 
 ### Collapse guard and wedge breaker
 
@@ -239,39 +239,43 @@ The summarizer runs at `temperature: 0.3` / `presence_penalty: 0` from its
 [frontmatter `requestOptions`](../agents/roleplay-summarizer.md), applied through an inline agent-gate factory because
 the child loads with `noExtensions`. The persona's sampler does not leak into the child session.
 
-### Hard safety floor
+### Memory-preserving token safety
 
-`planWindowFloor` sizes the reduced prompt against the session model's window even when recap coverage cannot advance
-(empty recap after a cold resume, dead recap endpoint). It measures the same condensed messages that the request will
-send, including at the initial zero floor. If the held suffix leaves less than 1024 tokens of output margin, it fits the
-conversation into `window - (system + injected recap/timeline) - 3072` tokens by dropping the oldest whole user turns.
-The floor is otherwise frozen, so it does not creep forward every turn or cut history merely to reach the preferred
-reserve. It is deliberately not re-cut on a roll: a session draining a recap backlog rolls often, and re-cutting there
-would wiggle the drop boundary. The applied drop is `max(recapCutoff, floorCutoff)`. With recap mode off and the floor
-engaged, the oldest turns are hard-dropped; otherwise the condense-only path runs.
+Only committed recap coverage can drop the scene transcript. The early context pass no longer uses an independent hard
+floor that can erase uncovered turns. The final reminder-budget pass sizes the effective system prompt, SDK `sections`
+and `toolsAdded` declarations, historical snapshots, pending reminders, recap and rendered timeline.
 
-With the reminder coordinator enabled, recap and timeline delivery is deferred to the final budget pass. Every preview
-includes both memory blocks before the coordinator adds historical snapshots and pending reminders. The accepted suffix
-receives the same blocks on its first retained user message; the early anchor is not carried through a later cut. When
-no candidate meets the preferred 3072-token reserve, the limiter keeps the earliest suffix that satisfies the hard
-1024-token margin. An oversized mandatory head still fails closed. Without the coordinator, the context hook injects
-scene memory directly as before.
+A model window may fill before `keepTurns` ages any messages. In that case, the coordinator awaits a safety recap of
+whole earlier turns before accepting the cut. Normal recaps remain asynchronous when configured; only a request that
+cannot otherwise fit waits for an existing background chain or performs a foreground recap. Safety recaps accept short
+meaningful spans even below the normal planning minimum, but rejected candidates do not justify dropping them. Failed or
+unavailable summarization, cancellation, an unresolved boundary, or an oversized protected input aborts the request with
+history intact. No snapshot is persisted or event consumed on failure.
+
+Every budget preview includes scene memory, and the accepted prefix is attached to the first retained user message. The
+limiter prefers a 3072-token output reserve and may use a 1024-token hard margin when a larger mandatory head makes the
+preferred reserve impossible. These remain token estimates, not exact tokenization.
+
+Usage calibration pairs the complete projected request with its own `message_end` input/cache usage. It does not use
+`getContextUsage()`, whose context estimate also includes output and trailing messages. Structured prompt sections and
+tool additions/removals are counted; a forced effective prompt replaces section text rather than being double-counted.
 
 ### Reload-safe safety state
 
-After an accepted final reminder projection, a compact `roleplay-context-window-state` custom entry checkpoints the raw
-and final safety-floor anchors plus the learned characters-per-token ratio. Identical checkpoints are not repeated.
+After an accepted final reminder projection, a compact version-2 `roleplay-context-window-state` custom entry
+checkpoints accepted boundary anchors and the learned characters-per-token ratio. Version-1 state is ignored: its ratio
+could be calibrated from a request estimate missing the system prompt, and its floor could drop uncovered scene history.
+Recap audits carry a stable first-uncovered message anchor, so safety coverage ahead of the nominal `keepTurns` cutoff
+survives the next turn and reload. Identical checkpoints are not repeated.
 [`window-checkpoint.ts`](../../../lib/node/pi/roleplay/window-checkpoint.ts) restores the latest matching cast/model
 checkpoint from the active branch before window planning, independently of recap availability. Anchors resolve against
 the current message identities instead of replaying stale array offsets. Compaction invalidates older floors, and a
 `roleplay-newscene` or `roleplay-cast-change` marker shadows older checkpoints. Missing anchors are recomputed by the
 normal safety passes.
 
-Without this checkpoint a reload discarded both held floors and calibration: the first request could re-admit old
-history while estimating it at the default four characters per token. Removing a lore-budget option and reloading again
-did not recover the lost state. Older sessions without a checkpoint cannot recover that previous floor from this entry.
-Request-size samples are deliberately not restored: a locally accepted projection may still fail at the provider, so its
-size must not be paired with an earlier successful response's usage.
+Ignoring unsafe older checkpoints re-admits the preserved transcript instead of making its historical hard drop
+permanent. The final budget pass still requires recap coverage before any new cut. Request-size samples are deliberately
+not restored: a projected request must be paired with its own later response, never earlier context-meter estimates.
 
 ### Compaction interplay
 

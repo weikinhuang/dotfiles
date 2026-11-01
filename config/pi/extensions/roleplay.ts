@@ -140,9 +140,10 @@ import {
   injectTimeline,
   shouldForceRecap,
   updateCharsPerToken,
+  promptInputTokens,
   type WindowOptions,
 } from '../../../lib/node/pi/roleplay/context-window.ts';
-import { applyWindowPass, planWindowFloor } from '../../../lib/node/pi/roleplay/window-pass.ts';
+import { applyWindowPass } from '../../../lib/node/pi/roleplay/window-pass.ts';
 import { clearRoleplayFacts, serializeRoleplayFact } from '../../../lib/node/pi/roleplay/fact-memory.ts';
 import {
   canSeedScene,
@@ -203,7 +204,17 @@ import {
   type ReminderLimitRequest,
   type ReminderProjectedRequest,
 } from '../../../lib/node/pi/reminder-lifecycle.ts';
-import { ensureReminderIdentities, type ReminderTrigger } from '../../../lib/node/pi/reminder-identity.ts';
+import {
+  ensureReminderIdentities,
+  reminderMessageAnchor,
+  reminderMessageKeys,
+  type ReminderTrigger,
+} from '../../../lib/node/pi/reminder-identity.ts';
+import {
+  dropCoveredMessages,
+  retainedTranscriptStart,
+  waitForRecap,
+} from '../../../lib/node/pi/roleplay/budget-coverage.ts';
 import { limitReminderContext, reminderRequestChars } from '../../../lib/node/pi/reminder-budget.ts';
 import { type AgentDef, makeNodeReadLayer } from '../../../lib/node/pi/subagent/loader.ts';
 import { loadRoleplayAgent, runRoleplayChild } from '../../../lib/node/pi/ext/roleplay-child-session.ts';
@@ -1223,6 +1234,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     prior: string,
     info: RecapModelInfo,
     signal: AbortSignal | undefined,
+    minimumMessages?: number,
   ): Promise<RecapResult> => {
     const startedAt = Date.now();
     const priorLen = prior.length;
@@ -1234,7 +1246,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       priorRecapChars: priorLen,
       charsPerToken: win.charsPerToken,
     });
-    const plan = planSummarization(span, { minMessages: cfg.summarizeMinMessages, maxSpanChars });
+    const plan = planSummarization(span, { minMessages: minimumMessages ?? cfg.summarizeMinMessages, maxSpanChars });
     if (!plan) {
       const emptySpan = span.length > 0 && planSummarization(span, { minMessages: 1, maxSpanChars }) === null;
       return { next: null, raw: null, applied: false, trivial: emptySpan, spanLen: 0, priorLen, startedAt };
@@ -1287,8 +1299,9 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     model: RecapModelInfo['model'];
     spanFrom: number;
     spanTo: number;
-    mode: 'sync' | 'async' | 'compact';
+    mode: 'sync' | 'async' | 'compact' | 'budget';
     forced?: boolean;
+    anchor?: string;
   }): void => {
     // A trivial-span skip still advanced coverage; flag it so branch hydration
     // (scanBranchForRecap) treats the boundary as committed.
@@ -1301,6 +1314,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         model: o.model?.id ?? null,
         coveredFrom: o.spanFrom,
         coveredTo: o.spanTo,
+        ...(o.anchor ? { anchor: o.anchor } : {}),
         spanMessages: o.result.spanLen,
         priorChars: o.result.priorLen,
         mode: o.mode,
@@ -1856,9 +1870,21 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       // already-reduced list (they are tail-oriented, unaffected by the drop).
       if (contextWindowEnabled) {
         const opts = windowOptions();
-        const natural = computeCutoff(messages, opts.keepTurns);
-        // Fresh / shorter conversation (new run, branch switch, resume): drop stale state.
-        if (natural < win.committedCutoff) resetWindowState();
+        const requestedNatural = computeCutoff(messages, opts.keepTurns);
+        if (win.recapAnchor) {
+          const index = messages.findIndex((message) =>
+            reminderMessageKeys(message as ReminderMessage).includes(win.recapAnchor ?? ''),
+          );
+          if (index < 0) resetWindowState();
+          else {
+            const shift = index - win.recapCutoff;
+            win.recapCutoff = index;
+            win.committedCutoff = Math.max(index, win.committedCutoff + shift);
+          }
+        }
+        let natural = Math.max(requestedNatural, win.recapCutoff);
+        // A budget recap can legitimately cover more than keepTurns considers aged.
+        if (natural < win.committedCutoff || messages.length < win.recapCutoff) resetWindowState();
 
         // Restore safety independently of recap hydration, before either floor
         // sizes the request. A reload must not re-admit held-back history using
@@ -1873,17 +1899,6 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
               model: ctx.model.id,
             });
           }
-        }
-
-        // Calibrate chars/token against the PREVIOUS turn's reported usage
-        // (ground truth) so the span-budget math is measured, not guessed.
-        try {
-          const usage = ctx.getContextUsage?.();
-          if (usage && typeof usage.tokens === 'number' && usage.tokens > 0 && win.lastSentEstChars > 0) {
-            win.charsPerToken = updateCharsPerToken(win.charsPerToken, win.lastSentEstChars, usage.tokens);
-          }
-        } catch {
-          /* usage is best-effort */
         }
 
         // Lazily hydrate the recap once per (re)load, so a resume continues
@@ -1901,15 +1916,21 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
             //    regenerated / forked branch continues ITS own recap, never a
             //    stale sibling's, and it carries the exact `coveredTo` instead
             //    of guessing. A resume (branch continuity) -> NO fact reseed.
-            const branchRecap = hydrateRecapFromBranch(ctx, natural);
+            const branchRecap = hydrateRecapFromBranch(ctx, messages.length);
             if (branchRecap) {
               win.recapText = branchRecap.recap;
-              win.recapCutoff = branchRecap.coveredTo;
+              win.recapAnchor = branchRecap.anchor;
+              const anchored = branchRecap.anchor
+                ? messages.findIndex((message) =>
+                    reminderMessageKeys(message as ReminderMessage).includes(branchRecap.anchor ?? ''),
+                  )
+                : branchRecap.coveredTo;
+              win.recapCutoff = Math.max(0, anchored);
               // A compaction after the recap zeroed coverage: anchor the
               // condense boundary at `natural` (as the live session_compact
               // path does) so the resume does not immediately re-summarize
               // the compaction summary + kept messages.
-              win.committedCutoff = branchRecap.compacted ? natural : branchRecap.coveredTo;
+              win.committedCutoff = branchRecap.compacted ? natural : win.recapCutoff;
               // Timeline: prefer this branch's cumulative timeline (same
               // active-path guarantee); fall back to the per-cast carry-over
               // log when the branch carries no timeline entry (then the next
@@ -1975,6 +1996,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         // (no immediate roll; compaction already bounded the size), keeping
         // recapCutoff 0, so the compaction summary + already-recapped kept
         // messages are not re-summarized right away.
+        natural = Math.max(requestedNatural, win.recapCutoff);
         anchorAfterCompaction(win, natural);
         const { roll: rollFired } = planRoll(win, natural, strideValue());
         if (rollFired) {
@@ -2004,6 +2026,9 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
               rollCfg.recapMaxAdvance,
               rollCfg.summarizeMinMessages,
             );
+            const recapAnchor = messages[spanTo]
+              ? reminderMessageAnchor(messages[spanTo] as ReminderMessage)
+              : undefined;
             const lag = natural - win.recapCutoff;
             const lagCeiling = rollCfg.recapLagCeiling;
             // pi's `compactionSummary` message is already a summary of
@@ -2027,7 +2052,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
                 const prior = win.recapText;
                 const abort = new AbortController();
                 win.recapAbort = abort;
-                void doRecap(ctx, span, prior, info, abort.signal)
+                win.recapPromise = doRecap(ctx, span, prior, info, abort.signal)
                   .then(async (result) => {
                     if (!isCurrent()) return; // stale (reset / branch change): discard
                     // Force-accept a rejected-but-usable candidate once coverage
@@ -2045,13 +2070,23 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
                     if (commit) {
                       win.recapText = commit;
                       win.recapCutoff = spanTo;
+                      win.recapAnchor = recapAnchor;
                       writeRecapRecord(commit, sid);
                     } else if (result.trivial) {
                       // Backstop: a span too trivial to summarize still
                       // advances coverage, so it can never stall the roll.
                       win.recapCutoff = spanTo;
+                      win.recapAnchor = recapAnchor;
                     }
-                    writeRecapAudit({ result, model: info.model, spanFrom, spanTo, mode: 'async', forced });
+                    writeRecapAudit({
+                      result,
+                      model: info.model,
+                      spanFrom,
+                      spanTo,
+                      mode: 'async',
+                      forced,
+                      anchor: recapAnchor,
+                    });
                     if (commit) {
                       // Capture runs SEQUENTIALLY after the recap, and is
                       // AWAITED inside the chain so `recapInFlight` stays set
@@ -2077,6 +2112,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
                     if (gen === win.recapGen) {
                       win.recapInFlight = false;
                       win.recapAbort = null;
+                      win.recapPromise = null;
                     }
                   });
               }
@@ -2099,6 +2135,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
                 if (commit) {
                   win.recapText = commit;
                   win.recapCutoff = spanTo;
+                  win.recapAnchor = recapAnchor;
                   writeRecapRecord(commit, sid);
                   await captureFacts(ctx, span, sid, ctx.signal, isCurrent);
                   if (!isCurrent()) return undefined;
@@ -2107,8 +2144,17 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
                 } else if (result.trivial) {
                   // Backstop: see the async path.
                   win.recapCutoff = spanTo;
+                  win.recapAnchor = recapAnchor;
                 }
-                writeRecapAudit({ result, model: info.model, spanFrom, spanTo, mode: 'sync', forced });
+                writeRecapAudit({
+                  result,
+                  model: info.model,
+                  spanFrom,
+                  spanTo,
+                  mode: 'sync',
+                  forced,
+                  anchor: recapAnchor,
+                });
               }
             }
           }
@@ -2130,50 +2176,12 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
           settleForcedRecap(win, recapStarted);
         }
 
-        // Hard safety floor: guarantee the reduced prompt fits the session
-        // model's context window even when the recap drop boundary cannot
-        // advance - an empty/stale recap after a cold resume, or a dead recap
-        // endpoint. Without it, recapCutoff can sit at 0 and condense-only
-        // cannot bound a thousand-message scene, so the request overflows the
-        // server window (observed: a 1674-message session resumed with an empty
-        // recap hit 130k > 57k and the model rejected it). We drop oldest whole
-        // user-turns beyond the token budget; when the floor outruns the recap
-        // coverage this drops uncovered scene memory, but a bounded prompt that
-        // still runs beats a hard 400. In healthy operation floorCutoff is 0
-        // (everything fits) or <= recapCutoff (the recap already dropped enough),
-        // so dropCutoff == recapCutoff and there is no behavior change.
-        // Freeze arithmetic + overflow valve live in `planWindowFloor`
-        // (roleplay/window-pass.ts). Reserve against what is ACTUALLY
-        // injected, not the raw cumulative stores: `recapText` is bounded by
-        // `summarizeMaxChars`, but the timeline is injected through
-        // `renderTimelineBlock` capped at `timelineMaxInjectChars`, while
-        // `timelineText` is the many-KB cumulative append-log.
-        let floorCutoff = 0;
-        const windowTokens = (ctx.model as { contextWindow?: number } | undefined)?.contextWindow;
-        if (typeof windowTokens === 'number' && windowTokens > 0) {
-          const sysChars = (typeof ctx.getSystemPrompt === 'function' ? ctx.getSystemPrompt() : '')?.length ?? 0;
-          const timelineInjectChars = win.timelineText
-            ? (renderTimelineBlock(win.timelineText, {
-                maxChars: loadRoleplayConfig(cwd, envCharBudget).timelineMaxInjectChars,
-              })?.length ?? 0)
-            : 0;
-          const floor = planWindowFloor({
-            messages,
-            windowTokens,
-            sysChars,
-            injectChars: win.recapText.length + timelineInjectChars,
-            charsPerToken: win.charsPerToken,
-            frozenFloorCutoff: win.frozenFloorCutoff,
-            recapCutoff: win.recapCutoff,
-            committedCutoff: win.committedCutoff,
-            opts,
-          });
-          // NB never keyed on `rollFired`: a session draining a recap backlog
-          // rolls every turn, which would wiggle the floor and defeat the freeze.
-          win.frozenFloorCutoff = floor.frozenFloorCutoff;
-          floorCutoff = floor.floorCutoff;
-        }
-        const dropCutoff = Math.max(win.recapCutoff, floorCutoff);
+        // Only committed recap coverage may remove scene history. The final
+        // projection owns the token budget, including system/tool declarations
+        // and all snapshots; it awaits safety recaps before extending coverage.
+        const floorCutoff = 0;
+        win.frozenFloorCutoff = 0;
+        const dropCutoff = recapMode ? win.recapCutoff : 0;
 
         // Apply the window: layered drop+condense+inject (recap mode), the
         // hard-drop floor (recap off, over budget), or condense-only.
@@ -2235,7 +2243,6 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
           const sysChars = (typeof ctx.getSystemPrompt === 'function' ? ctx.getSystemPrompt() : '')?.length ?? 0;
           const sentChars = estimateChars(messages);
           const fullChars = estimateChars(event.messages as unknown as readonly Record<string, unknown>[]);
-          win.lastSentEstChars = sysChars + sentChars;
           const prev = lastWindowSnapshot;
           lastWindowSnapshot = {
             ts: Date.now(),
@@ -2307,8 +2314,142 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     });
   }
 
-  // The safety floor must see historical and first-request snapshot bytes.
-  // Synchronous previews do not persist candidates or acknowledge events.
+  // Pair the complete projected request with its own response's INPUT usage.
+  // The context meter also includes output/trailing tokens and is not that sample.
+  pi.on('message_end', (event, ctx) => {
+    if (!contextWindowEnabled || activeCast() === null || event.message.role !== 'assistant') return;
+    const chars = win.lastSentEstChars;
+    win.lastSentEstChars = 0;
+    if (event.message.stopReason === 'aborted' || event.message.stopReason === 'error') return;
+    if (ctx.model && (event.message.model !== ctx.model.id || event.message.provider !== ctx.model.provider)) return;
+    const tokens = promptInputTokens(event.message.usage);
+    if (chars > 0 && tokens !== null) win.charsPerToken = updateCharsPerToken(win.charsPerToken, chars, tokens);
+  });
+
+  const finalizeBudget = async (
+    request: ReminderLimitRequest,
+    ctx: ExtensionContext,
+  ): Promise<{ messages: ReminderMessage[]; fits: boolean; reason?: string }> => {
+    const raw = lastMessages as readonly ReminderMessage[];
+    const generation = win.recapGen;
+    const current = (): boolean => generation === win.recapGen && !ctx.signal?.aborted;
+    const fail = (reason: string): { messages: ReminderMessage[]; fits: boolean; reason: string } => {
+      win.lastSentEstChars = 0;
+      return { messages: [...request.messages], fits: false, reason };
+    };
+    const windowTokens = ctx.model?.contextWindow;
+    const head = typeof ctx.getSystemPrompt === 'function' ? ctx.getSystemPrompt() : undefined;
+    const withMemory = (messages: readonly ReminderMessage[]): ReminderMessage[] => {
+      let out = messages as readonly Record<string, unknown>[];
+      if (recapMode && win.recapText.trim()) out = injectRecap(out, win.recapText);
+      if (recapMode && win.timelineText.trim()) {
+        const timeline = renderTimelineBlock(win.timelineText, {
+          maxChars: loadRoleplayConfig(cwd, envCharBudget).timelineMaxInjectChars,
+        });
+        if (timeline) out = injectTimeline(out, timeline);
+      }
+      return out as ReminderMessage[];
+    };
+    if (!windowTokens || !Number.isFinite(windowTokens)) return { messages: withMemory(request.messages), fits: true };
+    interface Finalized {
+      messages: ReminderMessage[];
+      fits: boolean;
+      reason?: string;
+    }
+    // Each safety recap strictly advances coverage, bounding this sequential recursion.
+    const step = async (): Promise<Finalized> => {
+      if (!current()) return fail('The scene changed or the safety recap was cancelled; retry the request.');
+      const covered = dropCoveredMessages(request.messages, raw, win.recapCutoff);
+      const result = limitReminderContext({
+        messages: covered,
+        preview: (candidate) => request.preview(withMemory(candidate)),
+        requestChars: (candidate) => reminderRequestChars(candidate, head),
+        origin: request.origin,
+        windowTokens,
+        charsPerToken: win.charsPerToken,
+      });
+      const before = retainedTranscriptStart(covered, raw);
+      const target = retainedTranscriptStart(result.messages, raw);
+      if (!result.fits)
+        return fail(
+          'The protected input, system prompt, tools or reminders exceed the model window; no uncovered history was discarded.',
+        );
+      if (target <= before) {
+        win.projectedFloorAnchor = win.recapAnchor;
+        return { messages: withMemory(result.messages), fits: true };
+      }
+      if (target < 0 || target <= win.recapCutoff)
+        return fail('Cannot resolve recap coverage for the requested budget cut; history was preserved.');
+      if (win.recapPromise) {
+        await waitForRecap(win.recapPromise, ctx.signal);
+        return step();
+      }
+      if (!recapMode || !getSummarizer(ctx)?.isEnabled())
+        return fail(
+          'A token-budget cut needs a configured roleplay summarizer; request paused instead of discarding scene history.',
+        );
+      const cfg = loadRoleplayConfig(cwd, envCharBudget);
+      const from = win.recapCutoff;
+      const to = boundRollSpanTo(raw, from, target, cfg.recapMaxAdvance, 1);
+      if (to <= from) return fail('A safety recap could not advance coverage; scene history was preserved.');
+      const anchor = raw[to] ? reminderMessageAnchor(raw[to]) : undefined;
+      if (!anchor) return fail('The safety recap boundary is unavailable; scene history was preserved.');
+      const info = resolveRecapModelInfo(ctx);
+      const abort = new AbortController();
+      win.recapAbort = abort;
+      win.recapInFlight = true;
+      const stop = (): void => abort.abort();
+      ctx.signal?.addEventListener('abort', stop, { once: true });
+      try {
+        // Even a short meaningful span needs a recap when it must be evicted.
+        // Include a pi summary here: unlike normal rolls, this cut removes it.
+        const span = raw
+          .slice(from, to)
+          .map((message) =>
+            toSummarizable(
+              message.role === 'compactionSummary' && message.content === undefined
+                ? { ...message, content: message.summary }
+                : message,
+            ),
+          );
+        const result = await doRecap(ctx, span, win.recapText, info, abort.signal, 1);
+        if (!current()) return fail('The scene changed or the safety recap was cancelled; retry the request.');
+        if (!result.applied && !result.trivial) {
+          writeRecapAudit({ result, model: info.model, spanFrom: from, spanTo: to, mode: 'budget' });
+          return fail(
+            'The safety recap failed or was rejected; request paused instead of discarding uncovered history.',
+          );
+        }
+        if (result.applied && result.next) {
+          win.recapText = result.next;
+          writeRecapRecord(result.next, currentSessionId(ctx));
+        }
+        win.recapCutoff = to;
+        win.recapAnchor = anchor;
+        win.committedCutoff = Math.max(win.committedCutoff, to);
+        writeRecapAudit({ result, model: info.model, spanFrom: from, spanTo: to, mode: 'budget', anchor });
+        if (result.applied) {
+          await captureFacts(ctx, span, currentSessionId(ctx), abort.signal, current);
+          if (!current()) return fail('The scene changed during safety capture; retry the request.');
+          await captureTimeline(ctx, span, currentSessionId(ctx), abort.signal, current);
+        }
+      } finally {
+        ctx.signal?.removeEventListener('abort', stop);
+        if (generation === win.recapGen) {
+          win.recapInFlight = false;
+          win.recapAbort = null;
+        }
+      }
+      return step();
+    };
+    try {
+      return await step();
+    } catch {
+      return fail('Safety context finalization failed; request paused with uncovered history preserved.');
+    }
+  };
+
+  // Preview the final snapshot bytes, and await preservation before accepting a cut.
   unsubscribePipeline.push(
     pi.events.on(REMINDER_CAPABILITIES, (data) => {
       const request = data as ReminderCapabilities;
@@ -2321,41 +2462,31 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       const ctx = request.context as ExtensionContext;
       const windowTokens = ctx.model?.contextWindow;
       if (typeof windowTokens !== 'number' || !Number.isFinite(windowTokens) || windowTokens <= 0) return;
-      // Memory must follow the accepted floor, not the first user in the raw
-      // window: the final snapshot budget can discard that earlier anchor.
-      const timelineBlock =
-        recapMode && win.timelineText.trim()
-          ? renderTimelineBlock(win.timelineText, {
-              maxChars: loadRoleplayConfig(cwd, envCharBudget).timelineMaxInjectChars,
-            })
-          : null;
-      const withMemory = (messages: readonly ReminderMessage[]): ReminderMessage[] => {
-        let out = messages as readonly Record<string, unknown>[];
-        if (recapMode && win.recapText.trim()) out = injectRecap(out, win.recapText);
-        if (timelineBlock) out = injectTimeline(out, timelineBlock);
-        return out as ReminderMessage[];
-      };
-      const result = limitReminderContext({
-        messages: request.messages,
-        preview: (candidate) => request.preview(withMemory(candidate)),
-        origin: request.origin,
-        floorAnchor: win.projectedFloorAnchor,
-        windowTokens,
-        charsPerToken: win.charsPerToken,
-      });
-      request.result = { ...result, messages: withMemory(result.messages) };
-      if (result.fits) win.projectedFloorAnchor = result.floorAnchor;
+      request.result = finalizeBudget(request, ctx);
     }),
     pi.events.on(REMINDER_PROJECTED, (data) => {
       if (activeCast() === null) return;
       const request = data as ReminderProjectedRequest;
       const ctx = request.context as ExtensionContext;
-      win.lastSentEstChars = reminderRequestChars(request.messages);
+      win.lastSentEstChars = reminderRequestChars(
+        request.messages,
+        typeof ctx.getSystemPrompt === 'function' ? ctx.getSystemPrompt() : undefined,
+      );
       if (lastWindowSnapshot) {
         const sent = Math.round(win.lastSentEstChars / win.charsPerToken);
         lastWindowSnapshot = {
           ...lastWindowSnapshot,
-          messagesOut: request.messages.length,
+          messagesOut: request.messages.filter(
+            (message) => message.role !== 'system' && message.cacheReminderSnapshot !== true,
+          ).length,
+          natural: Math.max(lastWindowSnapshot.natural, win.recapCutoff),
+          recapCutoff: win.recapCutoff,
+          dropCutoff: win.recapCutoff,
+          committedCutoff: win.committedCutoff,
+          recapChars: win.recapText.length,
+          recapInFlight: win.recapInFlight,
+          dropMoved: lastWindowSnapshot.dropMoved || win.recapCutoff !== lastWindowSnapshot.dropCutoff,
+          recapChanged: lastWindowSnapshot.recapChanged || win.recapText.length !== lastWindowSnapshot.recapChars,
           estSentPromptTokens: sent,
           estFullPromptTokens: Math.max(sent, lastWindowSnapshot.estFullPromptTokens),
           estSavedTokens: Math.max(0, lastWindowSnapshot.estFullPromptTokens - sent),

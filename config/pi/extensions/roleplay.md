@@ -373,12 +373,11 @@ so an assistant tool call is never separated from its result.
 
 Recaps are generated only when a summarize model (see [Configuration](#configuration)) and the summarizer agent resolve.
 Recap mode cancels pi's threshold compaction only while a summarizer resolves; without one it covers nothing, so pi's
-threshold compaction runs normally and summarizes the history instead. In every mode with the window on, a hard safety
-floor drops the oldest whole turns if the reduced prompt would still overflow the session model's context window. Sizing
-uses the condensed request, not the raw transcript. The final reminder-budget pass includes the recap and timeline in
-every candidate and attaches them to the first retained user message, so another safety cut cannot remove the scene
-memory. If no candidate meets the preferred output reserve, the earliest suffix that meets the hard limit is kept
-instead of unnecessarily falling back to only the current turn.
+threshold compaction runs normally and summarizes the history instead. A token limit can be reached before `keepTurns`
+ages anything. The final budget pass must recap uncovered history before dropping it, waiting for that safety recap even
+when normal recaps are asynchronous. If preservation fails or no summarizer is configured, it aborts the request rather
+than silently restarting the scene. Sizing includes the effective system prompt, tool declarations, historical
+snapshots, pending reminders, recap and timeline. Accepted memory is attached to the first retained user message.
 
 **The recap** is a thin narrative layer (recent events, mood, open threads) written by the
 [`roleplay-summarizer`](../agents/roleplay-summarizer.md) agent. It rolls every `recapStride` aged messages (default:
@@ -391,11 +390,11 @@ roll regardless of the stride. The recap runs synchronously on the session model
 **Persistence.** Each roll stamps the recap and its exact coverage on the session branch, so resume, fork, and tree
 navigation continue the right recap. Each roll also refreshes the per-cast carry-over `summary/auto.md`. A genuinely new
 session seeds its recap text from that carry-over without treating any of its own messages as covered. Accepted request
-projections also checkpoint the safety-floor message anchors and learned token-size calibration on the branch. `/reload`
-and resume restore that state for the same cast and model before sizing the first request, so a reload does not bring
-back history already excluded by a safety floor. Checkpoints do not contain conversation text; sessions created before
-this checkpoint support have no saved safety state to restore. `/roleplay newscene` archives the carry-overs and starts
-the next turn cold.
+projections also checkpoint accepted message anchors and input-usage calibration on the branch. `/reload` and resume
+restore version-2 state for the same cast and model. Older version-1 safety state is ignored because it could preserve a
+bad size estimate and an uncovered hard drop. Stable recap anchors recover valid coverage, including safety recaps that
+ran before turn 50. Checkpoints do not contain conversation text. `/roleplay newscene` archives the carry-overs and
+starts the next turn cold.
 
 **Compaction.** Threshold compaction is cancelled in recap mode when a summarizer resolves (otherwise pi compacts
 normally); manual `/compact` and overflow recovery still run. On those paths the evicted span is folded into the current

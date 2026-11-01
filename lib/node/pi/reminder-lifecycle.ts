@@ -32,7 +32,10 @@ export interface ReminderLimitRequest {
   context: unknown;
   origin?: string;
   preview: (messages: readonly ReminderMessage[]) => ReminderMessage[];
-  result?: { messages: ReminderMessage[]; fits: boolean };
+  /** A limiter may await a safety-critical recap before selecting its final window. */
+  result?:
+    | { messages: ReminderMessage[]; fits: boolean; reason?: string }
+    | Promise<{ messages: ReminderMessage[]; fits: boolean; reason?: string }>;
 }
 export interface ReminderProjectedRequest {
   messages: ReminderMessage[];

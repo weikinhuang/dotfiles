@@ -37,6 +37,24 @@ import {
   type LoreMeta,
 } from '../../../../../lib/node/pi/roleplay/store.ts';
 import type * as eventModule from '../../../../../lib/node/pi/roleplay/event.ts';
+import type * as summarizeModule from '../../../../../lib/node/pi/roleplay/summarize.ts';
+import type * as childModule from '../../../../../lib/node/pi/ext/roleplay-child-session.ts';
+vi.mock('../../../../../lib/node/pi/ext/roleplay-child-session.ts', async (original) => ({
+  ...(await original<typeof childModule>()),
+  loadRoleplayAgent: () => null,
+}));
+const summaryMode = vi.hoisted(() => ({ enabled: false }));
+vi.mock('../../../../../lib/node/pi/roleplay/summarize.ts', async (original) => ({
+  ...(await original<typeof summarizeModule>()),
+  createSummarizer: () => ({
+    isEnabled: () => summaryMode.enabled,
+    summarizeDetailed: async (_ctx: unknown, span: string, prior = '') => ({
+      recap: `${prior}\n${span}`,
+      raw: `${prior}\n${span}`,
+    }),
+    summarize: () => Promise.resolve(null),
+  }),
+}));
 
 // Scene events use the real command/deck/consume lifecycle, but never launch a child model.
 vi.mock('../../../../../lib/node/pi/roleplay/event.ts', async (importOriginal) => ({
@@ -69,6 +87,7 @@ beforeEach(() => {
   for (const aspect of ['CONTEXT_WINDOW', 'SUMMARIZE', 'AVATAR', 'SCENEGEN', 'REPETITION']) {
     vi.stubEnv(`PI_ROLEPLAY_DISABLE_${aspect}`, '1');
   }
+  summaryMode.enabled = false;
   vi.spyOn(Math, 'random').mockReturnValue(0);
 });
 
@@ -170,6 +189,7 @@ async function harness(
     sceneFoldRefreshTurns?: number;
     events?: string[];
     eventMaxChars?: number;
+    safetyRecaps?: boolean;
   } = {},
 ): Promise<Harness> {
   const dir = mkdtempSync(join(tmpdir(), 'roleplay-reminder-runtime-'));
@@ -181,6 +201,10 @@ async function harness(
     (entry) => entry.type === 'custom' && entry.customType === 'roleplay-context-recap',
   );
   if (options.windowTokens) vi.stubEnv('PI_ROLEPLAY_DISABLE_CONTEXT_WINDOW', '');
+  if (options.safetyRecaps) {
+    summaryMode.enabled = true;
+    vi.stubEnv('PI_ROLEPLAY_DISABLE_SUMMARIZE', '');
+  }
   if (seededMemory) vi.stubEnv('PI_ROLEPLAY_DISABLE_SUMMARIZE', '');
   if (options.disableCache) vi.stubEnv('PI_CACHE_REMINDERS_DISABLED', '1');
   if (options.memory) {
@@ -422,7 +446,7 @@ async function harness(
   };
 }
 
-test('a fresh roleplay runtime restores the accepted floor and calibration before its first request', async () => {
+test('restored calibration aborts an uncovered hard cut when no summarizer is available', async () => {
   const warm = createWindowState();
   warm.charsPerToken = 2;
   const key = { cast: 'runtime-fixture', provider: 'fixture', model: 'fixture' };
@@ -431,21 +455,20 @@ test('a fresh roleplay runtime restores the accepted floor and calibration befor
   const latest = user('latest turn '.repeat(5000), 2);
   await h.start(latest);
   const before = await h.request([older, latest]);
+  expect(h.aborts()).toBe(1);
   expect(before.some((message) => text(message).includes('older scene'))).toBe(false);
-  expect(before.some((message) => text(message).includes('latest turn'))).toBe(true);
-  const checkpoint = h.windowCheckpoints().at(-1)!;
+  expect(before.some((message) => text(message).includes('latest turn'))).toBe(false);
+  expect(h.records()).toEqual([]);
+  expect(h.windowCheckpoints()).toHaveLength(1);
+  const checkpoint = h.windowCheckpoints()[0];
   expect(checkpoint.charsPerToken).toBe(2);
-  expect(checkpoint.floorAnchor).toBeDefined();
-  const count = h.windowCheckpoints().length;
-  await h.request([older, latest]);
-  expect(h.windowCheckpoints()).toHaveLength(count);
+  expect(checkpoint.floorAnchor).toBeUndefined();
 
-  // A new factory has no RAM from the previous one, just its branch checkpoint.
+  // A new factory restores calibration, but never resurrects an unsafe floor.
   const reloaded = await harness({ windowTokens: 57344, windowCheckpoint: checkpoint });
   await reloaded.start(latest);
-  const after = await reloaded.request([older, latest]);
-  expect(after).toEqual(before);
-  expect(reloaded.aborts()).toBe(0);
+  expect(await reloaded.request([older, latest])).toEqual(before);
+  expect(reloaded.aborts()).toBe(1);
 
   // This is the old cold-start behavior: the same full history falsely fits at /4.
   const cold = await harness({ windowTokens: 57344 });
@@ -855,6 +878,7 @@ test('late snapshot limiting retains recap and timeline after dropping their ori
     noteText: 'Keep the scene grounded in sensory detail. '.repeat(150),
     windowTokens: 8192,
     branchEntries: SCENE_MEMORY_ENTRIES,
+    safetyRecaps: true,
   });
   const history: Message[] = [];
   let lateCut = false;
@@ -865,11 +889,14 @@ test('late snapshot limiting retains recap and timeline after dropping their ori
     const output = await h.request(history);
     await h.command('roleplay', 'context');
     // Raw narrative + memory easily fits. Only replayed notes can force the late cut.
-    expect(h.lastNotice()).toContain('natural=0  drop=0  recap=0  floor=0(frozen)');
+    expect(h.lastNotice()).toContain('floor=0(frozen)');
     expect(h.windowCheckpoints().at(-1)?.floorAnchor).toBeUndefined();
     expect(h.aborts()).toBe(0);
     expect(output.some((message) => message.role === 'user' && text(message).includes(`SCENE_TURN_${i}:`))).toBe(true);
-    const droppedAnchor = !output.some((message) => message.role === 'user' && text(message).includes('SCENE_TURN_0:'));
+    // Recap text intentionally preserves SCENE_TURN_0, so inspect message identity, not its text.
+    const droppedAnchor = !output.some(
+      (message) => message.role === 'user' && message.timestamp === history[0].timestamp,
+    );
     lateCut ||= droppedAnchor;
     expect(Boolean(h.windowCheckpoints().at(-1)?.projectedFloorAnchor)).toBe(droppedAnchor);
     // A mandatory head can make the preferred reserve impossible; hard-fit fallback is valid.
@@ -889,6 +916,7 @@ test.each(['reload', 'tool-call', 'tool-result'] as const)(
       authorDepth: 0,
       noteText: 'Keep the scene grounded in sensory detail. '.repeat(150),
       windowTokens: 8192,
+      safetyRecaps: true,
     };
     // Freeze a real late floor and historical snapshots, then reload that same memory-bearing branch.
     const warm = await harness({ ...options, branchEntries: SCENE_MEMORY_ENTRIES });
@@ -910,7 +938,10 @@ test.each(['reload', 'tool-call', 'tool-result'] as const)(
       ...(tail === 'tool-call' ? [exchange[0]] : tail === 'tool-result' ? exchange : []),
     ]);
     expect(reloaded.aborts()).toBe(0);
-    expect(continued.some((message) => message.role === 'user' && text(message).includes('SCENE_TURN_0:'))).toBe(false);
+    expect(continued.some((message) => message.role === 'user' && message.timestamp === history[0].timestamp)).toBe(
+      false,
+    );
+    expect(continued.map(text).join('\n')).toContain('SCENE_TURN_0:');
     expect(continued.some((message) => message.role === 'user' && text(message).includes('SCENE_TURN_7:'))).toBe(true);
     expect(reloaded.windowCheckpoints().at(-1)?.projectedFloorAnchor).toBe(checkpoint.projectedFloorAnchor);
     expect(reloaded.records()).toEqual(warm.records());
@@ -936,6 +967,7 @@ test('final safety floor accounts historical snapshots and pending notes on ever
     authorDepth: 0,
     noteText: 'tone '.repeat(600),
     windowTokens: 4096,
+    safetyRecaps: true,
   });
   const history: Message[] = [];
   for (let i = 0; i < 8; i++) {

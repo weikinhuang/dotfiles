@@ -6,6 +6,17 @@ import { createReminderLifecycle, reminderMessageAnchor } from '../../../../lib/
 
 const input = (index: number): ReminderMessage => ({ role: 'user', content: `scene ${index}`, timestamp: index });
 
+test('the request size includes SDK structured system sections and toolsAdded', () => {
+  const tools = [{ name: 'read', description: 'read a file', parameters: { type: 'object' } }];
+  const messages: ReminderMessage[] = [
+    { role: 'system', content: '', sections: { base: 'SYSTEM_BASE', persona: 'PERSONA' }, toolsAdded: tools },
+    { role: 'user', content: 'hello' },
+  ];
+  expect(reminderRequestChars(messages)).toBe(
+    'SYSTEM_BASE'.length + 'PERSONA'.length + JSON.stringify(tools).length + 5,
+  );
+});
+
 test('the hard floor counts all replayed snapshots, including the pending first request', () => {
   const lifecycle = createReminderLifecycle();
   const history: ReminderMessage[] = [{ role: 'system', content: 'STATIC' }];
