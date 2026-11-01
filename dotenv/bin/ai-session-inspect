@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Inspect pi session metadata locally without printing conversation content.
+# SPDX-License-Identifier: MIT
+set -euo pipefail
+IFS=$'\n\t'
+
+case "${1:-}" in
+  -h | --help)
+    printf '%s\n' \
+      'Usage: ai-session-inspect [<session-id|prefix|path>] [options]' \
+      'Options: --json --turns --recaps --snapshots --all --no-ids -u --user-dir DIR -h --help' \
+      'Metadata only: counts, sizes, token usage, recap coverage, window cutoffs, findings.' \
+      'Never prints message, thinking, tool, recap, timeline, reminder, or label text.' \
+      'No selector inspects the newest pi session. No model or network calls.'
+    exit 0
+    ;;
+esac
+
+if ! command -v node >/dev/null 2>&1; then
+  printf '%s\n' 'ai-session-inspect: node is required (Node 24+ with native TypeScript support)' >&2
+  exit 1
+fi
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+DOTFILES_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd -P)"
+exec node "${DOTFILES_ROOT}/lib/node/ai-tooling/session-inspect-cli.ts" "$@"

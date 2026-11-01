@@ -713,7 +713,8 @@ the default.
   `windowUserChars`.
 - `PI_ROLEPLAY_RECAP_ASYNC=1|0` - `recapAsync` (default: async only when a distinct recap endpoint is configured).
 - `PI_ROLEPLAY_CONTEXT_DEBUG=1` - append a per-turn `roleplay-context-window-debug` session entry (token estimates and
-  cutoffs); never sent to the LLM.
+  cutoffs); never sent to the LLM. Inspect it, plus recap audits and window checkpoints, without exposing conversation
+  text via [`ai-session-inspect`](../../../lib/node/ai-tooling/SESSION-INSPECT.md) (`ai-session-inspect <id> --all`).
 - `PI_ROLEPLAY_CAPTURE=1` - `capture` (requires recap mode + a session id).
 - `PI_ROLEPLAY_TIMELINE=1` - `timeline` (requires recap mode).
 - `PI_ROLEPLAY_DISABLE_REPETITION=1` - skip the repetition nudge.
