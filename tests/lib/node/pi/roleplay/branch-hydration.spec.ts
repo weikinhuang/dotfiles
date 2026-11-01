@@ -18,6 +18,30 @@ const timelineEntry = (timeline: string): Record<string, unknown> => ({
 });
 const newscene = (): Record<string, unknown> => ({ type: 'custom', customType: 'roleplay-newscene', data: {} });
 
+test('branch hydration filters cast-keyed recaps and timeline deltas', () => {
+  const entries = [
+    recapEntry({ cast: 'a', recap: 'A recap', coveredTo: 4, applied: true }),
+    recapEntry({ cast: 'b', recap: 'B recap', coveredTo: 2, applied: true }),
+    { type: 'custom', customType: 'roleplay-timeline', data: { cast: 'a', version: 2, beats: 'A beat' } },
+    { type: 'custom', customType: 'roleplay-timeline', data: { cast: 'b', version: 2, beats: 'B beat' } },
+  ];
+  expect(scanBranchForRecap(entries, 10, 'a')).toEqual({ recap: 'A recap', coveredTo: 4 });
+  expect(scanBranchForTimeline(entries, 'a')).toBe('A beat');
+  expect(scanBranchForRecap(entries, 10, 'missing')).toBeNull();
+});
+
+test('branch hydration never carries coverage or beats across a cast switch', () => {
+  const entries = [
+    recapEntry({ recap: 'old', coveredTo: 8, applied: true }),
+    timelineEntry('old beat'),
+    { type: 'custom', customType: 'roleplay-cast-change', data: { cast: 'b' } },
+  ];
+  expect(scanBranchForRecap(entries, 20, 'b')).toBeNull();
+  expect(scanBranchForTimeline(entries, 'b')).toBeNull();
+  entries.push(recapEntry({ cast: 'b', recap: 'new', coveredTo: 2, applied: true }));
+  expect(scanBranchForRecap(entries, 20, 'b')).toEqual({ recap: 'new', coveredTo: 2 });
+});
+
 test('scanBranchForRecap returns null on an empty branch', () => {
   expect(scanBranchForRecap([], 10)).toBeNull();
 });
@@ -76,12 +100,14 @@ test('scanBranchForRecap resets coveredTo to 0 when a compaction follows the rec
   expect(scanBranchForRecap(entries, 50)).toEqual({ recap: 'kept text', coveredTo: 0, compacted: true });
 });
 
-test('scanBranchForRecap treats a trivial-span coverage advance as committed', () => {
+test('scanBranchForRecap trusts only verified empty-span coverage', () => {
   const entries = [
     recapEntry({ recap: 'prior', coveredTo: 4, applied: true }),
     recapEntry({ recap: 'prior', coveredTo: 9, applied: false, trivial: true }),
   ];
-  expect(scanBranchForRecap(entries, 50)).toEqual({ recap: 'prior', coveredTo: 9 });
+  expect(scanBranchForRecap(entries, 50)).toEqual({ recap: 'prior', coveredTo: 4 });
+  entries.push(recapEntry({ recap: 'prior', coveredTo: 11, applied: false, trivial: true, emptySpan: true }));
+  expect(scanBranchForRecap(entries, 50)).toEqual({ recap: 'prior', coveredTo: 11 });
 });
 
 test('scanBranchForRecap keeps the normal coveredTo when the compaction precedes the recap', () => {

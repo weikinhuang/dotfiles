@@ -271,6 +271,21 @@ describe('boundRollSpanTo', () => {
   const A = { role: 'assistant', content: 'a' };
   const T = { role: 'toolResult', content: 'r' };
 
+  it('counts text rather than non-text tool frames when satisfying the minimum', () => {
+    const msgs: Msg[] = [{ role: 'user', content: 'first scene fact' }];
+    for (let i = 0; i < 30; i++) {
+      msgs.push({ role: 'assistant', content: [] }, { role: 'toolResult', content: [] });
+    }
+    msgs.push(
+      { role: 'assistant', content: 'first reply' },
+      { role: 'user', content: 'second fact' },
+      { role: 'assistant', content: 'second reply' },
+    );
+    const natural = msgs.length;
+    msgs.push({ role: 'user', content: 'retained turn' });
+    expect(boundRollSpanTo(msgs, 0, natural, 10, 4)).toBe(natural);
+  });
+
   it('caps the advance to recapCutoff + maxAdvance', () => {
     expect(boundRollSpanTo(users(2000), 1643, 1947, 24)).toBe(1667);
   });

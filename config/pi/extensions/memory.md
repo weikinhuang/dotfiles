@@ -149,6 +149,11 @@ context window cuts whole earlier turns), so after every request the extension c
 (`cache-reminders:projected`): if no full index block survives, it drops the baseline and the next run resends the full
 index at its own origin.
 
+An extension that changes the current session's files after the pre-run rescan can emit `memory:changed` with
+`{ cwd, sessionId }`. Matching events refresh the index and invalidate pending proposals and the delivered baseline
+immediately; other scopes are ignored. Roleplay uses this after clearing owned facts so a cast switch cannot deliver the
+old cast's cached notes in its first reply.
+
 Within the full index, the budget is spent by type priority so behavioural rules survive a tight cap: `feedback`, then
 `user`, `note`, `reference`, `project`; within a type the more specific scope wins (session, project, global). Lines
 omit the human name when it only restates the slug. The model is expected to call `memory` action `read` when it needs a

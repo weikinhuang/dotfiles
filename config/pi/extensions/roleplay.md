@@ -31,13 +31,17 @@ and for personas used as subagent implementations - you opt a persona in explici
 - the `roleplay` tool is removed from the active-tools set, so its **Available tools** line and **Guidelines** bullets
   are kept out of the system prompt entirely, starting with the first turn (see
   [roleplay-internals.md](./roleplay-internals.md#tool-gate-timing) for why the gate runs at session-lifecycle time);
-- nothing is injected into the system prompt;
+- nothing is injected into the system prompt, and pi's normal threshold compaction is left alone;
 - `/roleplay` reports the dormant state, and the cast-scoped verbs (`lore`, `recap`, `relationships`, `import`,
   `export`, `event`, `newscene`) refuse to run.
 
 The active cast slug is resolved as: `/roleplay cast <name>` override → the persona's `cast:` frontmatter →
 `castSlug(persona.name)`. The resolved cast + POV character are published on a `globalThis` singleton
 ([`lib/node/pi/roleplay/active.ts`](../../../lib/node/pi/roleplay/active.ts)) so `persona` / `avatar` can read them.
+
+Cast changes invalidate pending recaps, extractors and events, and exclude the prior cast's conversation from the new
+scene. Branch recap and timeline entries are cast-keyed; a new cast can seed its own carry-over, but never another
+cast's coverage. Explicit `/roleplay cast` overrides survive reload and follow the selected session branch.
 
 ## Store layout
 
@@ -555,7 +559,7 @@ selection and branch-mode restoration live in [`image-tools.ts`](../../../lib/no
 | `export [character] [path]`         | Export a character + the active lore as a Character Card V2 JSON (see below).                                                                                         |
 | `event [hint]`                      | Queue a one-shot scene complication for your next reply.                                                                                                              |
 | `images [simple\|full\|off]`        | Show or change the image interface.                                                                                                                                   |
-| `newscene`                          | Archive the recap / timeline / captured-fact carry-overs, mark the branch, and clear in-memory scene state so the next turn starts cold.                              |
+| `newscene`                          | Archive carry-overs, clear owned fact notes and pending scene work, and exclude prior conversation from the new scene.                                                |
 | `dir`                               | Print the store root + active cast dir.                                                                                                                               |
 | `rescan`                            | Re-read the active cast from disk and rebuild `INDEX.md` from the complete on-disk inventory (base + every lore bundle).                                              |
 | `casts`                             | List every cast directory on disk (active one marked `*`).                                                                                                            |

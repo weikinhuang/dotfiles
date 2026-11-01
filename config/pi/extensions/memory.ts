@@ -363,6 +363,20 @@ export default function memoryExtension(pi: ExtensionAPI): void {
     }
   };
 
+  // Other extensions can change this session's files after our pre-run rescan.
+  const unsubscribeChanges = pi.events.on('memory:changed', (data) => {
+    const change = data as { cwd?: unknown; sessionId?: unknown } | undefined;
+    if (change?.cwd !== cwd || change?.sessionId !== sessionId) return;
+    delivered = null;
+    pendingIndex = null;
+    try {
+      rescan(undefined);
+    } catch {
+      // The normal pre-run rescan retries transient disk failures.
+    }
+  });
+  pi.on('session_shutdown', () => unsubscribeChanges());
+
   /** Persist the delivered baseline so resume / `/tree` can reconstruct it. */
   const recordDelivery = (baseline: MemoryBaseline): void => {
     delivered = baseline;

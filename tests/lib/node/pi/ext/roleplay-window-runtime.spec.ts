@@ -412,16 +412,39 @@ test('a short first turn before a long tool turn never wedges coverage (minSpan 
   expect(h.debug().at(-1)).toMatchObject({ recapCutoff: 33 });
 });
 
-test('a non-empty span too trivial to plan still advances coverage (shell backstop)', async () => {
-  // summarizeMinMessages far above any span: planning always returns null (the
-  // minSpan fall-forward still lands the span on a user boundary <= natural).
-  const h = await harness({ recapAsync: false, recapStride: 1, recapMaxAdvance: 6, summarizeMinMessages: 50 });
+test('a small raw-message advance still reaches the non-empty text minimum', async () => {
+  const h = await harness({ recapAsync: false, recapStride: 1, recapMaxAdvance: 4, summarizeMinMessages: 4 });
+  stub.summarizeDetailed.mockResolvedValue({ recap: 'TOOL RECAP', raw: 'TOOL RECAP' });
   await h.request(history(6));
+  expect(stub.summarizeDetailed).toHaveBeenCalledTimes(1);
+  expect(stub.summarizeDetailed.mock.calls[0][1]).toContain('turn 0 prompt');
+  expect(h.recaps().at(-1)).toMatchObject({ coveredFrom: 0, coveredTo: 8, applied: true });
+});
+
+test('a meaningful span below the planning minimum remains uncovered', async () => {
+  const h = await harness({ recapAsync: false, recapStride: 1, recapMaxAdvance: 6, summarizeMinMessages: 50 });
+  const out = await h.request(history(6));
   expect(stub.summarizeDetailed).not.toHaveBeenCalled();
-  expect(h.recaps()).toEqual([
-    expect.objectContaining({ coveredFrom: 0, coveredTo: 8, applied: false, trivial: true }),
-  ]);
-  expect(h.debug().at(-1)).toMatchObject({ recapCutoff: 8 });
+  expect(h.recaps()).toEqual([expect.objectContaining({ coveredFrom: 0, coveredTo: 8, applied: false })]);
+  expect(h.recaps()[0].trivial).not.toBe(true);
+  expect(h.debug().at(-1)).toMatchObject({ recapCutoff: 0 });
+  expect(out.map(text).join('\n')).toContain('turn 0 prompt');
+});
+
+test('a genuinely empty text span can advance coverage without a recap', async () => {
+  const h = await harness({ recapAsync: false, recapStride: 1, recapMaxAdvance: 6, summarizeMinMessages: 50 });
+  const blank: Message[] = [];
+  for (let i = 0; i < 6; i++) {
+    blank.push({ role: 'user', content: ' ', timestamp: i * 2 }, {
+      role: 'assistant',
+      content: [{ type: 'text', text: ' ' }],
+      timestamp: i * 2 + 1,
+    } as Message);
+  }
+  await h.request(blank);
+  expect(stub.summarizeDetailed).not.toHaveBeenCalled();
+  expect(h.customs('roleplay-context-recap')[0]).toMatchObject({ applied: false, trivial: true, emptySpan: true });
+  expect(h.debug().at(-1)?.recapCutoff).toBeGreaterThan(0);
 });
 
 test('sync recap that resolves after a reset is not committed', async () => {

@@ -2,6 +2,7 @@ import type { ReminderMessage } from '../context-reminder.ts';
 import { reminderMessageAnchor, reminderMessageKeys } from '../reminder-identity.ts';
 import { isRecord } from '../shared/guards.ts';
 import type { WindowState } from './window-state.ts';
+import { isSceneBoundary } from './scene-state.ts';
 
 export const WINDOW_CHECKPOINT_TYPE = 'roleplay-context-window-state';
 
@@ -67,7 +68,7 @@ export function restoreWindowCheckpoint(
       continue;
     }
     if (entry.type !== 'custom') continue;
-    if (entry.customType === 'roleplay-newscene') return false;
+    if (isSceneBoundary(entry)) return false;
     if (entry.customType !== WINDOW_CHECKPOINT_TYPE || !isCheckpoint(entry.data)) continue;
     const checkpoint = entry.data;
     if (checkpoint.cast !== key.cast || checkpoint.provider !== key.provider || checkpoint.model !== key.model)

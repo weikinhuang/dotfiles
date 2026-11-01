@@ -196,15 +196,18 @@ A roll summarizes `[recapCutoff, spanTo)` where
 `summarizeMinMessages` messages (or forward to the first user message past the bound when none does), never past
 `natural`. The minimum span prevents a wedge: a short first turn followed by a turn longer than `recapMaxAdvance` used
 to snap down to a span the summarizer refuses as trivial, so no candidate was ever produced and coverage never advanced.
-As a backstop, a non-empty span whose summarization planning still returns null advances `recapCutoff` to `spanTo`
-anyway and writes a `roleplay-context-recap` audit with `trivial: true` (hydrated as committed). pi `compactionSummary`
-messages are filtered out of the span before it reaches the summarizer or extractors. Bounding the increment keeps the
-merge digestible; an unbounded span made a stalled recap re-summarize an ever-growing span, collapse, and wedge
-(coverage pinned 190 turns behind in the field). After a roll that started a recap, `committedCutoff` advances to
-`natural`; if an in-flight async recap blocked it, the boundary holds so the backlog starts as soon as the in-flight one
-lands. Both the sync and async paths capture `recapGen` before awaiting the summarizer and commit nothing when a reset /
-branch change / compaction bumped it meanwhile. Fact and timeline capture re-check the same generation (and the abort
-signal) after their extractor resolves, before any write.
+Meaningful spans below `summarizeMinMessages` remain uncovered until enough text accumulates, even when `recapStride` is
+smaller than that minimum. The bounded roll counts text rather than non-text tool frames and extends to a complete turn
+meeting the minimum when necessary, so a small raw-message cap cannot stall coverage. Only spans containing no non-empty
+text advance without a recap; their audit records carry `trivial: true, emptySpan: true`. Older unverified `trivial`
+records are not trusted as coverage on reload, so the last genuinely accepted recap can recover the skipped text. pi
+`compactionSummary` messages are filtered out of the span before it reaches the summarizer or extractors. Bounding the
+increment keeps the merge digestible; an unbounded span made a stalled recap re-summarize an ever-growing span,
+collapse, and wedge (coverage pinned 190 turns behind in the field). After a roll that started a recap,
+`committedCutoff` advances to `natural`; if an in-flight async recap blocked it, the boundary holds so the backlog
+starts as soon as the in-flight one lands. Both the sync and async paths capture `recapGen` before awaiting the
+summarizer and commit nothing when a reset / branch change / compaction bumped it meanwhile. Fact and timeline capture
+re-check the same generation (and the abort signal) after their extractor resolves, before any write.
 
 The span text cap passed to the summarizer is derived from the recap model's context window (`deriveMaxSpanChars`), with
 the chars/token estimate calibrated against the previous turn's reported usage (`updateCharsPerToken`).
@@ -261,7 +264,8 @@ and final safety-floor anchors plus the learned characters-per-token ratio. Iden
 [`window-checkpoint.ts`](../../../lib/node/pi/roleplay/window-checkpoint.ts) restores the latest matching cast/model
 checkpoint from the active branch before window planning, independently of recap availability. Anchors resolve against
 the current message identities instead of replaying stale array offsets. Compaction invalidates older floors, and a
-`roleplay-newscene` marker shadows older checkpoints. Missing anchors are recomputed by the normal safety passes.
+`roleplay-newscene` or `roleplay-cast-change` marker shadows older checkpoints. Missing anchors are recomputed by the
+normal safety passes.
 
 Without this checkpoint a reload discarded both held floors and calibration: the first request could re-admit old
 history while estimating it at the default four characters per token. Removing a lore-budget option and reloading again
@@ -271,7 +275,8 @@ size must not be paired with an earlier successful response's usage.
 
 ### Compaction interplay
 
-- **Threshold** compaction is cancelled in recap mode when a summarizer resolves; otherwise pi compacts normally.
+- **Threshold** compaction is cancelled only under an active roleplay persona, in recap mode with a resolved summarizer.
+  Dormant coding sessions always retain pi's normal compaction.
 - **Side-write.** On manual / overflow compaction (and threshold when not owned) `session_before_compact` folds the
   evicted span into the recap. The prior is the in-memory branch recap, falling back to `summary/auto.md` only when this
   process holds none. An accepted recap refreshes the carry-over file, upserts the `summary/auto` entry in the in-memory
@@ -321,8 +326,16 @@ Hydration runs once per load, on the first context pass:
 3. **Cold start.** Nothing to seed; the recap stays empty.
 
 `/roleplay newscene` archives the carry-overs (`summary/archive/<ts>.md`, `timeline/archive/<ts>.md`,
-`facts/archive/<ts>/`), appends a `roleplay-newscene` marker that shadows every older recap and timeline entry on the
-branch, and resets in-memory scene state. With no session id (`--no-session`) only the carry-over is written and seeded.
+`facts/archive/<ts>/`), appends a `roleplay-newscene` marker, and resets scene timing, pending events, recaps and
+extractors. The marker stores a persisted-message boundary (with a whole-turn identity fallback for in-memory callers).
+The context hook excludes earlier conversation before recap planning, lore scans and final reminder projection,
+including when the optional context window is off. It also blocks carry-over reseeding after a reset, so a concurrent
+writer cannot revive the archived scene.
+
+Cast switches use `roleplay-cast-change` boundaries, invalidate pending work and clear the previous cast's owned session
+notes. A switch during `before_agent_start` includes its initiating input even though the marker follows that input on
+the branch. Modern recap/timeline audits carry `cast`; hydration filters other casts and stops at scene boundaries.
+Explicit cast overrides are restored from the active branch on reload/tree changes. Session history remains on disk.
 Concurrent same-cast sessions race on `summary/auto.md` (last roll wins the seed); this is cosmetic because each
 session's within-session memory is its own branch.
 
@@ -348,9 +361,15 @@ be self-contained in the name (`"<character> is allergic to shellfish"`) because
 body and the session tier injects only name + description. Writes de-dup against session notes on disk (fuzzy) and those
 written this process, and mirror to `facts/<slug>.md` (deduped against existing sidecars).
 
-**Known gap.** `memory.ts` injects from its cached index within a live session, so a fact captured mid-scene surfaces in
-the injected index only after `memory` rebuilds (next session or a `memory` tool call). Capture stays default-off
-pending a small-window smoke that validates extraction quality and this coherence question.
+New fact notes carry `roleplayFactCast` ownership metadata. `newscene` removes only notes owned by that cast in the
+current session and rebuilds its memory index; unrelated notes and untagged legacy notes are preserved because they
+cannot be attributed safely. The same cleanup runs when leaving a cast and emits a scoped `memory:changed` event,
+invalidating memory's cached index before it can inject freshly captured old-cast facts into the first new-cast reply.
+Ownership lives outside memory's public schema in [`fact-memory.ts`](../../../lib/node/pi/roleplay/fact-memory.ts).
+
+Fact capture writes during context preparation, after memory's pre-run rescan. Newly captured notes therefore surface on
+the next agent run or memory tool call, not necessarily in the same request. Capture stays default-off pending
+validation of extraction quality.
 
 ## Timeline mechanics
 
@@ -448,8 +467,11 @@ Context window and scene memory:
   overflow valve) and `applyWindowPass` (recap / hard-drop / condense-only).
 - [`window-state.ts`](../../../lib/node/pi/roleplay/window-state.ts) - grouped window state with `resetWindowState`,
   `resetWindowCoverage` (post-compaction), `invalidateRecap`, `armForcedRecap`, `planRoll`, `settleForcedRecap`.
-- [`branch-hydration.ts`](../../../lib/node/pi/roleplay/branch-hydration.ts) - `scanBranchForRecap` (compaction zeroes
-  coverage) and `scanBranchForTimeline` (legacy base + v2 deltas).
+- [`branch-hydration.ts`](../../../lib/node/pi/roleplay/branch-hydration.ts) - cast-filtered `scanBranchForRecap`
+  (compaction zeroes coverage) and `scanBranchForTimeline` (legacy base + v2 deltas).
+- [`scene-state.ts`](../../../lib/node/pi/roleplay/scene-state.ts) - persisted scene boundaries, message scoping,
+  carry-over seed policy and cast-override restoration.
+- [`fact-memory.ts`](../../../lib/node/pi/roleplay/fact-memory.ts) - ownership-tagged fact notes and selective cleanup.
 - [`summarize.ts`](../../../lib/node/pi/roleplay/summarize.ts) - span rendering, `planSummarization`, settings,
   `validateSummary` / `clampSummary`, and the `createSummarizer` adapter.
 - [`capture.ts`](../../../lib/node/pi/roleplay/capture.ts) - fact-extraction task + tolerant `parseFactCandidates`.

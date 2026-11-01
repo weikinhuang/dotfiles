@@ -30,6 +30,7 @@
  */
 
 import { isTextPart } from '../shared.ts';
+import { messageContentToText } from '../message-text.ts';
 
 /** A message is an opaque record; only `role` and `content` are read here. */
 type Msg = Record<string, unknown>;
@@ -389,10 +390,21 @@ export function boundRollSpanTo(
   if (maxAdvance <= 0) return natural;
   const bound = Math.min(natural, recapCutoff + maxAdvance);
   if (bound >= natural) return natural;
-  for (let i = bound; i > recapCutoff; i--) {
-    if (messages[i]?.role === 'user' && i - recapCutoff >= minSpan) return i;
+  let minimumTextEnd = recapCutoff;
+  if (minSpan > 0) {
+    let count = 0;
+    for (let i = recapCutoff; i < natural; i++) {
+      if (messages[i]?.role !== 'compactionSummary' && messageContentToText(messages[i]?.content).trim()) count += 1;
+      if (count >= minSpan) {
+        minimumTextEnd = i + 1;
+        break;
+      }
+    }
   }
-  for (let i = bound + 1; i < natural; i++) {
+  for (let i = bound; i > recapCutoff; i--) {
+    if (messages[i]?.role === 'user' && i - recapCutoff >= minSpan && i >= minimumTextEnd) return i;
+  }
+  for (let i = Math.max(bound + 1, minimumTextEnd); i < natural; i++) {
     if (messages[i]?.role === 'user') return i;
   }
   return natural;

@@ -10,6 +10,8 @@
  * rehydrates the state that belongs to ITS branch, never a sibling's.
  */
 
+import { isSceneBoundary } from './scene-state.ts';
+
 /** The recovered recap plus the exact coverage boundary it carried. */
 export interface BranchRecap {
   recap: string;
@@ -42,11 +44,15 @@ export interface BranchRecap {
  * new, shorter array is dropped on the stale index; normal rolls re-anchor it.
  * Such a result carries `compacted: true`.
  *
- * A roll whose span was too trivial to summarize (`trivial: true`) still
- * advanced coverage, so it is treated as committed too (its `recap` is the
- * prior recap held in force).
+ * Only a verified empty-text roll (`trivial: true, emptySpan: true`) can
+ * advance coverage without a candidate. Older unverified trivial records
+ * may have skipped meaningful short spans and are ignored for recovery.
  */
-export function scanBranchForRecap(entries: readonly Record<string, unknown>[], natural: number): BranchRecap | null {
+export function scanBranchForRecap(
+  entries: readonly Record<string, unknown>[],
+  natural: number,
+  cast?: string,
+): BranchRecap | null {
   let compactedAfter = false;
   for (let i = entries.length - 1; i >= 0; i--) {
     const e = entries[i];
@@ -55,13 +61,23 @@ export function scanBranchForRecap(entries: readonly Record<string, unknown>[], 
       continue;
     }
     if (e?.type !== 'custom') continue;
-    if (e.customType === 'roleplay-newscene') return null;
+    if (isSceneBoundary(e)) return null;
     const ct = e.customType;
     if (ct !== 'roleplay-context-recap' && ct !== 'rp-context-recap') continue;
     const data = e.data as
-      | { recap?: unknown; coveredTo?: unknown; applied?: unknown; forced?: unknown; trivial?: unknown }
+      | {
+          cast?: unknown;
+          recap?: unknown;
+          coveredTo?: unknown;
+          applied?: unknown;
+          forced?: unknown;
+          trivial?: unknown;
+          emptySpan?: unknown;
+        }
       | undefined;
-    if (data?.applied === false && data?.forced !== true && data?.trivial !== true) continue;
+    if (cast && typeof data?.cast === 'string' && data.cast !== cast) continue;
+    if (data?.applied === false && data?.forced !== true && !(data?.trivial === true && data.emptySpan === true))
+      continue;
     const text = typeof data?.recap === 'string' ? data.recap.trim() : '';
     if (!text) continue;
     if (compactedAfter) return { recap: text, coveredTo: 0, compacted: true };
@@ -85,15 +101,18 @@ export function scanBranchForRecap(entries: readonly Record<string, unknown>[], 
  * same way {@link scanBranchForRecap} handles the recap. Returns `null` when
  * nothing on the branch carries beats.
  */
-export function scanBranchForTimeline(entries: readonly Record<string, unknown>[]): string | null {
+export function scanBranchForTimeline(entries: readonly Record<string, unknown>[], cast?: string): string | null {
   const deltas: string[] = [];
   let base = '';
   for (let i = entries.length - 1; i >= 0; i--) {
     const e = entries[i];
     if (e?.type !== 'custom') continue;
-    if (e.customType === 'roleplay-newscene') break;
+    if (isSceneBoundary(e)) break;
     if (e.customType !== 'roleplay-timeline') continue;
-    const data = e.data as { timeline?: unknown; beats?: unknown; version?: unknown; base?: unknown } | undefined;
+    const data = e.data as
+      | { cast?: unknown; timeline?: unknown; beats?: unknown; version?: unknown; base?: unknown }
+      | undefined;
+    if (cast && typeof data?.cast === 'string' && data.cast !== cast) continue;
     if (data?.version === 2) {
       const beats = typeof data.beats === 'string' ? data.beats.trim() : '';
       if (beats) deltas.push(beats);
