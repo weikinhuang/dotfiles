@@ -136,7 +136,16 @@ test('normalizes string content to blocks, preserving the original text', () => 
   const out = applyContextReminder([userString('plain string prompt')], { id: 'todo-plan', body: 'PLAN' });
   expect(out[0].content).toEqual([
     { type: 'text', text: 'plain string prompt' },
-    { type: 'text', text: '<system-reminder id="todo-plan">\nPLAN\n</system-reminder>' },
+    { type: 'text', text: '<system-reminder id="todo-plan">\nPLAN\n</system-reminder>', cacheReminderBlock: true },
+  ]);
+});
+
+test('never strips identical framed text that was not producer-injected', () => {
+  const typed = { type: 'text', text: '<system-reminder id="todo-plan">\nUSER TYPED THIS\n</system-reminder>' };
+  const out = applyContextReminder([{ role: 'user', content: [typed] }], { id: 'todo-plan', body: 'PLAN' });
+  expect(out[0].content).toEqual([
+    typed,
+    { type: 'text', text: '<system-reminder id="todo-plan">\nPLAN\n</system-reminder>', cacheReminderBlock: true },
   ]);
 });
 
@@ -270,5 +279,7 @@ test('messages with non-array content (e.g. undefined) are passed through, not c
 test('injecting into a trailing message with non-array content starts a fresh block array', () => {
   const weird = { role: 'toolResult', content: undefined } as unknown as ReminderMessage;
   const out = applyContextReminder([userText('hi'), weird], { id: 'x', body: 'PLAN' });
-  expect(out[1].content).toEqual([{ type: 'text', text: '<system-reminder id="x">\nPLAN\n</system-reminder>' }]);
+  expect(out[1].content).toEqual([
+    { type: 'text', text: '<system-reminder id="x">\nPLAN\n</system-reminder>', cacheReminderBlock: true },
+  ]);
 });

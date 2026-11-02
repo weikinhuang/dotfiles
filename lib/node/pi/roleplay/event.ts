@@ -262,7 +262,8 @@ const DEFAULT_TIMEOUT_MS = 60000;
  */
 export function createEventGenerator<M>(wiring: EventGeneratorWiring<M>): EventGenerator<M> {
   const maxOutput = wiring.maxOutputChars ?? DEFAULT_MAX_OUTPUT_CHARS;
-  const timeoutMs = wiring.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  // An explicit wiring override wins, then the agent's frontmatter `timeoutMs`.
+  const timeoutMs = wiring.timeoutMs ?? wiring.eventAgent?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   const isEnabled = (): boolean => wiring.eventAgent !== null;
 

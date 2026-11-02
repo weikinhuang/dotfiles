@@ -60,6 +60,12 @@ export interface WindowState {
    * it is cleared. `null` when there is nothing pending.
    */
   timelineSeedBase: string | null;
+  /**
+   * Condense-boundary anchor restored from the window checkpoint; applied once
+   * after recap hydration so a reload rebuilds the live condensed prefix
+   * instead of re-admitting it and rolling again at once.
+   */
+  checkpointCommittedAnchor: string | undefined;
 }
 
 export function createWindowState(): WindowState {
@@ -81,6 +87,7 @@ export function createWindowState(): WindowState {
     forceRecap: false,
     postCompaction: false,
     timelineSeedBase: null,
+    checkpointCommittedAnchor: undefined,
   };
 }
 
@@ -122,6 +129,7 @@ export function resetWindowState(win: WindowState): void {
   win.forceRecap = false;
   win.postCompaction = false;
   win.timelineSeedBase = null;
+  win.checkpointCommittedAnchor = undefined;
   invalidateRecap(win);
 }
 
@@ -140,6 +148,7 @@ export function resetWindowCoverage(win: WindowState): void {
   win.committedCutoff = 0;
   win.frozenFloorCutoff = 0;
   win.lastSentEstChars = 0;
+  win.checkpointCommittedAnchor = undefined;
   win.postCompaction = true;
 }
 

@@ -14,7 +14,8 @@ model: inherit
 thinkingLevel: off
 maxTurns: 1
 isolation: shared-cwd
-timeoutMs: 60000
+# Generous: the child often runs on a self-hosted, single-instance endpoint.
+timeoutMs: 300000
 requestOptions:
   # Neutral, faithful-summary sampler pinned onto the recap's provider
   # request. Low temperature curbs confabulation / paraphrase drift, and

@@ -169,10 +169,11 @@ The reduction is a non-destructive overlay: the `context` hook output is never p
 - **Dropped prefix.** In recap mode the recap-covered prefix is removed entirely, so prompt size is O(1) in scene
   length.
 
-Every drop boundary lands on a user message. `computeCutoff` and `boundRollSpanTo` produce user-message indices, and
-`applyLayeredWindow` defensively snaps any other non-zero drop (`snapDropToUserBoundary`): down to the nearest user
-message, or forward when none precedes it. The reduced list therefore never opens on an assistant turn or an orphaned
-tool result.
+Every drop boundary lands on a turn start: a user message or a custom input (pi sends a custom message as a user turn).
+Coverage itself may end mid-turn (a char-bounded span, below), so `applyLayeredWindow` and the final limiter snap the
+drop (`snapDropToUserBoundary`) down to the nearest turn start. When none precedes it the drop is cancelled, never moved
+forward: moving forward would discard messages no recap covers. The reduced list therefore never opens on an assistant
+turn or an orphaned tool result, and a partially covered turn stays in the request until coverage passes it.
 
 ### Modes
 
@@ -200,9 +201,11 @@ Meaningful spans below `summarizeMinMessages` remain uncovered until enough text
 smaller than that minimum. The bounded roll counts text rather than non-text tool frames and extends to a complete turn
 meeting the minimum when necessary, so a small raw-message cap cannot stall coverage. Only spans containing no non-empty
 text advance without a recap; their audit records carry `trivial: true, emptySpan: true`. Older unverified `trivial`
-records are not trusted as coverage on reload, so the last genuinely accepted recap can recover the skipped text. pi
-`compactionSummary` messages are filtered out of the span before it reaches the summarizer or extractors. Bounding the
-increment keeps the merge digestible; an unbounded span made a stalled recap re-summarize an ever-growing span,
+records are not trusted as coverage on reload, so the last genuinely accepted recap can recover the skipped text. Every
+transcript kind reaches the summarizer, including pi's content-less ones (`messageSummaryText`): a `compactionSummary`
+or `branchSummary` contributes its `summary`, a `!command` run its command and output. The roll drops them with the rest
+of the span, and when a compaction side-write failed the compaction summary is the only record of that history. Bounding
+the increment keeps the merge digestible; an unbounded span made a stalled recap re-summarize an ever-growing span,
 collapse, and wedge (coverage pinned 190 turns behind in the field). After a roll that started a recap,
 `committedCutoff` advances to `natural`; if an in-flight async recap blocked it, the boundary holds so the backlog
 starts as soon as the in-flight one lands. Both the sync and async paths capture `recapGen` before awaiting the
@@ -210,7 +213,15 @@ summarizer and commit nothing when a reset / branch change / compaction bumped i
 re-check the same generation (and the abort signal) after their extractor resolves, before any write.
 
 The span text cap passed to the summarizer is derived from the recap model's context window (`deriveMaxSpanChars`), with
-the chars/token estimate calibrated against matched prompt-input usage (`updateCharsPerToken`).
+the chars/token estimate calibrated against matched prompt-input usage (`updateCharsPerToken`, which admits dense
+scripts down to 0.25 chars/token). `boundSpanByChars` then ends the span before its rendered transcript would exceed
+that cap, so coverage only advances over text the summarizer actually reads; `renderSpan` never drops older lines of a
+planned span. A char-bounded span may end mid-turn and plans with a one-message minimum; a single message larger than
+the cap is condensed head+tail rather than wedging coverage.
+
+Spans leave the process for a child session that loads no extensions, so they first pass through the provider-copy
+sanitizer (`cache-reminders:sanitize`, e.g. `secret-redactor`). When a sanitizer is required but does not handle the
+copy, the roll starts nothing and commits no coverage, and a safety recap aborts the request.
 
 ### Collapse guard and wedge breaker
 
@@ -252,9 +263,17 @@ meaningful spans even below the normal planning minimum, but rejected candidates
 unavailable summarization, cancellation, an unresolved boundary, or an oversized protected input aborts the request with
 history intact. No snapshot is persisted or event consumed on failure.
 
-Every budget preview includes scene memory, and the accepted prefix is attached to the first retained user message. The
-limiter prefers a 3072-token output reserve and may use a 1024-token hard margin when a larger mandatory head makes the
-preferred reserve impossible. These remain token estimates, not exact tokenization.
+Every budget preview includes scene memory, and the accepted prefix is attached to the first retained user turn (a user
+message or custom input). It never rides a system message: pi replaces the provider head with the forced prompt the
+extension returns, which would discard it. With no retained user turn a standalone user message carries it. The final
+limiter runs on every request under an active coordinator, including models without a usable `contextWindow` (memory is
+injected, the size cut skipped). Without a coordinator the context pass injects memory itself. The limiter prefers a
+3072-token output reserve and may use a 1024-token hard margin when a larger mandatory head makes the preferred reserve
+impossible. These remain token estimates, not exact tokenization. pi-ai then clamps the reply to
+`contextWindow - its estimate - 4096` and often estimates at 3.5 chars/token, well above the real count on prose. A
+prompt that fit only the calibrated estimate left the reply 1 token on a live 53k window. From a 16k window up, each
+candidate's footprint is therefore `max(calibrated estimate, piFallbackTokens) + 4096` before those reserves apply;
+smaller windows cannot meet pi's margin at all and keep the calibrated estimate alone.
 
 Usage calibration pairs the complete projected request with its own `message_end` input/cache usage. It does not use
 `getContextUsage()`, whose context estimate also includes output and trailing messages. Structured prompt sections and
@@ -285,14 +304,15 @@ not restored: a projected request must be paired with its own later response, ne
   evicted span into the recap. The prior is the in-memory branch recap, falling back to `summary/auto.md` only when this
   process holds none. An accepted recap refreshes the carry-over file, upserts the `summary/auto` entry in the in-memory
   index without a cast rescan (which would reset lorebook timing), and appends a `roleplay-context-recap` entry with
-  `mode: 'compact'` and `coveredTo: 0`.
+  `mode: 'compact'` and `coveredTo: 0`. It first invalidates any in-flight background roll: that roll covers older
+  history from an older prior, and landing after the fold would replace it. The span is sanitized like a roll's.
 - **After compaction** the message array is new and shorter, so `session_compact` calls `resetWindowCoverage`: recap and
   timeline text are kept; `recapCutoff`, `committedCutoff`, and the frozen floor go to 0; any in-flight async recap is
   invalidated. The first pass afterwards (`anchorAfterCompaction`) sets `committedCutoff = natural` without rolling
   (compaction already bounded the size) and keeps `recapCutoff` at 0, so the compaction summary and already-recapped
-  kept messages are not re-summarized right away. `scanBranchForRecap` applies the same rule on reload: a recap entry
-  followed on the branch by a pi `compaction` entry hydrates with `coveredTo: 0` and `compacted: true`, and the condense
-  boundary anchors at `natural`.
+  kept messages are not re-summarized right away. The next roll folds the compaction summary with the kept messages it
+  drops. `scanBranchForRecap` applies the same rule on reload: a recap entry followed on the branch by a pi `compaction`
+  entry hydrates with `coveredTo: 0` and `compacted: true`, and the condense boundary anchors at `natural`.
 
 ### Debugging
 
@@ -320,13 +340,17 @@ Hydration runs once per load, on the first context pass:
 
 1. **Branch.** If the branch carries an applied (or forced) recap after the latest `roleplay-newscene` marker, resume
    from it: `recapCutoff = committedCutoff = min(coveredTo, natural)` (when a compaction follows it, `recapCutoff = 0`
-   and `committedCutoff = natural`). The timeline comes from the branch, else the carry-over. No fact reseed.
+   and `committedCutoff = natural`). A checkpointed condense anchor (`committedAnchor`) restores the live condensed
+   prefix, so a reload neither re-admits it nor rolls again at once. The timeline comes from the branch; the shared
+   carry-over is adopted only for a legacy branch that never recorded any timeline entry. No fact reseed.
 2. **Carry-over seed.** Otherwise (fresh session, or a fork with no recap on its path) seed the recap **text** from
    `summary/auto.md` and the timeline from `timeline/auto.md`, with coverage left at 0. The carry-over came from another
    session and covers none of this session's messages; claiming `natural` on a resumed long session that never rolled
    would drop all aged history in favor of a foreign recap. The seed is still injected (injection keys on recap text,
-   not coverage), and normal rolls fold into it. With capture on and a session id, carry-over fact sidecars are seeded
-   into the session `memory` tier.
+   not coverage), and normal rolls fold into it. Both seeds are stamped on the branch when adopted (a `mode: 'seed'`
+   recap entry with coverage 0 and a v2 timeline `base`), so a resume rebuilds the exact text the live session had, not
+   whatever another same-cast session has since written to the carry-over. With capture on and a session id, carry-over
+   fact sidecars are seeded into the session `memory` tier.
 3. **Cold start.** Nothing to seed; the recap stays empty.
 
 `/roleplay newscene` archives the carry-overs (`summary/archive/<ts>.md`, `timeline/archive/<ts>.md`,
@@ -370,6 +394,12 @@ current session and rebuilds its memory index; unrelated notes and untagged lega
 cannot be attributed safely. The same cleanup runs when leaving a cast and emits a scoped `memory:changed` event,
 invalidating memory's cached index before it can inject freshly captured old-cast facts into the first new-cast reply.
 Ownership lives outside memory's public schema in [`fact-memory.ts`](../../../lib/node/pi/roleplay/fact-memory.ts).
+
+The session note tier is shared by every branch of a session file, but captures are branch facts. Each
+`roleplay-capture` entry records the notes it wrote (`facts: [{slug, name, description}]`, seeded sidecars too). On
+`session_start` and `session_tree`, [`fact-branch.ts`](../../../lib/node/pi/roleplay/fact-branch.ts) plans the tier for
+the active branch: notes only other branches captured are removed, notes this branch captured after its latest scene
+boundary are restored, and notes no capture entry names (legacy, user-written) are never touched.
 
 Fact capture writes during context preparation, after memory's pre-run rescan. Newly captured notes therefore surface on
 the next agent run or memory tool call, not necessarily in the same request. Capture stays default-off pending
@@ -464,9 +494,9 @@ Lore and scene:
 Context window and scene memory:
 
 - [`context-window.ts`](../../../lib/node/pi/roleplay/context-window.ts) - head+tail truncation, `computeCutoff`,
-  `applyLayeredWindow`, `snapDropToUserBoundary`, `boundRollSpanTo`, `freezeFloorCutoff`, `injectRecap` /
-  `injectTimeline`, `acceptRecap`, `shouldForceRecap`, `planRecap`, and sizing helpers (`deriveMaxSpanChars`,
-  `updateCharsPerToken`, `deriveKeepTurns`, `estimateChars`).
+  `applyLayeredWindow`, `snapDropToUserBoundary`, `boundRollSpanTo`, `boundSpanByChars`, `messageSummaryText`,
+  `freezeFloorCutoff`, `injectRecap` / `injectTimeline`, `acceptRecap`, `shouldForceRecap`, `planRecap`, and sizing
+  helpers (`deriveMaxSpanChars`, `updateCharsPerToken`, `deriveKeepTurns`, `estimateChars`).
 - [`window-pass.ts`](../../../lib/node/pi/roleplay/window-pass.ts) - `planWindowFloor` (frozen safety floor with
   overflow valve) and `applyWindowPass` (recap / hard-drop / condense-only).
 - [`window-state.ts`](../../../lib/node/pi/roleplay/window-state.ts) - grouped window state with `resetWindowState`,
@@ -476,6 +506,8 @@ Context window and scene memory:
 - [`scene-state.ts`](../../../lib/node/pi/roleplay/scene-state.ts) - persisted scene boundaries, message scoping,
   carry-over seed policy and cast-override restoration.
 - [`fact-memory.ts`](../../../lib/node/pi/roleplay/fact-memory.ts) - ownership-tagged fact notes and selective cleanup.
+- [`fact-branch.ts`](../../../lib/node/pi/roleplay/fact-branch.ts) - `planFactReconcile`: which captured notes the
+  active branch keeps or removes after resume / fork / `/tree`.
 - [`summarize.ts`](../../../lib/node/pi/roleplay/summarize.ts) - span rendering, `planSummarization`, settings,
   `validateSummary` / `clampSummary`, and the `createSummarizer` adapter.
 - [`capture.ts`](../../../lib/node/pi/roleplay/capture.ts) - fact-extraction task + tolerant `parseFactCandidates`.

@@ -80,6 +80,27 @@ export function extractBalancedArray(text: string): string | null {
 }
 
 /**
+ * Parse the first embedded JSON ARRAY in `text`, trying each `[` in turn so
+ * a bracketed prose aside before the real payload (`Facts [2 found]: [...]`)
+ * does not hide it. Each candidate is a string-aware balanced `[ … ]` slice
+ * (see {@link extractBalanced}); the first one that `JSON.parse`s to an
+ * array wins. Returns `null` when none does. Never throws.
+ */
+export function parseFirstJsonArray(text: string): unknown[] | null {
+  for (let at = text.indexOf('['); at !== -1; at = text.indexOf('[', at + 1)) {
+    const candidate = extractBalancedArray(text.slice(at));
+    if (candidate === null) return null;
+    try {
+      const parsed: unknown = JSON.parse(candidate);
+      if (Array.isArray(parsed)) return parsed as unknown[];
+    } catch {
+      // Not JSON (e.g. a prose aside); try the next `[`.
+    }
+  }
+  return null;
+}
+
+/**
  * Parse `text` as JSON, falling back to a code-fence strip and then to
  * the first balanced object or array embedded in surrounding prose.
  * Returns `undefined` (never throws) when nothing parses - distinct from

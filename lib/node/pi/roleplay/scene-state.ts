@@ -2,6 +2,7 @@ import type { ReminderMessage } from '../context-reminder.ts';
 import type { ReminderTrigger } from '../reminder-identity.ts';
 import { reminderMessageKeys } from '../reminder-identity.ts';
 import { isRecord } from '../shared/guards.ts';
+import { castSlug } from './store.ts';
 
 export const CAST_CHANGE_TYPE = 'roleplay-cast-change';
 export const CAST_OVERRIDE_TYPE = 'roleplay-cast-override';
@@ -44,6 +45,13 @@ export function recordedCast(entries: readonly Record<string, unknown>[]): strin
   return null;
 }
 
+/**
+ * The newest persisted `/roleplay cast` override on the branch, or `null`.
+ * The stored value is re-slugged with {@link castSlug} (idempotent for the
+ * slugs the extension writes) because it becomes a path segment under
+ * `casts/`: a crafted or foreign session entry such as `../..` must not
+ * escape the cast store. A blank override reads as none.
+ */
 export function restoreCastOverride(entries: readonly Record<string, unknown>[]): string | null {
   for (let i = entries.length - 1; i >= 0; i--) {
     const entry = entries[i];
@@ -53,7 +61,9 @@ export function restoreCastOverride(entries: readonly Record<string, unknown>[])
       !isRecord(entry.data)
     )
       continue;
-    if (typeof entry.data.override === 'string') return entry.data.override;
+    if (typeof entry.data.override === 'string') {
+      return entry.data.override.trim().length > 0 ? castSlug(entry.data.override) : null;
+    }
     if (entry.data.override === null) return null;
   }
   return null;

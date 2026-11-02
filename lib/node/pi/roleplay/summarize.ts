@@ -28,9 +28,9 @@
  * `ModelRegistryLike` types from `../subagent/spawn.ts`).
  */
 
-import { truncate } from '../shared.ts';
 import { type AgentDef } from '../subagent/loader.ts';
 import { type ModelRegistryLike } from '../subagent/spawn.ts';
+import { truncateText } from './context-window.ts';
 import { createOneShotSubagentAdapter, resolveRoleplayChildModelSettings } from './one-shot.ts';
 
 // ──────────────────────────────────────────────────────────────────────
@@ -87,9 +87,9 @@ export function renderSpan(
     const line = lines[i];
     if (line.length + 2 > budget) {
       // Never starve the summarizer down to just the marker: always keep
-      // the newest line, truncated to whatever budget is left, when even
-      // it alone would overflow.
-      if (kept.length === 0 && budget > 0) kept.unshift(truncate(line, budget));
+      // the newest line, condensed head+tail to whatever budget is left, when
+      // even it alone would overflow (late facts cluster at a message's end).
+      if (kept.length === 0 && budget > 0) kept.unshift(truncateText(line, budget) ?? line.slice(0, budget));
       break;
     }
     kept.unshift(line);
@@ -302,7 +302,7 @@ export interface SummarizerWiring<M> {
   log?: (level: 'info' | 'warn', message: string) => void;
   /** Soft cap on the recap body, in characters. Default 1500. */
   maxOutputChars?: number;
-  /** Per-call agent timeout, in ms. Default 60000. */
+  /** Per-call agent timeout, in ms. Default: the agent's frontmatter `timeoutMs`, else 60000. */
   timeoutMs?: number;
 }
 
@@ -355,7 +355,8 @@ const DEFAULT_TIMEOUT_MS = 60000;
  */
 export function createSummarizer<M>(wiring: SummarizerWiring<M>): Summarizer<M> {
   const maxOutput = wiring.maxOutputChars ?? DEFAULT_MAX_OUTPUT_CHARS;
-  const timeoutMs = wiring.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  // An explicit wiring override wins, then the agent's frontmatter `timeoutMs`.
+  const timeoutMs = wiring.timeoutMs ?? wiring.summarizerAgent?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   const isEnabled = (): boolean => wiring.settings !== null && wiring.summarizerAgent !== null;
 
@@ -377,7 +378,11 @@ export function createSummarizer<M>(wiring: SummarizerWiring<M>): Summarizer<M> 
       label: 'summarizer',
       log: wiring.log,
     });
-    const finalText = await adapter.run(ctx, buildSummarizeTask(spanText, priorSummary, guidance), settings.summarizeModel);
+    const finalText = await adapter.run(
+      ctx,
+      buildSummarizeTask(spanText, priorSummary, guidance),
+      settings.summarizeModel,
+    );
     if (finalText === null) return { recap: null, raw: null };
     const trimmed = finalText.trim();
     const raw = trimmed.length === 0 || trimmed === 'null' ? null : trimmed;

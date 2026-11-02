@@ -46,6 +46,77 @@ export function reminderRequestChars(messages: readonly ReminderMessage[], syste
   return chars;
 }
 
+/**
+ * pi-ai clamps each request's `max_tokens` to `contextWindow - estimate - 4096`
+ * (`clampMaxTokensToContext`). When it cannot pair the prompt with the last
+ * reply's usage it estimates at 3.5 chars/token, which on prose runs well above
+ * the real count. A limiter that ignores that clamp can accept a prompt that
+ * fits the window yet leaves the reply 1 token. Mirror both constants here.
+ */
+export const PI_CONTEXT_SAFETY_TOKENS = 4096;
+const PI_CHARS_PER_TOKEN = 3.5;
+const PI_IMAGE_CHARS = 4800;
+/** Below this window pi's fixed margin cannot be met at all; do not apply it. */
+export const PI_SAFETY_MIN_WINDOW = 4 * PI_CONTEXT_SAFETY_TOKENS;
+
+function piContentChars(content: unknown): number {
+  if (typeof content === 'string') return content.length;
+  if (!Array.isArray(content)) return 0;
+  let chars = 0;
+  for (const part of content as unknown[]) {
+    if (!isRecord(part)) continue;
+    if (part.type === 'text' && typeof part.text === 'string') chars += part.text.length;
+    else if (part.type === 'thinking' && typeof part.thinking === 'string') chars += part.thinking.length;
+    else if (part.type === 'toolCall')
+      chars += (typeof part.name === 'string' ? part.name.length : 0) + JSON.stringify(part.arguments ?? {}).length;
+    else if (part.type === 'image') chars += PI_IMAGE_CHARS;
+  }
+  return chars;
+}
+
+/**
+ * pi's character-fallback estimate of the provider request: 3.5 chars/token per
+ * message (rounded up per message, as pi does), the effective system head, and
+ * the declared tools. Content-less pi kinds count the text pi converts them to.
+ */
+export function piFallbackTokens(messages: readonly ReminderMessage[], systemPrompt?: string): number {
+  const ceil = (chars: number): number => Math.ceil(chars / PI_CHARS_PER_TOKEN);
+  let tokens = typeof systemPrompt === 'string' ? ceil(systemPrompt.length) : 0;
+  const tools = new Map<string, unknown>();
+  let declaresTools = false;
+  for (const message of messages) {
+    if (message.role === 'system') {
+      if (systemPrompt === undefined) {
+        let chars = piContentChars(message.content);
+        if (isRecord(message.sections))
+          for (const value of Object.values(message.sections)) if (typeof value === 'string') chars += value.length;
+        tokens += ceil(chars);
+      }
+      if (Array.isArray(message.tools)) tools.clear();
+      const added = Array.isArray(message.tools) ? message.tools : message.toolsAdded;
+      if (Array.isArray(added)) {
+        declaresTools = true;
+        for (const [index, tool] of added.entries())
+          tools.set(isRecord(tool) && typeof tool.name === 'string' ? tool.name : String(index), tool);
+      }
+      if (Array.isArray(message.toolsRemoved)) {
+        declaresTools = true;
+        for (const name of message.toolsRemoved) if (typeof name === 'string') tools.delete(name);
+      }
+      continue;
+    }
+    let chars = piContentChars(message.content);
+    // compaction / branch summaries and `!command` runs reach the model as user text
+    // with a short framing prefix; count the payload plus that framing.
+    if (message.content === undefined && typeof message.summary === 'string') chars += message.summary.length + 120;
+    if (message.content === undefined && typeof message.command === 'string') chars += message.command.length + 40;
+    if (message.content === undefined && typeof message.output === 'string') chars += message.output.length;
+    tokens += ceil(chars);
+  }
+  if (declaresTools) tokens += ceil(JSON.stringify([...tools.values()]).length);
+  return tokens;
+}
+
 export interface ReminderLimitResult {
   messages: ReminderMessage[];
   floorAnchor?: string;
@@ -63,10 +134,19 @@ export function limitReminderContext(params: {
   charsPerToken: number;
   /** Provider-visible head overrides can be applied after the context hooks. */
   requestChars?: (messages: readonly ReminderMessage[]) => number;
+  /**
+   * Token footprint of a previewed candidate. Defaults to `requestChars / charsPerToken`;
+   * a caller can add margins the provider SDK reserves (pi's `max_tokens` clamp).
+   */
+  requestTokens?: (messages: readonly ReminderMessage[], chars: number) => number;
 }): ReminderLimitResult {
   const { messages, preview, origin, floorAnchor, windowTokens } = params;
   const requestChars = params.requestChars ?? reminderRequestChars;
   const cpt = Number.isFinite(params.charsPerToken) && params.charsPerToken > 0 ? params.charsPerToken : 4;
+  const tokensOf = (candidate: readonly ReminderMessage[]): { chars: number; tokens: number } => {
+    const chars = requestChars(candidate);
+    return { chars, tokens: params.requestTokens ? params.requestTokens(candidate, chars) : chars / cpt };
+  };
   const outputMargin = Math.min(1024, Math.max(1, Math.floor(windowTokens / 4)));
   const reserve = Math.min(3072, Math.max(outputMargin, Math.floor(windowTokens * 0.75)));
   const hardLimit = Math.max(1, windowTokens - outputMargin);
@@ -79,8 +159,9 @@ export function limitReminderContext(params: {
   const held = floorAnchor ? messages.findIndex((message) => reminderMessageKeys(message).includes(floorAnchor)) : -1;
   const start = held >= 0 && (originIndex < 0 || held <= originIndex) ? held : 0;
   let selected = cut(start);
-  let projectedChars = requestChars(preview(selected));
-  if (projectedChars / cpt <= hardLimit)
+  let measured = tokensOf(preview(selected));
+  let projectedChars = measured.chars;
+  if (measured.tokens <= hardLimit)
     return { messages: selected, fits: true, projectedChars, ...(held >= 0 ? { floorAnchor } : {}) };
   // Cut only at whole real user turns, or at the actual custom trigger. Never
   // count replayed instruction messages as new turns or discard startup guides.
@@ -95,12 +176,13 @@ export function limitReminderContext(params: {
   for (const { message, index } of boundaries) {
     selected = cut(index);
     selectedAnchor = reminderMessageAnchor(message);
-    projectedChars = requestChars(preview(selected));
-    if (projectedChars / cpt <= fitTarget) {
+    measured = tokensOf(preview(selected));
+    projectedChars = measured.chars;
+    if (measured.tokens <= fitTarget) {
       hardFit = undefined;
       break;
     }
-    if (!hardFit && projectedChars / cpt <= hardLimit)
+    if (!hardFit && measured.tokens <= hardLimit)
       hardFit = {
         messages: selected,
         fits: true,
@@ -113,7 +195,7 @@ export function limitReminderContext(params: {
   if (hardFit) return hardFit;
   return {
     messages: selected,
-    fits: projectedChars / cpt <= hardLimit,
+    fits: measured.tokens <= hardLimit,
     projectedChars,
     ...(selectedAnchor ? { floorAnchor: selectedAnchor } : floorAnchor && held >= 0 ? { floorAnchor } : {}),
   };

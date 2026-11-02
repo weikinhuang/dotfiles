@@ -43,6 +43,7 @@
 /** Default author's-note depth (messages from the end) when a persona omits one. */
 import { reminderMessageAnchor, type ReminderPlacement } from '../reminder-lifecycle.ts';
 import type { ReminderMessage } from '../context-reminder.ts';
+import { LORE_BLOCK_SEPARATOR, selectWithinBudget, type BudgetResult, type LoreChunk } from './budget.ts';
 
 export const DEFAULT_AUTHOR_NOTE_DEPTH = 4;
 
@@ -66,6 +67,24 @@ export function formatAuthorNote(note: string): string {
 /** Frame a depth-injected lore entry. */
 export function formatDepthLore(name: string, body: string): string {
   return `[Lore — ${name}: ${body.trim()}]`;
+}
+
+/**
+ * Budget depth-tagged lore against `charBudget`, charging exactly what is
+ * delivered: each chunk as {@link formatDepthLore} renders it, joined by the
+ * same blank-line separator the {@link planDepthTailMerge} block uses (the
+ * standalone-message shape is never larger), with no header and no
+ * dropped-entries trailer (depth lore renders neither). Constant entries
+ * are charged without the keyword block's `(always-on)` label, since the
+ * depth framing does not show one. `dropped` is still returned for the
+ * selection readout.
+ */
+export function selectDepthLoreWithinBudget(chunks: readonly LoreChunk[], charBudget: number): BudgetResult {
+  return selectWithinBudget(chunks, charBudget, {
+    headerChars: 0,
+    trailer: false,
+    render: (chunk) => formatDepthLore(chunk.entry.name, chunk.body),
+  });
 }
 
 /**
@@ -118,8 +137,12 @@ export function resolveDepthInsertions(
   });
 }
 
-/** Blank line between the merged depth-0 parts, so each keeps its own paragraph. */
-const TAIL_BLOCK_SEPARATOR = '\n\n';
+/**
+ * Blank line between the merged depth-0 parts, so each keeps its own
+ * paragraph. Shared with the lore budget so {@link selectDepthLoreWithinBudget}
+ * charges exactly the merged block's separators.
+ */
+const TAIL_BLOCK_SEPARATOR = LORE_BLOCK_SEPARATOR;
 
 export interface DepthTailMergePlan {
   /** Insertions that keep the standalone-message path (normalized depth > 0), in input order. */

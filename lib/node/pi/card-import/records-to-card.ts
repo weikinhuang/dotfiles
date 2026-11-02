@@ -267,11 +267,17 @@ function droppedCharacterMeta(m: CharacterMeta): string[] {
   return out;
 }
 
-/** True when the importer would re-derive `description` from the exported entry (so nothing is lost). */
+/**
+ * True when the importer would re-derive `description` from the exported
+ * entry (so nothing is lost). Export writes `comment = name`, and the
+ * importer takes a non-empty `comment` as the description, so only a
+ * description equal to the name (or an empty one) survives a round trip.
+ * The importer's own fallbacks (`imported lore`, `triggers: ...`) apply only
+ * to a comment-less entry, which export never produces.
+ */
 function loreDescriptionDerivable(rec: ExportLore): boolean {
   const d = rec.description.trim();
-  if (d.length === 0 || d === rec.name.trim() || d === 'imported lore') return true;
-  return d === `triggers: ${rec.lore.triggers.join(', ')}`;
+  return d.length === 0 || d === rec.name.trim();
 }
 
 /**

@@ -2,6 +2,7 @@ import type { ReminderMessage } from '../context-reminder.ts';
 import { reminderMessageAnchor, reminderMessageKeys } from '../reminder-identity.ts';
 import { isRecord } from '../shared/guards.ts';
 import type { WindowState } from './window-state.ts';
+import { MAX_CHARS_PER_TOKEN, MIN_CHARS_PER_TOKEN } from './context-window.ts';
 import { isSceneBoundary } from './scene-state.ts';
 
 export const WINDOW_CHECKPOINT_TYPE = 'roleplay-context-window-state';
@@ -17,6 +18,8 @@ export interface WindowCheckpoint extends WindowCheckpointKey {
   charsPerToken: number;
   floorAnchor?: string;
   projectedFloorAnchor?: string;
+  /** First message after the frozen condense boundary, so a reload rebuilds the same condensed prefix. */
+  committedAnchor?: string;
 }
 
 function nonemptyString(value: unknown): value is string {
@@ -32,10 +35,11 @@ function isCheckpoint(value: unknown): value is WindowCheckpoint {
     nonemptyString(value.model) &&
     typeof value.charsPerToken === 'number' &&
     Number.isFinite(value.charsPerToken) &&
-    value.charsPerToken >= 1 &&
-    value.charsPerToken <= 20 &&
+    value.charsPerToken >= MIN_CHARS_PER_TOKEN &&
+    value.charsPerToken <= MAX_CHARS_PER_TOKEN &&
     (value.floorAnchor === undefined || nonemptyString(value.floorAnchor)) &&
-    (value.projectedFloorAnchor === undefined || nonemptyString(value.projectedFloorAnchor))
+    (value.projectedFloorAnchor === undefined || nonemptyString(value.projectedFloorAnchor)) &&
+    (value.committedAnchor === undefined || nonemptyString(value.committedAnchor))
   );
 }
 
@@ -50,6 +54,9 @@ export function createWindowCheckpoint(
   const boundary = Number.isInteger(cutoff) && cutoff > 0 ? messages[cutoff] : undefined;
   if (boundary?.role === 'user') checkpoint.floorAnchor = reminderMessageAnchor(boundary);
   if (win.projectedFloorAnchor) checkpoint.projectedFloorAnchor = win.projectedFloorAnchor;
+  const committed = win.committedCutoff;
+  const condenseEdge = Number.isInteger(committed) && committed > 0 ? messages[committed] : undefined;
+  if (condenseEdge) checkpoint.committedAnchor = reminderMessageAnchor(condenseEdge);
   return checkpoint;
 }
 
@@ -83,6 +90,7 @@ export function restoreWindowCheckpoint(
       messages.some((message) => reminderMessageKeys(message).includes(checkpoint.projectedFloorAnchor ?? ''))
         ? checkpoint.projectedFloorAnchor
         : undefined;
+    win.checkpointCommittedAnchor = compactedAfter ? undefined : checkpoint.committedAnchor;
     win.charsPerToken = checkpoint.charsPerToken;
     // A persisted projection may have failed before producing matching usage.
     win.lastSentEstChars = 0;

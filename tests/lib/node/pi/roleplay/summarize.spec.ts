@@ -374,3 +374,24 @@ test('summarizeDetailed surfaces the raw over-cap text so the forced path can sa
   });
   expect(await ok.summarizeDetailed(ctx, 'span')).toEqual({ recap: 'tidy recap.', raw: 'tidy recap.' });
 });
+
+test('the summarizer child uses the agent frontmatter timeoutMs unless the wiring overrides it', async () => {
+  const seen: (number | undefined)[] = [];
+  const run = (args: { timeoutMs?: number }): Promise<SummarizeRunResult> => {
+    seen.push(args.timeoutMs);
+    return Promise.resolve({ finalText: 'RECAP', stopReason: 'completed' });
+  };
+  const slow: AgentDef = { ...fakeAgent(), timeoutMs: 300000 };
+  await createSummarizer<FakeModel>({
+    settings: { summarizeModel: 'p/m', source: 's' },
+    summarizerAgent: slow,
+    runOneShot: run,
+  }).summarize(ctx, 'span');
+  await createSummarizer<FakeModel>({
+    settings: { summarizeModel: 'p/m', source: 's' },
+    summarizerAgent: slow,
+    runOneShot: run,
+    timeoutMs: 1234,
+  }).summarize(ctx, 'span');
+  expect(seen).toEqual([300000, 1234]);
+});

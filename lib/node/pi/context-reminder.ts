@@ -138,6 +138,18 @@ function openTagFor(id: string): string {
   return `${TAG_OPEN_PREFIX}${id}">`;
 }
 
+/**
+ * Own-property marker on a producer-injected text block. Only marked blocks
+ * are producer state: identical framed text that a user typed or a tool
+ * returned is ordinary conversation content and is never stripped or moved.
+ */
+export const REMINDER_BLOCK_MARKER = 'cacheReminderBlock';
+
+/** Whether a content block is a framed reminder that a producer injected. */
+export function isProducerReminderBlock(block: unknown): boolean {
+  return isTextPart(block) && (block as unknown as Record<string, unknown>)[REMINDER_BLOCK_MARKER] === true;
+}
+
 /** Frame `body` as a self-identifying system-reminder text block. */
 export function frameReminder(id: string, body: string): string {
   return `${openTagFor(id)}\n${body}\n${TAG_CLOSE}`;
@@ -145,7 +157,7 @@ export function frameReminder(id: string, body: string): string {
 
 /** Does this content block belong to the given reminder id? */
 function isReminderBlock(block: ReminderContentBlock, id: string): boolean {
-  return isTextPart(block) && block.text.startsWith(openTagFor(id));
+  return isProducerReminderBlock(block) && isTextPart(block) && block.text.startsWith(openTagFor(id));
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -227,7 +239,7 @@ export function applyContextReminder<M extends ReminderMessage>(messages: readon
   const target = stripped.length - 1;
   const msg = stripped[target];
   const blocks = toBlocks(msg.content);
-  blocks.push({ type: 'text', text: frameReminder(spec.id, body) });
+  blocks.push({ type: 'text', text: frameReminder(spec.id, body), [REMINDER_BLOCK_MARKER]: true });
 
   const out = stripped.slice();
   out[target] = { ...msg, content: blocks };

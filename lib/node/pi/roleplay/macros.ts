@@ -17,8 +17,10 @@
  *   - `{{time}}`              -> `HH:MM` (24h, local) from `ctx.now`
  *   - `{{date}}`              -> `YYYY-MM-DD` from `ctx.now`
  *   - `{{weekday}}`           -> e.g. `Monday` from `ctx.now`
- *   - `{{random:a,b,c}}`      -> one comma-separated option, picked via `ctx.rng`
- *   - `{{roll:NdM}}` / `{{roll:M}}` -> dice sum (N d-M dice; N defaults to 1).
+ *   - `{{random:a,b,c}}` / `{{random::a::b}}` -> one option (comma list, or
+ *                               SillyTavern's double-colon list), picked via `ctx.rng`
+ *   - `{{roll:NdM}}` / `{{roll:M}}` -> dice sum (N d-M dice; N defaults to 1),
+ *                               with an optional `+K` / `-K` modifier (`{{roll:2d6+1}}`).
  *                               Capped at {@link MAX_ROLL_DICE} dice and
  *                               {@link MAX_ROLL_SIDES} sides; beyond the cap
  *                               the macro stays literal (an imported card
@@ -58,6 +60,23 @@ export const MAX_ROLL_SIDES = 1_000_000;
 
 const pad2 = (n: number): string => String(n).padStart(2, '0');
 
+/**
+ * `{{roll}}` argument: `NdM`, `dM`, or a bare `M` (= `1dM`), each with an
+ * optional `+K` / `-K` modifier. Anything else leaves the macro literal.
+ */
+const ROLL_RE = /^(?:(\d*)d)?(\d+)\s*([+-]\s*\d+)?$/i;
+
+/**
+ * Split a `{{random}}` argument into options. SillyTavern accepts both
+ * `random:a,b,c` (comma list) and `random::a::b` (double-colon list, which
+ * lets an option contain a comma); the double-colon form is chosen when the
+ * argument itself starts with `:` (i.e. the body was `random::...`).
+ */
+function splitRandomOptions(arg: string): string[] {
+  const parts = arg.startsWith(':') ? arg.slice(1).split('::') : arg.split(',');
+  return parts.map((o) => o.trim());
+}
+
 /** A whole integer in `[1, sides]` from a `[0, 1)` rng draw. */
 function rollDie(sides: number, rng: () => number): number {
   return Math.floor(rng() * sides) + 1;
@@ -88,26 +107,20 @@ function resolveMacro(body: string, ctx: MacroContext, now: Date, rng: () => num
     case 'newline':
       return '\n';
     case 'random': {
-      const options = arg.split(',').map((o) => o.trim());
+      const options = splitRandomOptions(arg);
       if (options.length === 0 || (options.length === 1 && options[0].length === 0)) return null;
       const idx = Math.min(options.length - 1, Math.max(0, Math.floor(rng() * options.length)));
       return options[idx];
     }
     case 'roll': {
-      const t = arg.trim().toLowerCase();
-      let count = 1;
-      let sides = 0;
-      if (t.includes('d')) {
-        const parts = t.split('d');
-        if (parts.length !== 2) return null;
-        count = parts[0].length > 0 ? Number.parseInt(parts[0], 10) : 1;
-        sides = Number.parseInt(parts[1], 10);
-      } else {
-        sides = Number.parseInt(t, 10);
-      }
-      if (!Number.isFinite(count) || !Number.isFinite(sides) || count <= 0 || sides <= 0) return null;
-      if (count > MAX_ROLL_DICE || sides > MAX_ROLL_SIDES) return null;
-      let total = 0;
+      const m = ROLL_RE.exec(arg.trim());
+      if (!m) return null;
+      const count = m[1] && m[1].length > 0 ? Number.parseInt(m[1], 10) : 1;
+      const sides = Number.parseInt(m[2], 10);
+      const modifier = m[3] ? Number.parseInt(m[3].replace(/\s+/g, ''), 10) : 0;
+      if (count <= 0 || sides <= 0) return null;
+      if (count > MAX_ROLL_DICE || sides > MAX_ROLL_SIDES || Math.abs(modifier) > MAX_ROLL_SIDES) return null;
+      let total = modifier;
       for (let i = 0; i < count; i += 1) total += rollDie(sides, rng);
       return String(total);
     }

@@ -175,25 +175,27 @@ export function applyContextWindowAt(
   return { messages: condensed > 0 ? out : messages, condensed };
 }
 
+/** A message the reduced list may open on: a user turn, or a custom input (sent as a user turn). */
+export function isTurnBoundary(message: Msg | undefined): boolean {
+  return message?.role === 'user' || message?.role === 'custom';
+}
+
 /**
- * Snap a non-zero drop index onto a user-message boundary so dropping
+ * Snap a non-zero drop index onto a turn boundary so dropping
  * `messages[0..drop)` never leaves the list opening on an assistant message
- * or a tool result orphaned from its call. Snaps DOWN to the nearest user
- * message in `(0, drop]` (re-admitting a few covered messages is safe;
- * losing uncovered ones is not); when there is none, falls forward to the
- * next one (snapping to 0 would cancel the drop entirely). Returns `drop` unchanged when it is
- * 0, already a user message, or there is no user message at all.
+ * or a tool result orphaned from its call. A user message and a custom input
+ * (pi sends it as a user turn) are both boundaries. Snaps DOWN to the nearest
+ * boundary in `(0, drop]`: re-admitting a few covered messages is safe,
+ * losing uncovered ones is not. When none exists the drop is cancelled (0);
+ * it never moves forward past `drop`, which would discard messages the
+ * recap does not cover. Returns `drop` unchanged when it is 0 or out of range.
  */
 export function snapDropToUserBoundary(messages: readonly Msg[], drop: number): number {
   if (drop <= 0 || drop >= messages.length) return drop;
-  if (messages[drop].role === 'user') return drop;
-  for (let i = drop - 1; i > 0; i--) {
-    if (messages[i].role === 'user') return i;
+  for (let i = drop; i > 0; i--) {
+    if (isTurnBoundary(messages[i])) return i;
   }
-  for (let i = drop + 1; i < messages.length; i++) {
-    if (messages[i].role === 'user') return i;
-  }
-  return drop;
+  return 0;
 }
 
 /**
@@ -256,11 +258,22 @@ export const RECAP_PREFIX = '[Scene memory \u2014 established facts from earlier
 
 export const TIMELINE_PREFIX = '[Recent timeline \u2014 dated story beats in chronological order, for continuity:';
 
-/** Prepend a synthetic block to the first user message (keeps role alternation intact). */
+/**
+ * Prepend a synthetic block to the first user turn (keeps role alternation
+ * intact). A custom input counts: pi sends it as a user turn. System messages
+ * are never a target: pi may replace the provider head with a forced prompt,
+ * which would discard the block. With no user turn at all, a standalone user
+ * message carrying the block is inserted before the first transcript message.
+ */
 function prependToFirstUser(messages: readonly Msg[], block: string): readonly Msg[] {
-  let anchor = messages.findIndex((m) => m.role === 'user');
-  if (anchor < 0) anchor = 0;
-  if (anchor >= messages.length) return messages;
+  const anchor = messages.findIndex((m) => isTurnBoundary(m));
+  if (anchor < 0) {
+    const first = messages.findIndex((m) => m.role !== 'system');
+    const at = first < 0 ? messages.length : first;
+    const timestamp = typeof messages[at]?.timestamp === 'number' ? messages[at].timestamp : 0;
+    const synthetic: Msg = { role: 'user', content: [{ type: 'text', text: block.trimEnd() }], timestamp };
+    return [...messages.slice(0, at), synthetic, ...messages.slice(at)];
+  }
   const target = messages[anchor];
   const content = target.content;
   let newContent: unknown;
@@ -350,6 +363,25 @@ export function freezeFloorCutoff(opts: { frozen: number; rawFloor: number; over
 }
 
 /**
+ * The text a summarizer must see for one transcript message. Ordinary
+ * messages contribute their text content; pi's content-less kinds carry their
+ * payload elsewhere (`compactionSummary` / `branchSummary` in `summary`, a
+ * user `!command` in `command` + `output`). Messages pi excludes from the LLM
+ * context (`excludeFromContext`) contribute nothing.
+ */
+export function messageSummaryText(message: Msg | undefined): string {
+  if (!message || message.excludeFromContext === true) return '';
+  if ((message.role === 'compactionSummary' || message.role === 'branchSummary') && typeof message.summary === 'string')
+    return message.summary;
+  if (message.role === 'bashExecution') {
+    const command = typeof message.command === 'string' ? message.command : '';
+    const output = typeof message.output === 'string' ? message.output : '';
+    return [command && `$ ${command}`, output].filter(Boolean).join('\n');
+  }
+  return messageContentToText(message.content, '\n');
+}
+
+/**
  * Bound how far a single roll advances recap coverage. The roll summarizes
  * `messages[recapCutoff, spanTo)` and, on success, moves `recapCutoff` to
  * `spanTo`. Left unbounded (`spanTo = natural`) a stalled recap re-attempts an
@@ -395,7 +427,7 @@ export function boundRollSpanTo(
   if (minSpan > 0) {
     let count = 0;
     for (let i = recapCutoff; i < natural; i++) {
-      if (messages[i]?.role !== 'compactionSummary' && messageContentToText(messages[i]?.content).trim()) count += 1;
+      if (messageSummaryText(messages[i]).trim()) count += 1;
       if (count >= minSpan) {
         minimumTextEnd = i + 1;
         break;
@@ -409,6 +441,35 @@ export function boundRollSpanTo(
     if (messages[i]?.role === 'user') return i;
   }
   return natural;
+}
+
+/**
+ * Cap a recap span `[from, to)` so its rendered transcript (`role: text`
+ * lines joined by blank lines, as `renderSpan` builds it) fits `maxChars`.
+ * Coverage may only advance over messages the summarizer actually reads, so
+ * the span ends before the first message that would overflow. The bound may
+ * fall mid-turn: the drop boundary snaps down to a turn start, so a
+ * partially covered turn stays in the request until coverage passes it.
+ * Always admits at least one message so a single oversized message cannot
+ * wedge coverage (renderSpan then condenses that one line head+tail).
+ */
+export function boundSpanByChars(
+  messages: readonly Msg[],
+  from: number,
+  to: number,
+  maxChars: number,
+  roleOf: (message: Msg) => string = (message) => (typeof message.role === 'string' ? message.role : 'unknown'),
+): number {
+  if (!(maxChars > 0) || to <= from) return to;
+  let used = 0;
+  for (let i = from; i < to; i++) {
+    const text = messageSummaryText(messages[i]).trim();
+    if (!text) continue;
+    const cost = `${roleOf(messages[i])}: ${text}`.length + (used > 0 ? 2 : 0);
+    if (used + cost > maxChars) return i === from ? i + 1 : i;
+    used += cost;
+  }
+  return to;
 }
 
 /**
@@ -474,6 +535,12 @@ export function promptInputTokens(usage: unknown): number | null {
 
 /** Fallback chars-per-token when nothing is calibrated yet (crude chars/4). */
 export const DEFAULT_CHARS_PER_TOKEN = 4;
+/**
+ * Plausible calibrated range. Dense scripts (CJK) run well below one char per
+ * token, so the floor must admit them; a mostly-image turn can push far above.
+ */
+export const MIN_CHARS_PER_TOKEN = 0.25;
+export const MAX_CHARS_PER_TOKEN = 20;
 
 /**
  * Blend the crude chars/token estimate toward the ratio implied by a real
@@ -488,7 +555,7 @@ export function updateCharsPerToken(prior: number, estimatedChars: number, actua
   if (estimatedChars <= 0 || actualTokens <= 0) return prior;
   const observed = estimatedChars / actualTokens;
   // Guard against absurd ratios (e.g. a mostly-image turn) skewing the model.
-  if (observed < 1 || observed > 20) return prior;
+  if (observed < MIN_CHARS_PER_TOKEN || observed > MAX_CHARS_PER_TOKEN) return prior;
   const base = Number.isFinite(prior) && prior > 0 ? prior : DEFAULT_CHARS_PER_TOKEN;
   return base * (1 - alpha) + observed * alpha;
 }

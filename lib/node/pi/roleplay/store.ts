@@ -839,53 +839,70 @@ export interface FormatOptions {
   maxChars?: number;
 }
 
+/** Closing line when every entry fits. */
+const ROLEPLAY_BLOCK_HELP =
+  'Call `roleplay` action `read` + the id in backticks to load a full sheet; `save` to add one.';
+
+/** Closing line when the char cap hid `skipped` entries. */
+function roleplayBlockTruncated(skipped: number): string {
+  return `(${skipped} more entry(ies) not shown - call \`roleplay\` action \`list\` to see all.)`;
+}
+
 /**
  * Build the `## Roleplay` block injected into the system prompt each
  * turn. Returns `null` when the cast is empty so the caller can skip
  * injection. Only the one-line-per-entry index is injected; full bodies
  * are fetched on demand via `roleplay read <id>`.
  *
- * Soft char cap: each rendered entry fits whole; we stop adding entries
- * once the next would blow the budget, then emit a trailer.
+ * Char cap: the whole rendered block, closing line included, fits
+ * `maxChars` (floor 500). Room for the longer of the two closing lines is
+ * reserved up front; entries are added whole until the next would not fit,
+ * then skipped (a later, shorter entry may still fit). A kind heading is
+ * emitted only together with its first kept entry, so a fully skipped kind
+ * leaves no empty heading. The very first entry is always shown, so a tiny
+ * cap can never blank the index (the only case that may exceed the cap).
  */
 export function formatRoleplayBlock(state: RoleplayState, opts: FormatOptions = {}): string | null {
   if (state.entries.length === 0) return null;
   const cap = Math.max(500, opts.maxChars ?? 3000);
+  // `\n` + closing line, sized for the worst case so the final line always fits.
+  const reserve = 1 + Math.max(ROLEPLAY_BLOCK_HELP.length, roleplayBlockTruncated(state.entries.length).length);
 
   const lines: string[] = [`## Roleplay — cast: ${state.cast || '(none)'}`, ''];
+  // Exact length of `lines.join('\n')`; each pushed line adds `1 + line.length`.
   let used = lines.join('\n').length;
+  let shown = 0;
   let skipped = 0;
-  let truncated = false;
 
   const grouped = groupByKind(state.entries);
   for (const kind of ROLEPLAY_KINDS) {
     const group = grouped.get(kind) ?? [];
     if (group.length === 0) continue;
     const heading = `### ${KIND_HEADING[kind]}`;
-    if (used + heading.length + 1 > cap && lines.length > 2) {
-      truncated = true;
-      skipped += group.length;
-      continue;
-    }
-    lines.push(heading);
-    used += heading.length + 1;
+    let headed = false;
     for (const e of group) {
       const line = `- ${e.name} (\`${e.id}\`) - ${e.description}`;
-      if (used + line.length + 1 > cap && lines.length > 3) {
-        truncated = true;
+      // The first kept entry of a kind also pays for its heading and the blank line that closes the group.
+      const cost = 1 + line.length + (headed ? 0 : 1 + heading.length + 1);
+      if (shown > 0 && used + cost + reserve > cap) {
         skipped++;
         continue;
       }
+      if (!headed) {
+        lines.push(heading);
+        used += 1 + heading.length;
+        headed = true;
+      }
       lines.push(line);
-      used += line.length + 1;
+      used += 1 + line.length;
+      shown++;
     }
-    lines.push('');
+    if (headed) {
+      lines.push('');
+      used += 1;
+    }
   }
 
-  if (truncated) {
-    lines.push(`(${skipped} more entry(ies) not shown - call \`roleplay\` action \`list\` to see all.)`);
-  } else {
-    lines.push('Call `roleplay` action `read` + the id in backticks to load a full sheet; `save` to add one.');
-  }
+  lines.push(skipped > 0 ? roleplayBlockTruncated(skipped) : ROLEPLAY_BLOCK_HELP);
   return lines.join('\n').trimEnd();
 }

@@ -100,6 +100,7 @@ import {
   buildInsertions,
   isNarrativeRoleplayStart,
   planDepthTailMerge,
+  selectDepthLoreWithinBudget,
   type LoreDepthChunk,
 } from '../../../lib/node/pi/roleplay/inject.ts';
 import { matchLore } from '../../../lib/node/pi/roleplay/match.ts';
@@ -131,6 +132,7 @@ import {
 import {
   acceptRecap,
   boundRollSpanTo,
+  boundSpanByChars,
   computeCutoff,
   DEFAULT_CHARS_PER_TOKEN,
   deriveMaxSpanChars,
@@ -138,13 +140,16 @@ import {
   estimateChars,
   injectRecap,
   injectTimeline,
+  messageSummaryText,
   shouldForceRecap,
+  snapDropToUserBoundary,
   updateCharsPerToken,
   promptInputTokens,
   type WindowOptions,
 } from '../../../lib/node/pi/roleplay/context-window.ts';
 import { applyWindowPass } from '../../../lib/node/pi/roleplay/window-pass.ts';
 import { clearRoleplayFacts, serializeRoleplayFact } from '../../../lib/node/pi/roleplay/fact-memory.ts';
+import { CAPTURE_ENTRY_TYPE, planFactReconcile } from '../../../lib/node/pi/roleplay/fact-branch.ts';
 import {
   canSeedScene,
   CAST_CHANGE_TYPE,
@@ -164,6 +169,7 @@ import {
   anchorAfterCompaction,
   armForcedRecap,
   createWindowState,
+  invalidateRecap,
   planRoll,
   resetWindowCoverage,
   resetWindowState as resetWindowStateFields,
@@ -197,8 +203,11 @@ import {
 } from '../../../lib/node/pi/context-reminder.ts';
 import {
   REMINDER_CAPABILITIES,
+  REMINDER_COORDINATOR,
   REMINDER_LIMIT,
   REMINDER_PROJECTED,
+  REMINDER_SANITIZE,
+  type ReminderSanitizeRequest,
   type ReminderSnapshot,
   type ReminderCapabilities,
   type ReminderLimitRequest,
@@ -215,7 +224,13 @@ import {
   retainedTranscriptStart,
   waitForRecap,
 } from '../../../lib/node/pi/roleplay/budget-coverage.ts';
-import { limitReminderContext, reminderRequestChars } from '../../../lib/node/pi/reminder-budget.ts';
+import {
+  limitReminderContext,
+  PI_CONTEXT_SAFETY_TOKENS,
+  PI_SAFETY_MIN_WINDOW,
+  piFallbackTokens,
+  reminderRequestChars,
+} from '../../../lib/node/pi/reminder-budget.ts';
 import { type AgentDef, makeNodeReadLayer } from '../../../lib/node/pi/subagent/loader.ts';
 import { loadRoleplayAgent, runRoleplayChild } from '../../../lib/node/pi/ext/roleplay-child-session.ts';
 import { buildFactExtractionTask, parseFactCandidates } from '../../../lib/node/pi/roleplay/capture.ts';
@@ -474,6 +489,16 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   let unsubscribeImageEvents: (() => void) | null = null;
   let unsubscribeReminderSnapshots: (() => void) | null = null;
   const unsubscribePipeline: (() => void)[] = [];
+  /** Whether the cache-reminders coordinator (and so the final limiter) is loaded for this request. */
+  const coordinatorActive = (): boolean => {
+    const probe = { active: false };
+    try {
+      pi.events.emit(REMINDER_COORDINATOR, probe);
+    } catch {
+      return false;
+    }
+    return probe.active;
+  };
   const surfacedWarnings = new Set<string>();
   /** Queued one-shot scene complication from `/roleplay event`; injected for the next reply only. */
   let pendingEvent: string | null = null;
@@ -941,17 +966,6 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     return formatLoreBlock(selected);
   };
 
-  const restoreImageMode = (ctx: ExtensionContext): void => {
-    const entries = getBranchEntries(ctx) ?? [];
-    setRoleplayImageModeOverride(restoreRoleplayImageMode(entries));
-    castOverride = restoreCastOverride(entries);
-    castInitialized = false;
-    clearSceneInputs();
-    resync(ctx);
-  };
-  pi.on('session_start', (_event, ctx) => restoreImageMode(ctx));
-  pi.on('session_tree', (_event, ctx) => restoreImageMode(ctx));
-
   pi.on('before_agent_start', (event, ctx) => {
     // A persona may have been activated since session_start; include the input initiating its new scene.
     const trigger: ReminderTrigger | undefined = isNarrativeRoleplayStart(event)
@@ -1040,10 +1054,8 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         body: normalizeInjectedBody(substituteMacros(readEntryBody(state.cast, entry) ?? '', macroCtx())),
       }))
       .filter((chunk) => chunk.body.length > 0);
-    // Depth chunks are injected without the lore-block header, so it costs nothing here.
-    const selected = selectWithinBudget(chunks, loadRoleplayConfig(cwd, envCharBudget).loreCharBudget, {
-      headerChars: 0,
-    });
+    // Depth chunks are charged exactly as delivered: no header, no trailer, depth framing.
+    const selected = selectDepthLoreWithinBudget(chunks, loadRoleplayConfig(cwd, envCharBudget).loreCharBudget);
     if (lastLoreSelection) recordDepthSelection(lastLoreSelection, selected);
     const { kept } = selected;
     depthVisualLore = kept;
@@ -1145,8 +1157,42 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   /** Flatten an `AgentMessage` into a `{role, text}` pair for the summarizer (drops non-text parts). */
   const toSummarizable = (m: unknown): SummarizableMessage => {
     const role = typeof (m as { role?: unknown }).role === 'string' ? (m as { role: string }).role : 'unknown';
-    return { role, text: messageContentToText((m as { content?: unknown }).content, '\n') };
+    // Content-less kinds (compaction / branch summaries, `!command` runs) carry
+    // their payload elsewhere; dropping them from the span while coverage
+    // advances over them would silently lose that history.
+    return { role, text: messageSummaryText(m as Record<string, unknown>) };
   };
+
+  /**
+   * Run the provider-copy sanitizer (e.g. secret-redactor) over a span before
+   * it leaves the process for a summarizer / extractor child, which loads with
+   * no extensions. Returns `null` when a required sanitizer did not handle the
+   * copy: the caller then sends nothing and commits no coverage.
+   */
+  const sanitizeForChild = <M>(messages: readonly M[], ctx: ExtensionContext): M[] | null => {
+    try {
+      const capabilities: ReminderCapabilities = { context: ctx, sanitizerRequired: false, limiterRequired: false };
+      pi.events.emit(REMINDER_CAPABILITIES, capabilities);
+      const request: ReminderSanitizeRequest = {
+        messages: structuredClone(messages) as unknown as ReminderMessage[],
+        context: ctx,
+        handled: false,
+      };
+      pi.events.emit(REMINDER_SANITIZE, request);
+      if (capabilities.sanitizerRequired && !request.handled) return null;
+      return request.messages as unknown as M[];
+    } catch {
+      return null;
+    }
+  };
+
+  /** Span-text cap for the recap model, shared by span bounding and planning so nothing is truncated. */
+  const recapSpanChars = (info: RecapModelInfo, prior: string): number =>
+    deriveMaxSpanChars({
+      contextWindowTokens: info.model?.contextWindow,
+      priorRecapChars: prior.length,
+      charsPerToken: win.charsPerToken,
+    });
 
   // ── Rolling context-window helpers (bounded recap mode + condense floor) ─
   const windowOptions = (): WindowOptions => {
@@ -1379,7 +1425,8 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
           // `rctx.signal` implicitly: a background capture must be cancellable
           // by resetWindowState and must not die with an unrelated turn abort.
           ...(signal ? { signal } : {}),
-          timeoutMs: 60000,
+          // Frontmatter `timeoutMs` (self-hosted endpoints can be slow).
+          timeoutMs: theAgent.timeoutMs,
         });
         return result.stopReason === 'completed' ? result.finalText : null;
       } catch {
@@ -1439,8 +1486,8 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   const writeFactsToSessionMemory = (
     sid: string,
     facts: readonly { name: string; description: string }[],
-  ): { name: string; description: string }[] => {
-    const written: { name: string; description: string }[] = [];
+  ): { slug: string; name: string; description: string }[] => {
+    const written: { slug: string; name: string; description: string }[] = [];
     try {
       const { state: memState } = rebuildMemoryIndex(cwd, sid);
       const sessionEntries = [...memState.index.session];
@@ -1479,7 +1526,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         );
         sessionEntries.push(entry);
         capturedFacts.add(fact.name.toLowerCase());
-        written.push({ name: fact.name, description: fact.description });
+        written.push({ slug, name: fact.name, description: fact.description });
       }
       if (written.length > 0) {
         // Rebuild the session MEMORY.md so a resume (memory rescans on
@@ -1557,8 +1604,80 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   const seedCarryOverFacts = (sid: string): void => {
     const facts = listFactSidecars(state.cast).map((f) => ({ name: f.name, description: f.description }));
     if (facts.length === 0) return;
-    writeFactsToSessionMemory(sid, facts);
+    const written = writeFactsToSessionMemory(sid, facts);
+    // Record the seeded notes on the branch so /tree can scope them like captures.
+    if (written.length > 0) {
+      try {
+        pi.appendEntry(CAPTURE_ENTRY_TYPE, { ts: Date.now(), cast: state.cast, seeded: true, facts: written });
+      } catch {
+        /* best-effort */
+      }
+    }
   };
+
+  /**
+   * Make the session note tier match the ACTIVE branch after a resume, fork
+   * or `/tree` move: captured notes are session-scoped on disk, but each
+   * capture entry is branch-scoped. Removes notes only other branches
+   * captured and restores the ones this branch captured; notes no capture
+   * entry names (legacy, user-written) are never touched.
+   */
+  const reconcileBranchFacts = (ctx: ExtensionContext): void => {
+    const sid = currentSessionId(ctx);
+    if (!sid || !state.cast) return;
+    let all: Record<string, unknown>[];
+    try {
+      const entries = (ctx.sessionManager as { getEntries?: () => unknown[] }).getEntries?.();
+      if (!Array.isArray(entries)) return;
+      all = entries as Record<string, unknown>[];
+    } catch {
+      return;
+    }
+    const plan = planFactReconcile(all, getBranchEntries(ctx) ?? [], state.cast);
+    let changed = false;
+    if (plan.remove.size > 0 && clearRoleplayFacts(cwd, sid, state.cast, { only: plan.remove }) > 0) changed = true;
+    for (const fact of plan.keep) {
+      const path = memoryFileFor('session', 'note', fact.slug, cwd, sid);
+      if (existsSync(path)) continue;
+      try {
+        const now = new Date().toISOString();
+        atomicWriteFile(
+          path,
+          serializeRoleplayFact({
+            cast: state.cast,
+            name: fact.name,
+            description: fact.description,
+            body: fact.description,
+            created: now,
+            updated: now,
+          }),
+        );
+        changed = true;
+      } catch {
+        /* best-effort */
+      }
+    }
+    if (!changed) return;
+    try {
+      const { state: memState } = rebuildMemoryIndex(cwd, sid);
+      atomicWriteFile(memoryIndexFileFor('session', cwd, sid), renderMemoryMd(memState.index.session, 'session'));
+    } catch {
+      /* index rebuild is best-effort */
+    }
+    pi.events.emit('memory:changed', { cwd, sessionId: sid });
+  };
+
+  const restoreImageMode = (ctx: ExtensionContext): void => {
+    const entries = getBranchEntries(ctx) ?? [];
+    setRoleplayImageModeOverride(restoreRoleplayImageMode(entries));
+    castOverride = restoreCastOverride(entries);
+    castInitialized = false;
+    clearSceneInputs();
+    resync(ctx);
+    if (activeCast() !== null) reconcileBranchFacts(ctx);
+  };
+  pi.on('session_start', (_event, ctx) => restoreImageMode(ctx));
+  pi.on('session_tree', (_event, ctx) => restoreImageMode(ctx));
 
   /**
    * Append new beats to the per-cast carry-over `timeline/auto.md` (a TRUE
@@ -1722,10 +1841,11 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       parsed: 0,
       wrote: 0,
       skip: '' as string,
+      facts: [] as { slug: string; name: string; description: string }[],
     };
     const emit = (): void => {
       try {
-        pi.appendEntry('roleplay-capture', { ts: Date.now(), cast: state.cast, ...audit });
+        pi.appendEntry(CAPTURE_ENTRY_TYPE, { ts: Date.now(), cast: state.cast, ...audit });
       } catch {
         /* audit write is best-effort */
       }
@@ -1788,6 +1908,8 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       mirrorFactsToCarryOver(written);
       const wrote = written.length;
       audit.wrote = wrote;
+      // Branch-scoped record of the notes written, for /tree reconciliation.
+      audit.facts = written;
       if (wrote > 0) {
         try {
           ctx.ui.notify(`roleplay: captured ${wrote} durable fact(s) to session memory.`, 'info');
@@ -1931,14 +2053,22 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
               // path does) so the resume does not immediately re-summarize
               // the compaction summary + kept messages.
               win.committedCutoff = branchRecap.compacted ? natural : win.recapCutoff;
-              // Timeline: prefer this branch's cumulative timeline (same
-              // active-path guarantee); fall back to the per-cast carry-over
-              // log when the branch carries no timeline entry (then the next
-              // v2 entry must stamp that seed as its `base`).
+              // Timeline: this branch's cumulative timeline (same active-path
+              // guarantee). The shared carry-over is another session's log:
+              // adopt it only for a legacy branch that never recorded any
+              // timeline state (a seed is now stamped at hydration, below), so
+              // a resume rebuilds the timeline the live session actually had.
               const branchTimeline = hydrateTimelineFromBranch(ctx);
+              const branchEntries = getBranchEntries(ctx) ?? [];
+              const recordedTimeline = branchEntries.some(
+                (entry) =>
+                  entry.type === 'custom' &&
+                  entry.customType === 'roleplay-timeline' &&
+                  (entry.data as { cast?: unknown } | undefined)?.cast === state.cast,
+              );
               const priorTimeline =
                 branchTimeline ??
-                (canSeedScene(getBranchEntries(ctx) ?? [])
+                (!recordedTimeline && canSeedScene(branchEntries)
                   ? (readEntryBody(state.cast, { id: 'auto', kind: 'timeline', name: '', description: '' }) ?? '')
                   : '');
               if (priorTimeline.trim()) {
@@ -1965,7 +2095,27 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
               //    non-resume, so the one-shot facts seed (B2) may run.
               const priorEntry = state.entries.find((e) => e.kind === 'summary' && e.id === 'auto');
               const prior = priorEntry ? (readEntryBody(state.cast, priorEntry) ?? '') : '';
-              if (prior.trim()) win.recapText = prior.trim();
+              if (prior.trim()) {
+                win.recapText = prior.trim();
+                // Stamp the seed on the branch (coverage 0) so a resume rebuilds
+                // this exact text, not whatever another same-cast session has
+                // since written to the shared carry-over.
+                try {
+                  pi.appendEntry('roleplay-context-recap', {
+                    ts: Date.now(),
+                    cast: state.cast,
+                    mode: 'seed',
+                    coveredFrom: 0,
+                    coveredTo: 0,
+                    ok: true,
+                    applied: true,
+                    forced: false,
+                    recap: win.recapText,
+                  });
+                } catch {
+                  /* best-effort: the in-memory seed still applies */
+                }
+              }
               // Seed the timeline from the per-cast carry-over log (C5). The
               // first v2 `roleplay-timeline` entry stamps this seed as its
               // `base`: later entries hold only deltas de-duped against it,
@@ -1978,6 +2128,21 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
                   loadRoleplayConfig(cwd, envCharBudget).timelineMemoryMaxChars,
                 );
                 win.timelineSeedBase = win.timelineText;
+                // Stamp the seed as a v2 base now (not on the first roll, which
+                // may never come), so a resume rebuilds the same timeline.
+                try {
+                  pi.appendEntry('roleplay-timeline', {
+                    ts: Date.now(),
+                    cast: state.cast,
+                    version: 2,
+                    beats: '',
+                    skip: 'seed',
+                    base: win.timelineSeedBase,
+                  });
+                  win.timelineSeedBase = null;
+                } catch {
+                  /* the next v2 entry still stamps the base */
+                }
               }
               // B2: seed the per-cast carry-over facts (facts/*.md) into this
               // session's memory note tier so a fresh session inherits the
@@ -1997,6 +2162,16 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         // recapCutoff 0, so the compaction summary + already-recapped kept
         // messages are not re-summarized right away.
         natural = Math.max(requestedNatural, win.recapCutoff);
+        // Restore the live condense boundary once after hydration (a reload
+        // otherwise re-admits the condensed span and rolls again at once).
+        if (win.checkpointCommittedAnchor) {
+          const anchor = win.checkpointCommittedAnchor;
+          win.checkpointCommittedAnchor = undefined;
+          const edge = messages.findIndex((message) =>
+            reminderMessageKeys(message as ReminderMessage).includes(anchor),
+          );
+          if (edge > win.committedCutoff && edge <= natural) win.committedCutoff = edge;
+        }
         anchorAfterCompaction(win, natural);
         const { roll: rollFired } = planRoll(win, natural, strideValue());
         if (rollFired) {
@@ -2019,32 +2194,41 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
             // rejected.
             // `minSpan` keeps a short first turn from snapping the span below
             // what the summarizer will plan (which would wedge coverage).
-            const spanTo = boundRollSpanTo(
+            const boundedTo = boundRollSpanTo(
               messages,
               win.recapCutoff,
               natural,
               rollCfg.recapMaxAdvance,
               rollCfg.summarizeMinMessages,
             );
+            // The provider-copy sanitizer runs first: children load no extensions.
+            const sanitized = sanitizeForChild(messages.slice(spanFrom, boundedTo), ctx);
+            // Coverage may only advance over text the summarizer reads: end the
+            // span before it outgrows the recap model's span cap (renderSpan
+            // would otherwise drop its oldest lines while coverage still
+            // claimed them). A char-bounded span may be short or end mid-turn;
+            // the drop boundary snaps down to a turn start.
+            const spanTo =
+              spanFrom +
+              boundSpanByChars(sanitized ?? [], 0, boundedTo - spanFrom, recapSpanChars(info, win.recapText));
+            const charBounded = spanTo < boundedTo;
             const recapAnchor = messages[spanTo]
               ? reminderMessageAnchor(messages[spanTo] as ReminderMessage)
               : undefined;
             const lag = natural - win.recapCutoff;
             const lagCeiling = rollCfg.recapLagCeiling;
-            // pi's `compactionSummary` message is already a summary of
-            // pre-compaction history (largely what the recap covers); never
-            // feed it back into the summarizer / extractors.
-            const span = messages
-              .slice(spanFrom, spanTo)
-              .filter((m) => m.role !== 'compactionSummary')
-              .map(toSummarizable);
+            // Every transcript kind is summarized, including pi's compaction
+            // summary: the roll drops it with the rest of the span, and when the
+            // compaction side-write failed it is the only record of that history.
+            const span = (sanitized ?? []).slice(0, spanTo - spanFrom).map(toSummarizable);
+            const minimumMessages = charBounded ? 1 : undefined;
             if (wantAsync) {
               // Non-blocking: at most one background recap; return on the PRIOR
               // recap. The floor keeps the not-yet-covered span present until
               // the result lands, so nothing is lost; the drop boundary just
               // advances a turn or two later. gen-guarded against a
               // reset / branch change clobbering the current recap after the fact.
-              if (!win.recapInFlight) {
+              if (!win.recapInFlight && sanitized) {
                 win.recapInFlight = true;
                 recapStarted = true;
                 const gen = win.recapGen;
@@ -2052,7 +2236,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
                 const prior = win.recapText;
                 const abort = new AbortController();
                 win.recapAbort = abort;
-                win.recapPromise = doRecap(ctx, span, prior, info, abort.signal)
+                win.recapPromise = doRecap(ctx, span, prior, info, abort.signal, minimumMessages)
                   .then(async (result) => {
                     if (!isCurrent()) return; // stale (reset / branch change): discard
                     // Force-accept a rejected-but-usable candidate once coverage
@@ -2116,13 +2300,13 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
                     }
                   });
               }
-            } else {
+            } else if (sanitized) {
               // Blocking (inherited / same endpoint): one llama.cpp instance
               // cannot serve the recap and the main turn concurrently.
               recapStarted = true;
               const gen = win.recapGen;
               const isCurrent = (): boolean => gen === win.recapGen;
-              const result = await doRecap(ctx, span, win.recapText, info, ctx.signal);
+              const result = await doRecap(ctx, span, win.recapText, info, ctx.signal, minimumMessages);
               if (!isCurrent()) return undefined;
               // A reset / branch change / compaction during the await made
               // `spanTo` (and this pass's coverage) stale: commit nothing.
@@ -2192,7 +2376,10 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
           floorCutoff,
           committedCutoff: win.committedCutoff,
           recapText: win.recapText,
-          deferMemory: remindersEnabled,
+          // Only the final limiter may inject memory after choosing its anchor,
+          // and it runs only under an active coordinator. Without one, inject
+          // here: covered history is already gone from this list.
+          deferMemory: remindersEnabled && coordinatorActive(),
           timelineBlock:
             recapMode && win.timelineText.trim()
               ? renderTimelineBlock(win.timelineText, {
@@ -2350,7 +2537,8 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       }
       return out as ReminderMessage[];
     };
-    if (!windowTokens || !Number.isFinite(windowTokens)) return { messages: withMemory(request.messages), fits: true };
+    if (typeof windowTokens !== 'number' || !Number.isFinite(windowTokens) || windowTokens <= 0)
+      return { messages: withMemory(request.messages), fits: true };
     interface Finalized {
       messages: ReminderMessage[];
       fits: boolean;
@@ -2359,11 +2547,20 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     // Each safety recap strictly advances coverage, bounding this sequential recursion.
     const step = async (): Promise<Finalized> => {
       if (!current()) return fail('The scene changed or the safety recap was cancelled; retry the request.');
-      const covered = dropCoveredMessages(request.messages, raw, win.recapCutoff);
+      // Coverage can end mid-turn (char-bounded spans); drop only whole turns.
+      const covered = dropCoveredMessages(request.messages, raw, snapDropToUserBoundary(raw, win.recapCutoff));
       const result = limitReminderContext({
         messages: covered,
         preview: (candidate) => request.preview(withMemory(candidate)),
         requestChars: (candidate) => reminderRequestChars(candidate, head),
+        // Size against pi's own max_tokens clamp too: it reserves a fixed margin
+        // and may estimate at 3.5 chars/token, so a prompt that only fits our
+        // calibrated estimate can still leave the reply a single token.
+        // Below PI_SAFETY_MIN_WINDOW pi's fixed margin cannot be met at all.
+        requestTokens: (candidate, chars) =>
+          windowTokens >= PI_SAFETY_MIN_WINDOW
+            ? Math.max(chars / win.charsPerToken, piFallbackTokens(candidate, head)) + PI_CONTEXT_SAFETY_TOKENS
+            : chars / win.charsPerToken,
         origin: request.origin,
         windowTokens,
         charsPerToken: win.charsPerToken,
@@ -2390,11 +2587,17 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         );
       const cfg = loadRoleplayConfig(cwd, envCharBudget);
       const from = win.recapCutoff;
-      const to = boundRollSpanTo(raw, from, target, cfg.recapMaxAdvance, 1);
-      if (to <= from) return fail('A safety recap could not advance coverage; scene history was preserved.');
+      const boundedTo = boundRollSpanTo(raw, from, target, cfg.recapMaxAdvance, 1);
+      if (boundedTo <= from) return fail('A safety recap could not advance coverage; scene history was preserved.');
+      const info = resolveRecapModelInfo(ctx);
+      // Children load no extensions: sanitize the span the way the provider copy is.
+      const sanitized = sanitizeForChild(raw.slice(from, boundedTo), ctx);
+      if (!sanitized)
+        return fail('The safety recap span could not be sanitized; request paused with scene history preserved.');
+      // Cover only what the summarizer reads (no renderSpan front truncation).
+      const to = from + boundSpanByChars(sanitized, 0, boundedTo - from, recapSpanChars(info, win.recapText));
       const anchor = raw[to] ? reminderMessageAnchor(raw[to]) : undefined;
       if (!anchor) return fail('The safety recap boundary is unavailable; scene history was preserved.');
-      const info = resolveRecapModelInfo(ctx);
       const abort = new AbortController();
       win.recapAbort = abort;
       win.recapInFlight = true;
@@ -2402,16 +2605,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       ctx.signal?.addEventListener('abort', stop, { once: true });
       try {
         // Even a short meaningful span needs a recap when it must be evicted.
-        // Include a pi summary here: unlike normal rolls, this cut removes it.
-        const span = raw
-          .slice(from, to)
-          .map((message) =>
-            toSummarizable(
-              message.role === 'compactionSummary' && message.content === undefined
-                ? { ...message, content: message.summary }
-                : message,
-            ),
-          );
+        const span = sanitized.slice(0, to - from).map(toSummarizable);
         const result = await doRecap(ctx, span, win.recapText, info, abort.signal, 1);
         if (!current()) return fail('The scene changed or the safety recap was cancelled; retry the request.');
         if (!result.applied && !result.trivial) {
@@ -2459,10 +2653,10 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     pi.events.on(REMINDER_LIMIT, (data) => {
       if (!contextWindowEnabled || activeCast() === null) return;
       const request = data as ReminderLimitRequest;
-      const ctx = request.context as ExtensionContext;
-      const windowTokens = ctx.model?.contextWindow;
-      if (typeof windowTokens !== 'number' || !Number.isFinite(windowTokens) || windowTokens <= 0) return;
-      request.result = finalizeBudget(request, ctx);
+      // Always finalize: the context pass deferred scene memory to this
+      // limiter, so even a model without a usable window size needs the
+      // recap / timeline injected (finalizeBudget skips only the size cut).
+      request.result = finalizeBudget(request, request.context as ExtensionContext);
     }),
     pi.events.on(REMINDER_PROJECTED, (data) => {
       if (activeCast() === null) return;
@@ -2558,12 +2752,19 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
           (event.preparation?.messagesToSummarize ?? []) as unknown as ReminderMessage[],
           ctx.sessionManager.buildSessionProjection?.(),
         );
-        const messages = sceneMessages(compactMessages, getBranchEntries(ctx) ?? []).map(toSummarizable);
+        const scoped = sanitizeForChild(sceneMessages(compactMessages, getBranchEntries(ctx) ?? []), ctx);
+        if (!scoped) return undefined;
+        const messages = scoped.map(toSummarizable);
         const plan = planSummarization(messages, { minMessages: cfg.summarizeMinMessages, maxSpanChars });
         if (!plan) return undefined;
         const sum = getSummarizer(ctx);
         if (!sum?.isEnabled()) return undefined;
         const startedAt = Date.now();
+        // This fold supersedes any in-flight background roll: it covers the
+        // same (older) history, and the compaction that follows invalidates
+        // the roll's indices anyway. Letting the roll land after this write
+        // would replace the fold with a recap built from the older prior.
+        invalidateRecap(win);
         const generation = win.recapGen;
         const recapCast = state.cast;
         const recap = await sum.summarize(

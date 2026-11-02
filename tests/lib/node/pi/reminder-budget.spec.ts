@@ -1,7 +1,11 @@
-import { expect, test } from 'vitest';
+import { describe, expect, it, test } from 'vitest';
 
 import type { ReminderMessage } from '../../../../lib/node/pi/context-reminder.ts';
-import { limitReminderContext, reminderRequestChars } from '../../../../lib/node/pi/reminder-budget.ts';
+import {
+  limitReminderContext,
+  piFallbackTokens,
+  reminderRequestChars,
+} from '../../../../lib/node/pi/reminder-budget.ts';
 import { createReminderLifecycle, reminderMessageAnchor } from '../../../../lib/node/pi/reminder-lifecycle.ts';
 
 const input = (index: number): ReminderMessage => ({ role: 'user', content: `scene ${index}`, timestamp: index });
@@ -136,4 +140,31 @@ test('request accounting includes system tool declarations and SDK summary messa
   });
   expect(result.fits).toBe(true);
   expect(result.floorAnchor).toBeUndefined();
+});
+
+describe('piFallbackTokens', () => {
+  it("matches pi-ai's 3.5 chars/token fallback estimate of a provider context", async () => {
+    // Deep import: the estimator is not a public export, but parity is the contract.
+    const { estimateContextTokens } =
+      (await import('../../../../node_modules/@earendil-works/pi-ai/dist/utils/estimate.js')) as unknown as {
+        estimateContextTokens: (context: { messages: unknown[] }) => { tokens: number };
+      };
+    const messages = [
+      { role: 'system', content: 'You are the narrator. '.repeat(50), timestamp: 0 },
+      { role: 'user', content: [{ type: 'text', text: 'Mira walks the pier. '.repeat(30) }], timestamp: 1 },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'thinking', thinking: 'consider the tide' },
+          { type: 'text', text: 'The tide turns. '.repeat(40) },
+          { type: 'toolCall', id: 'c1', name: 'read', arguments: { path: 'scene.txt' } },
+        ],
+        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
+        stopReason: 'toolUse',
+        timestamp: 2,
+      },
+      { role: 'toolResult', toolCallId: 'c1', content: [{ type: 'text', text: 'salt and driftwood' }], timestamp: 3 },
+    ];
+    expect(piFallbackTokens(messages as unknown as ReminderMessage[])).toBe(estimateContextTokens({ messages }).tokens);
+  });
 });

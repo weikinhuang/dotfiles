@@ -20,6 +20,8 @@ import {
   RECAP_PREFIX,
   shouldForceRecap,
   snapDropToUserBoundary,
+  boundSpanByChars,
+  messageSummaryText,
   TIMELINE_PREFIX,
   truncateText,
   updateCharsPerToken,
@@ -377,11 +379,18 @@ describe('snapDropToUserBoundary', () => {
 
   it('snaps an assistant or toolResult index back to the previous user', () => {
     expect(snapDropToUserBoundary(msgs, 5)).toBe(4);
-    // No user in (0, 2], so it falls forward to the next user.
-    expect(snapDropToUserBoundary(msgs, 2)).toBe(4);
+    // No user in (0, 2]: the drop is cancelled, never moved forward past uncovered messages.
+    expect(snapDropToUserBoundary(msgs, 2)).toBe(0);
     const more: Msg[] = [U, A, U, A, T, A];
     expect(snapDropToUserBoundary(more, 3)).toBe(2);
     expect(snapDropToUserBoundary(more, 4)).toBe(2);
+  });
+
+  it('treats a custom input as a turn boundary', () => {
+    const C = { role: 'custom', content: 'scheduled' };
+    const withCustom: Msg[] = [U, A, C, A, U, A];
+    expect(snapDropToUserBoundary(withCustom, 2)).toBe(2);
+    expect(snapDropToUserBoundary(withCustom, 3)).toBe(2);
   });
 
   it('returns 0 and >= length unchanged', () => {
@@ -564,5 +573,29 @@ describe('effectiveFoldRefreshTurns', () => {
 
   it('leaves the refresh untouched when the rolling window is off', () => {
     expect(effectiveFoldRefreshTurns(12, 2, false)).toBe(12);
+  });
+});
+
+describe('messageSummaryText + boundSpanByChars', () => {
+  it('reads the payload of content-less pi message kinds', () => {
+    expect(messageSummaryText({ role: 'compactionSummary', summary: 'S' })).toBe('S');
+    expect(messageSummaryText({ role: 'branchSummary', summary: 'B' })).toBe('B');
+    expect(messageSummaryText({ role: 'bashExecution', command: 'ls', output: 'a' })).toBe('$ ls\na');
+    expect(messageSummaryText({ role: 'bashExecution', command: 'ls', output: 'a', excludeFromContext: true })).toBe(
+      '',
+    );
+    expect(messageSummaryText({ role: 'user', content: 'u' })).toBe('u');
+  });
+
+  it('ends a span before its rendered transcript exceeds the cap, admitting at least one message', () => {
+    const msgs: Msg[] = [
+      { role: 'user', content: 'x'.repeat(10) },
+      { role: 'assistant', content: 'y'.repeat(10) },
+      { role: 'user', content: 'z'.repeat(10) },
+    ];
+    // "user: " + 10 = 16; + 2 + "assistant: " + 10 = 39; third would reach 57.
+    expect(boundSpanByChars(msgs, 0, 3, 39)).toBe(2);
+    expect(boundSpanByChars(msgs, 0, 3, 1000)).toBe(3);
+    expect(boundSpanByChars(msgs, 0, 3, 5)).toBe(1);
   });
 });

@@ -32,6 +32,7 @@ function dirty(abort: AbortController): WindowState {
     forceRecap: true,
     postCompaction: false,
     timelineSeedBase: 'seed',
+    checkpointCommittedAnchor: 'condense',
   };
 }
 
@@ -82,6 +83,7 @@ describe('window state', () => {
       recapAbort: null,
       recapPromise: null,
       lastSentEstChars: 0,
+      checkpointCommittedAnchor: undefined,
       postCompaction: true,
     });
   });

@@ -11,7 +11,8 @@ model: inherit
 thinkingLevel: low
 maxTurns: 1
 isolation: shared-cwd
-timeoutMs: 60000
+# Generous: the child often runs on a self-hosted, single-instance endpoint.
+timeoutMs: 300000
 requestOptions:
   # Low, faithful sampler: beat extraction must not paraphrase or invent.
   temperature: 0.2

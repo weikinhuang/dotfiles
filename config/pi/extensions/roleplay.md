@@ -56,7 +56,7 @@ ${PI_ROLEPLAY_ROOT:-~/.pi/agent/roleplay}/
     ├── relationship/<slug>.md
     ├── summary/
     │   ├── auto.md              ← carry-over recap (cross-session seed for new trees)
-    │   └── archive/<ts>.md      ← `/roleplay newscene`-archived prior carry-overs
+    │   └── archive/<ts>.md      ← `/roleplay newscene`-archived prior carry-overs (`<ts>_02.md`, … on a same-second clash)
     ├── timeline/
     │   ├── auto.md              ← carry-over timeline (append-only log of dated beats)
     │   └── archive/
@@ -64,7 +64,7 @@ ${PI_ROLEPLAY_ROOT:-~/.pi/agent/roleplay}/
     │       └── <ts>-<pid>-<rand>-rotated.md ← older half rotated out past timelineFileMaxChars
     └── facts/                   ← captured-facts carry-over sidecar (NOT a record kind; unscanned)
         ├── <slug>.md            ← one carry-over fact each (frontmatter name + description)
-        └── archive/<ts>/        ← newscene-archived facts
+        └── archive/<ts>/        ← newscene-archived facts (`<ts>_02/`, … on a same-second clash)
 ```
 
 Each record is a markdown file with three required frontmatter keys (`name`, `description`, `kind`) plus a markdown
@@ -222,7 +222,8 @@ grouping dir with no `*.md` of its own is not itself a bundle.
 **A bundle is inert unless activated.** Activation happens once at launch via `PI_ROLEPLAY_LORE_BUNDLES`, a
 comma-separated list of bundle names (e.g. `PI_ROLEPLAY_LORE_BUNDLES=apartment-loft,winter-arc`). It is parsed with
 [`parseLoreBundleSelection`](../../../lib/node/pi/roleplay/paths.ts) (split on commas, trim, drop blanks, dedupe keeping
-the first occurrence).
+the first occurrence). A name that would resolve outside `lore/` (an empty, `.`, or `..` segment, a leading `/`, or a
+backslash) is skipped with a scan warning.
 
 **Precedence is deterministic.** Base lore loads first, then each activated bundle in listed order; later writes win on
 the same id:
@@ -275,7 +276,8 @@ The SillyTavern "insert at depth N" lever positions standing instructions in the
   to the model's next turn.
 - **Depth-tagged lore** - any `lore` entry with a `depth:` field. These are excluded from the keyword-fired block and
   match the **prior `scanDepth` messages** (default 10) plus the initiating narrative prompt. They are budgeted by
-  `loreCharBudget`, skip the timing pass, and a `constant` depth record fires on every narrative turn.
+  `loreCharBudget` against their delivered `[Lore — name: body]` framing (blank-line separated, no header or
+  dropped-entries trailer), skip the timing pass, and a `constant` depth record fires on every narrative turn.
 
 `depth: 0` appends after the initiating input, `depth: 1` inserts just before it, and a depth larger than the history
 clamps to the start. A depth that would split an assistant's tool-call/result batch moves before that batch. Placement
@@ -348,7 +350,9 @@ Macro names are case-insensitive; any argument after the first `:` keeps its cas
 | `{{time}}` / `{{date}}`       | `HH:MM` (24h, local) / `YYYY-MM-DD`                                                                          |
 | `{{weekday}}`                 | e.g. `Sunday`                                                                                                |
 | `{{random:a,b,c}}`            | one comma-separated option, picked at random (options trimmed)                                               |
+| `{{random::a::b}}`            | SillyTavern double-colon form of `{{random}}`; options may contain commas                                    |
 | `{{roll:NdM}}` / `{{roll:M}}` | sum of `N` `M`-sided dice (`N` defaults to 1); more than 100 dice or more than 1,000,000 sides stays literal |
+| `{{roll:NdM+K}}` / `-K`       | the dice sum plus / minus a constant modifier (`{{roll:2d6+1}}`); any other trailing text stays literal      |
 | `{{newline}}`                 | a literal newline                                                                                            |
 
 Resolution is forgiving: an unknown macro, an out-of-range roll, or `{{user}}` / `{{char}}` with no value in context is

@@ -34,8 +34,10 @@ Each memory file has a strict five-key frontmatter (`name`, `description`, `type
 plus a markdown body. `created` / `updated` are full ISO-8601 UTC datetimes (e.g. `2026-06-30T14:22:01Z`) written
 automatically by the tool: `save` stamps both, `update` preserves `created` and bumps `updated`. Files written before
 timestamps existed (the original three-key form) still parse - their timestamps are simply absent, and a malformed
-timestamp is tolerated as absent rather than rejecting the file. `MEMORY.md` is a one-line-per-memory index rebuilt by
-the tool on every write - don't hand-edit it.
+timestamp is tolerated as absent rather than rejecting the file. Unknown frontmatter keys (for example the `roleplay`
+extension's `roleplayFactCast` ownership tag on captured facts) are not interpreted, but `update` re-emits them so an
+edit never drops another extension's metadata. `MEMORY.md` is a one-line-per-memory index rebuilt by the tool on every
+write - don't hand-edit it.
 
 ## Memory types
 

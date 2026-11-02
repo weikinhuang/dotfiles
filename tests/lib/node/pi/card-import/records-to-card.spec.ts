@@ -201,6 +201,8 @@ describe('planCardExport', () => {
       'character "Mira": card has no field for aliases (Mi), triggers (diver), pinned; dropped',
       'character "Mira": custom frontmatter keys dropped: mood',
       'lore "Reef": dropped recurse: true (ST has no per-entry recursion opt-in); description "A long custom summary"; custom frontmatter keys source',
+      // Export writes comment = name, so re-import would derive "Kelp", not the importer's "triggers: kelp" fallback.
+      'lore "Kelp": dropped description "triggers: kelp"',
     ]);
   });
 

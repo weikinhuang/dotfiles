@@ -362,12 +362,13 @@ test('session_compact resets index coverage but keeps the recap text', async () 
   expect(stub.summarizeDetailed).toHaveBeenCalledTimes(1);
   expect(h.recaps()).toHaveLength(1);
 
-  // A later stride roll summarizes the new aged span, never pi's compaction summary.
+  // A later stride roll summarizes the new aged span. pi's compaction summary is
+  // in that span too: the roll drops it, so it must be folded, never discarded.
   stub.summarizeDetailed.mockResolvedValueOnce({ recap: 'KEPT RECAP PLUS', raw: 'KEPT RECAP PLUS' });
   await h.request([...compacted, ...history(1, 16)]);
   expect(stub.summarizeDetailed).toHaveBeenCalledTimes(2);
   const span = stub.summarizeDetailed.mock.calls[1][1];
-  expect(span).not.toContain('PI COMPACTION SUMMARY');
+  expect(span).toContain('PI COMPACTION SUMMARY');
   expect(span).toContain('turn 6 prompt');
 });
 
@@ -479,7 +480,7 @@ test('fact capture that resolves after a reset writes nothing', async () => {
   expect(existsSync(join(h.castDir, 'facts'))).toBe(false);
 });
 
-test('a carry-over timeline seed survives a resume via the first v2 entry base', async () => {
+test('a carry-over timeline seed survives a resume via the v2 base stamped at hydration', async () => {
   const h = await harness({ recapAsync: false, recapStride: 1, recapMaxAdvance: 6, timeline: true });
   mkdirSync(join(h.castDir, 'timeline'), { recursive: true });
   writeFileSync(
@@ -492,8 +493,13 @@ test('a carry-over timeline seed survives a resume via the first v2 entry base',
   );
   await h.request(history(6));
   const entries = h.customs('roleplay-timeline');
-  expect(entries).toEqual([expect.objectContaining({ version: 2, beats: '- [day 2] new beat' })]);
+  // The seed is stamped as a base when it is adopted, before any roll; the roll carries only its delta.
+  expect(entries).toEqual([
+    expect.objectContaining({ version: 2, beats: '', skip: 'seed' }),
+    expect.objectContaining({ version: 2, beats: '- [day 2] new beat' }),
+  ]);
   expect(entries[0].base).toContain('seed beat');
+  expect(entries[1].base).toBeUndefined();
 
   // Resume: the branch carries a recap, so hydration reads the branch timeline.
   await h.dispatch('session_start');

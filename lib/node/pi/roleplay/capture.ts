@@ -24,7 +24,7 @@
  * No pi imports.
  */
 
-import { extractBalancedArray } from '../json-loose.ts';
+import { parseFirstJsonArray } from '../json-loose.ts';
 import { clampWords } from './text.ts';
 
 /** A single extracted durable fact, header-carried (payload in name + description). */
@@ -82,22 +82,17 @@ export function buildFactExtractionTask(spanText: string, guidance?: string): st
 /**
  * Parse the extractor's response into validated fact candidates. Tolerant:
  * accepts a bare JSON array, a ```json fenced block, or an array embedded in
- * prose. Drops non-object / empty entries, clamps lengths, de-dups by
- * lowercased name, and caps the count. Returns `[]` on any parse failure or
- * the literal `null` sentinel (never throws).
+ * prose (a bracketed aside before it is skipped). Drops non-object / empty
+ * entries, clamps lengths, de-dups by lowercased name, and caps the count.
+ * Returns `[]` on any parse failure or the literal `null` sentinel (never
+ * throws).
  */
 export function parseFactCandidates(raw: string): FactCandidate[] {
   const trimmed = raw.trim();
   if (trimmed.length === 0 || trimmed === 'null' || trimmed === '[]') return [];
-  const jsonText = extractBalancedArray(trimmed);
-  if (jsonText === null) return [];
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(jsonText);
-  } catch {
-    return [];
-  }
-  if (!Array.isArray(parsed)) return [];
+  // First `[` that opens a parseable JSON array (skips bracketed prose asides).
+  const parsed = parseFirstJsonArray(trimmed);
+  if (parsed === null) return [];
   const out: FactCandidate[] = [];
   const seen = new Set<string>();
   for (const item of parsed) {

@@ -76,15 +76,36 @@ function decodeBase64(text: string): string | null {
   }
 }
 
-/**
- * Extract the embedded character-card JSON string from a PNG. Prefers the
- * V3 (`ccv3`) chunk over the V2 (`chara`) chunk when both are present.
- * Returns `null` when the bytes aren't a PNG or carry no card chunk.
- */
-export function extractCardJson(bytes: Uint8Array): string | null {
-  const chunks = parsePngTextChunks(bytes);
-  const encoded = chunks.get('ccv3') ?? chunks.get('chara');
+/** Decode one base64 card chunk to its non-blank text, or `null`. */
+function decodeCardChunk(encoded: string | undefined): string | null {
   if (encoded === undefined) return null;
   const json = decodeBase64(encoded);
   return json !== null && json.trim().length > 0 ? json : null;
+}
+
+/** True when `text` parses as a JSON object (the shape every card version uses). */
+function isJsonObject(text: string): boolean {
+  try {
+    const parsed: unknown = JSON.parse(text);
+    return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Extract the embedded character-card JSON string from a PNG. Prefers the
+ * V3 (`ccv3`) chunk over the V2 (`chara`) chunk when both are present, but
+ * falls back to `chara` when `ccv3` is empty or does not decode to a JSON
+ * object. When neither decodes to a JSON object, the first non-blank
+ * decoded chunk is returned so the caller reports a parse error rather than
+ * a missing chunk. Returns `null` when the bytes aren't a PNG or carry no
+ * card chunk.
+ */
+export function extractCardJson(bytes: Uint8Array): string | null {
+  const chunks = parsePngTextChunks(bytes);
+  const candidates = [decodeCardChunk(chunks.get('ccv3')), decodeCardChunk(chunks.get('chara'))].filter(
+    (c): c is string => c !== null,
+  );
+  return candidates.find(isJsonObject) ?? candidates[0] ?? null;
 }

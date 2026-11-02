@@ -201,7 +201,7 @@ describe('window checkpoint', () => {
     { cast: 1 },
     { provider: ' ' },
     { model: null },
-    { charsPerToken: 0.99 },
+    { charsPerToken: 0.2 },
     { charsPerToken: 20.01 },
     { charsPerToken: Number.NaN },
     { charsPerToken: Number.POSITIVE_INFINITY },

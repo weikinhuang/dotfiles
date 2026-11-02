@@ -72,40 +72,58 @@ export function rankLore(chunks: readonly LoreChunk[]): LoreChunk[] {
   });
 }
 
+/** Options for {@link selectWithinBudget}. */
+export interface BudgetOptions {
+  /** Header charge (default `LORE_BLOCK_HEADER.length`). `0` = no header, so the first chunk pays no separator. */
+  headerChars?: number;
+  /** Render one chunk exactly as it is delivered (default {@link renderLoreChunk}, the keyword-lore block shape). */
+  render?: (chunk: LoreChunk) => string;
+  /** Charge (and make room for) the dropped-entries trailer (default `true`). Pass `false` when none is rendered. */
+  trailer?: boolean;
+}
+
 /**
  * Rank then evict to fit `charBudget`, measured against the full rendered
- * block (header + chunks + separators + dropped trailer). The first
- * (highest-priority) chunk is always kept regardless of budget; later
- * chunks are dropped once the running total would exceed the cap. If the
- * resulting trailer then overflows, the lowest-ranked kept chunks are
- * evicted (never the first) until it fits. `opts.headerChars` overrides the
- * header charge (default `LORE_BLOCK_HEADER.length`; depth lore, which
- * renders no header, passes 0). Dropped entries are returned in
- * rank order so the caller can surface a trailer.
+ * block: header + `render`ed chunks joined by {@link LORE_BLOCK_SEPARATOR}
+ * (+ the dropped-entries trailer unless `opts.trailer === false`). The
+ * first (highest-priority) chunk is always kept regardless of budget;
+ * later chunks are dropped once the running total would exceed the cap. If
+ * the resulting trailer then overflows, the lowest-ranked kept chunks are
+ * evicted (never the first) until it fits. A separator is charged only
+ * where one is rendered (after the header, or between chunks). Dropped
+ * entries are returned in rank order so the caller can surface a trailer.
  */
 export function selectWithinBudget(
   chunks: readonly LoreChunk[],
   charBudget: number,
-  opts: { headerChars?: number } = {},
+  opts: BudgetOptions = {},
 ): BudgetResult {
   const ranked = rankLore(chunks);
   const rankOf = new Map(ranked.map((c, i) => [c.entry.id, i]));
+  const render = opts.render ?? renderLoreChunk;
+  const header = opts.headerChars ?? LORE_BLOCK_HEADER.length;
+  const withTrailer = opts.trailer ?? true;
+  // A chunk pays the separator iff something (the header or an earlier chunk) precedes it.
+  const cost = (chunk: LoreChunk, preceded: boolean): number =>
+    (preceded ? LORE_BLOCK_SEPARATOR.length : 0) + render(chunk).length;
   const kept: LoreChunk[] = [];
   let dropped: RoleplayEntry[] = [];
-  let used = opts.headerChars ?? LORE_BLOCK_HEADER.length;
+  let used = header;
   for (const chunk of ranked) {
-    const cost = chunkCost(chunk);
-    if (kept.length > 0 && used + cost > charBudget) {
+    const c = cost(chunk, header > 0 || kept.length > 0);
+    if (kept.length > 0 && used + c > charBudget) {
       dropped.push(chunk.entry);
       continue;
     }
     kept.push(chunk);
-    used += cost;
+    used += c;
   }
+  if (!withTrailer) return { kept, dropped };
   while (dropped.length > 0 && kept.length > 1 && used + trailerCost(dropped) > charBudget) {
     const evicted = kept.pop();
     if (!evicted) break;
-    used -= chunkCost(evicted);
+    // Never the first kept chunk, so it was always preceded by a separator.
+    used -= cost(evicted, true);
     dropped = [...dropped, evicted.entry].toSorted((a, b) => (rankOf.get(a.id) ?? 0) - (rankOf.get(b.id) ?? 0));
   }
   return { kept, dropped };

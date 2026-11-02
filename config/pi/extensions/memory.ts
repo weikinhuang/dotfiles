@@ -784,7 +784,10 @@ export default function memoryExtension(pi: ExtensionAPI): void {
     // any rename removed the old file); fall back to re-reading the
     // on-disk frontmatter for entries indexed before timestamps existed.
     // The rename path carries `created` across automatically via this value.
-    const priorCreated = resolved.created ?? readMemoryFrontmatter(resolved, cwd, sessionId)?.created;
+    // Unknown frontmatter keys (e.g. another extension's ownership tag such
+    // as roleplay's `roleplayFactCast`) ride along so an edit never drops them.
+    const priorFrontmatter = readMemoryFrontmatter(resolved, cwd, sessionId);
+    const priorCreated = resolved.created ?? priorFrontmatter?.created;
     const updatedStamp = now().toISOString();
     const serialized = serializeMemory({
       name: nextName,
@@ -793,6 +796,7 @@ export default function memoryExtension(pi: ExtensionAPI): void {
       body: nextBody,
       created: priorCreated,
       updated: updatedStamp,
+      ...(priorFrontmatter?.extra ? { extra: priorFrontmatter.extra } : {}),
     });
     const nextPath = fileFor(resolved.scope, resolved.type, nextId, cwd, sessionId);
     try {

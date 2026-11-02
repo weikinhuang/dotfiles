@@ -139,7 +139,16 @@ export interface Frontmatter {
   created?: string;
   /** ISO-8601 UTC datetime of the most recent write. Optional, same as `created`. */
   updated?: string;
+  /**
+   * Unknown frontmatter keys, carried verbatim in file order so a rewrite
+   * (`update`) re-emits them instead of dropping them (e.g. the roleplay
+   * extension's `roleplayFactCast` ownership tag). Absent when none.
+   */
+  extra?: Record<string, unknown>;
 }
+
+/** Frontmatter keys memory consumes itself; everything else rides on `extra`. */
+const KNOWN_KEYS: ReadonlySet<string> = new Set(['name', 'description', 'type', 'created', 'updated']);
 
 export interface ParsedMemoryFile {
   frontmatter: Frontmatter;
@@ -193,7 +202,8 @@ export function parseFrontmatter(raw: string): ParsedMemoryFile | null {
   if (parsed === null) return null;
   const { fields, body } = parsed;
 
-  // Unknown keys are ignored - allows for forward compatibility.
+  // Unknown keys are not interpreted (forward compatibility) but are kept on
+  // `extra` so a rewrite preserves them.
   const name = asString(fields.name);
   const description = asString(fields.description);
   let type: MemoryType | undefined;
@@ -213,6 +223,7 @@ export function parseFrontmatter(raw: string): ParsedMemoryFile | null {
   // never a reason to reject the file (old three-key files have neither).
   const created = parseTimestamp(createdRaw);
   const updated = parseTimestamp(updatedRaw);
+  const extraEntries = Object.entries(fields).filter(([key]) => !KNOWN_KEYS.has(key));
 
   return {
     frontmatter: {
@@ -221,6 +232,7 @@ export function parseFrontmatter(raw: string): ParsedMemoryFile | null {
       type,
       ...(created !== undefined ? { created } : {}),
       ...(updated !== undefined ? { updated } : {}),
+      ...(extraEntries.length > 0 ? { extra: Object.fromEntries(extraEntries) } : {}),
     },
     body,
   };
@@ -249,6 +261,12 @@ export function serializeMemory(input: {
   /** ISO-8601 UTC datetime; the extension passes `now.toISOString()`. Omitted when absent. */
   created?: string;
   updated?: string;
+  /**
+   * Unknown keys to re-emit after the known ones (see {@link Frontmatter.extra}).
+   * Values are written as JSON, which is valid YAML flow syntax and reparses
+   * to the same value; known keys and `undefined` values are skipped.
+   */
+  extra?: Readonly<Record<string, unknown>>;
 }): string {
   const body = input.body.replace(/\r\n/g, '\n').replace(/\s+$/, '');
   const lines = [
@@ -262,6 +280,12 @@ export function serializeMemory(input: {
   // re-serialised legacy file stays in its original three-key form.
   if (input.created !== undefined) lines.push(`created: ${yamlValue(input.created)}`);
   if (input.updated !== undefined) lines.push(`updated: ${yamlValue(input.updated)}`);
+  for (const [key, value] of Object.entries(input.extra ?? {})) {
+    if (KNOWN_KEYS.has(key)) continue;
+    const rendered: string | undefined = JSON.stringify(value);
+    if (rendered === undefined) continue;
+    lines.push(`${/^[A-Za-z_][\w-]*$/.test(key) ? key : JSON.stringify(key)}: ${rendered}`);
+  }
   lines.push(FENCE, '', body, '');
   return lines.join('\n');
 }

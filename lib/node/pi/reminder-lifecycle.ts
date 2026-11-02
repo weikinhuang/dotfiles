@@ -1,5 +1,5 @@
 /** Stable, branch-local reminder projection. Preview never persists or acknowledges a capture. */
-import { frameReminder, type ReminderMessage, type ReminderSpec } from './context-reminder.ts';
+import { frameReminder, isProducerReminderBlock, type ReminderMessage, type ReminderSpec } from './context-reminder.ts';
 import {
   reminderMessageAnchor,
   reminderMessageKeys,
@@ -97,7 +97,9 @@ function splitReminders(messages: readonly ReminderMessage[]): { clean: Reminder
     .map((message) => {
       if (!Array.isArray(message.content)) return message;
       const content = message.content.filter((block) => {
-        if (!isTextPart(block)) return true;
+        // Only producer-injected blocks are reminder state; framed text a user
+        // typed or a tool returned is conversation content and stays in place.
+        if (!isTextPart(block) || !isProducerReminderBlock(block)) return true;
         const match = /^<system-reminder id="([a-z0-9-]+)">\n([\s\S]*)\n<\/system-reminder>$/.exec(block.text);
         if (!match) return true;
         specs.push({ id: match[1], body: match[2] });

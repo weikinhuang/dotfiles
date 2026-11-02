@@ -18,7 +18,18 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import { appendFileSync, existsSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync } from 'node:fs';
+import {
+  appendFileSync,
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+} from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 
 import { atomicWriteFile, ensureDirSync } from '../atomic-write.ts';
@@ -105,20 +116,81 @@ export function archiveFile(cast: string, kind: RoleplayKind, ts: string, root: 
   return join(archiveDir(cast, kind, root), `${ts}.md`);
 }
 
+/** Max numbered `_NN` suffixes tried before falling back to a random suffix. */
+const MAX_ARCHIVE_SUFFIX = 99;
+
+/**
+ * Candidate archive names for `stem`: `stem`, then `stem_02` ... `stem_99`,
+ * then a random suffix. `_` sorts after `.` / end-of-name, so a same-second
+ * second archive lists AFTER the first and a reverse-lexical listing stays
+ * newest-first (a later second still sorts after both).
+ */
+function archiveStems(stem: string): string[] {
+  const out = [stem];
+  for (let n = 2; n <= MAX_ARCHIVE_SUFFIX; n += 1) out.push(`${stem}_${String(n).padStart(2, '0')}`);
+  out.push(`${stem}_${Date.now()}-${randomBytes(3).toString('hex')}`);
+  return out;
+}
+
+/**
+ * Claim a fresh `<dir>/<stem>[_NN].md` with an exclusive create (so two
+ * same-second archives, or two sessions archiving at once, never clobber
+ * each other). Returns the claimed path; the caller renames over the empty
+ * placeholder. Throws when every candidate is taken or the dir is unwritable.
+ */
+function claimArchiveFile(dir: string, stem: string): string {
+  for (const candidate of archiveStems(stem)) {
+    const path = join(dir, `${candidate}.md`);
+    try {
+      closeSync(openSync(path, 'wx'));
+      return path;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+    }
+  }
+  throw new Error(`no free archive name for ${stem} in ${dir}`);
+}
+
+/** Directory twin of {@link claimArchiveFile}: exclusively create `<parent>/<stem>[_NN]/`. */
+function claimArchiveDir(parent: string, stem: string): string {
+  ensureDirSync(parent);
+  for (const candidate of archiveStems(stem)) {
+    const path = join(parent, candidate);
+    try {
+      mkdirSync(path);
+      return path;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+    }
+  }
+  throw new Error(`no free archive dir for ${stem} in ${parent}`);
+}
+
 /**
  * Move a kind's carry-over `auto.md` to `<kind>/archive/<ts>.md` (newscene
- * boundary). Returns `true` when a carry-over existed and was moved.
- * Best-effort: a failure returns `false` without throwing.
+ * boundary). An existing archive is never overwritten: a same-stamp
+ * collision lands at `<ts>_02.md`, `<ts>_03.md`, ... Returns `true` when a
+ * carry-over existed and was moved. Best-effort: a failure returns `false`
+ * without throwing.
  */
 export function archiveCarryOver(cast: string, kind: RoleplayKind, ts: string, root: string = roleplayRoot()): boolean {
   const src = fileFor(cast, kind, 'auto', root);
   if (!existsSync(src)) return false;
+  let dest: string | null = null;
   try {
-    const dest = archiveFile(cast, kind, ts, root);
     ensureDirSync(archiveDir(cast, kind, root));
+    dest = claimArchiveFile(archiveDir(cast, kind, root), ts);
     renameSync(src, dest);
     return true;
   } catch {
+    if (dest !== null) {
+      try {
+        // Drop the empty placeholder unless the move already landed on it.
+        if (existsSync(src)) unlinkSync(dest);
+      } catch {
+        /* best-effort */
+      }
+    }
     return false;
   }
 }
@@ -272,8 +344,10 @@ export function listFactSidecars(cast: string, root: string = roleplayRoot()): F
 
 /**
  * Archive all carry-over fact sidecars into `facts/archive/<ts>/` and clear
- * the live sidecar set (newscene boundary). Best-effort per file; returns
- * the number moved.
+ * the live sidecar set (newscene boundary). An existing archive dir is never
+ * reused: a same-stamp collision lands in `<ts>_02/`, `<ts>_03/`, ... so an
+ * earlier generation of a same-slug sidecar is never overwritten.
+ * Best-effort per file; returns the number moved.
  */
 export function archiveFacts(cast: string, ts: string, root: string = roleplayRoot()): number {
   const dir = factsDir(cast, root);
@@ -284,8 +358,12 @@ export function archiveFacts(cast: string, ts: string, root: string = roleplayRo
     return 0;
   }
   if (names.length === 0) return 0;
-  const dest = factsArchiveDir(cast, ts, root);
-  ensureDirSync(dest);
+  let dest: string;
+  try {
+    dest = claimArchiveDir(join(dir, 'archive'), ts);
+  } catch {
+    return 0;
+  }
   let moved = 0;
   for (const name of names) {
     try {
@@ -407,6 +485,17 @@ export function parseLoreBundleSelection(raw: string | undefined): string[] {
 }
 
 /**
+ * True when `name` is a bundle name that stays under `lore/`: one or more
+ * `/`-separated segments, none empty, `.` or `..`, with no backslash, NUL,
+ * or leading `/`. Nested names (`home/loft`) are valid; `../other-cast`,
+ * `/abs`, `a//b`, and `a\\b` are not.
+ */
+export function isSafeLoreBundleName(name: string): boolean {
+  if (name.length === 0 || name.includes('\\') || name.includes('\0')) return false;
+  return name.split('/').every((seg) => seg.length > 0 && seg !== '.' && seg !== '..');
+}
+
+/**
  * Parse every `*.md` in one directory as entries of a single `kind`,
  * returning the parsed records (no dedup - callers key/order them) and
  * pushing problems into `warnings`. Subdirectories are skipped (only
@@ -519,7 +608,8 @@ export function listLoreBundles(cast: string, root: string = roleplayRoot()): st
  * When `options.loreBundles` is non-empty, each named bundle subfolder
  * (`lore/<name>/*.md`) is scanned on top of the base lore with
  * bundle-overrides-base precedence (see the bundle note above). An
- * activated name with no matching subfolder is reported as a warning.
+ * activated name with no matching subfolder is reported as a warning, as is
+ * a name that would resolve outside `lore/` (see {@link isSafeLoreBundleName}).
  */
 export function scanCast(
   cast: string,
@@ -535,6 +625,14 @@ export function scanCast(
   }
 
   for (const bundle of options.loreBundles ?? []) {
+    // Never let a selection escape `lore/` (reads AND later tool writes resolve through `loreBundleDir`).
+    if (!isSafeLoreBundleName(bundle)) {
+      warnings.push({
+        path: kindDir(cast, 'lore', root),
+        reason: `lore bundle "${bundle}" is not a valid bundle name`,
+      });
+      continue;
+    }
     const dir = loreBundleDir(cast, bundle, root);
     let isDir = false;
     try {
