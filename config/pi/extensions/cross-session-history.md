@@ -12,20 +12,31 @@ Brings Claude Code-style cross-session prompt history to pi's input editor:
 
 1. On every `session_start`, the extension reads `ctx.sessionManager.getSessionDir()` -- the project-scoped session
    bucket pi already maintains under `~/.pi/agent/sessions/<slug>/` -- and walks the `*.jsonl` files newest-first.
-2. [`loadCrossSessionHistory`](../../../lib/node/pi/cross-session-history.ts) parses each session in document order,
-   pulls user-typed prompts (`role: "user"`), and concatenates them into a single chronological list (oldest -> newest).
+2. [`loadCrossSessionHistory`](../../../lib/node/pi/cross-session-history.ts) scans each file backwards in 64 KiB
+   chunks, pulls user prompts (`role: "user"`), and returns them in chronological order (oldest -> newest). It stops
+   once enough recent prompts are found. Sessions larger than 5 MB remain eligible; only individual JSONL lines over 5
+   MB are skipped, without buffering their full contents.
 3. The list is capped to the `N` most recent prompts (default 100; matches the editor's internal ring cap).
-4. The current session's file (`ctx.sessionManager.getSessionFile()`) is excluded so pi's per-session
-   `editor.addToHistory` calls aren't double-counted.
+4. The current session's file (`ctx.sessionManager.getSessionFile()`) is excluded from the disk scan. On initial
+   startup, pi restores its prompts after the editor is installed. On `/new`, `/resume`, `/fork`, and `/reload`, the
+   extension appends the active session's in-memory user entries itself: pi renders those messages before installing the
+   replacement editor, and replacing an editor copies its text but not its history. Active prompts remain at the top of
+   recall without replaying the same file twice.
 5. The extension installs an editor factory via `ctx.ui.setEditorComponent`. When pi instantiates the editor, the
    factory calls `editor.addToHistory(prompt)` for every cached prompt before pi binds the editor to input. From the
    user's perspective, arrow-up just works -- the current session's history sits on top, then prior sessions in
    reverse-chronological order.
 
+Submitted prompts are recovered from pi's session entries, not from a shutdown-only history save. Ctrl+C exit and `/new`
+do not require a separate flush by this extension. Text cleared with Ctrl+C before submission is an unsent draft and is
+not recorded.
+
 ### Ctrl+R reverse search
 
 When the editor has focus, `Ctrl+R` opens a centered overlay populated with a deduplicated, most-recent-first list of
-project prompts (default cap 5000; one entry per unique prompt -- the most recent occurrence wins). Inside the overlay:
+project prompts (default cap 5000; one entry per unique prompt -- the most recent occurrence wins). The pool includes
+active-session prompts present at `session_start`, even when they have no persisted session file yet. It is refreshed on
+startup, session switches, and `/reload`, not on every submission. Inside the overlay:
 
 - Type to fuzzy-match. The matcher in [`lib/node/pi/fuzzy-match.ts`](../../../lib/node/pi/fuzzy-match.ts) is a
   subsequence ranker (fzf-style), case-insensitive with a small bonus for case-exact matches, with bonuses for
@@ -85,10 +96,11 @@ If you install another editor extension AFTER this one, pi's last-write-wins sem
 - `PI_CROSS_SESSION_HISTORY_DEBUG=1` -- `ctx.ui.notify` how many prompts were loaded each `session_start` (both pools).
   Useful for verifying the extension is firing.
 
-The pure helper also accepts `maxFileBytes` (default 5MB) and `maxPromptLength` (default 4000 chars) caps that aren't
-plumbed through env vars; raise them in
-[`lib/node/pi/cross-session-history.ts`](../../../lib/node/pi/cross-session-history.ts) if you regularly paste megabytes
-into prompts you actually want to scroll back to.
+The pure helper also accepts an optional whole-file `maxFileBytes` cap (unset by default) and a `maxPromptLength` cap
+(default 4000 chars); neither is plumbed through env vars. Its per-line memory cap is `DEFAULT_MAX_LINE_BYTES` (default
+5 MB) in [`lib/node/pi/cross-session-history.ts`](../../../lib/node/pi/cross-session-history.ts). A prompt in an
+oversized JSONL line, such as a user message with very large inline images, is still skipped. Oversized tool or
+assistant lines no longer hide other prompts from the same session.
 
 ## Hot reload
 

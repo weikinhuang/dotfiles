@@ -252,6 +252,78 @@ describe('loadCrossSessionHistory', () => {
     expect(loadCrossSessionHistory({ sessionDir: dir, maxFileBytes: 50 })).toEqual([]);
   });
 
+  test('loads prompts from sessions larger than 5MB, skipping oversized output lines', () => {
+    const file = writeSession('large.jsonl', ['before output']);
+    const output = JSON.stringify({
+      type: 'message',
+      message: { role: 'toolResult', content: 'x'.repeat(6 * 1024 * 1024) },
+    });
+    writeFileSync(
+      file,
+      [
+        JSON.stringify({ type: 'message', message: { role: 'user', content: 'before output' } }),
+        output,
+        JSON.stringify({ type: 'message', message: { role: 'user', content: 'after output' } }),
+      ].join('\n'),
+    );
+    expect(loadCrossSessionHistory({ sessionDir: dir })).toEqual(['before output', 'after output']);
+  });
+
+  test('reads UTF-8 prompts across scan-chunk boundaries and ignores an interrupted last line', () => {
+    const first = JSON.stringify({ type: 'message', message: { role: 'user', content: 'hello 🌏 世界' } });
+    const second = JSON.stringify({ type: 'message', message: { role: 'user', content: 'latest' } });
+    // Position the final byte of the emoji on a 64KiB boundary measured from EOF.
+    const suffixBytes = Buffer.byteLength(first.slice(first.indexOf('🌏') + '🌏'.length) + '\n' + second + '\n');
+    const padding = 'x'.repeat(64 * 1024 - suffixBytes - 1);
+    writeFileSync(join(dir, 'split.jsonl'), first + '\n' + second + '\n' + padding);
+    expect(loadCrossSessionHistory({ sessionDir: dir })).toEqual(['hello 🌏 世界', 'latest']);
+  });
+
+  test('keeps bounded recent prompts when scanning a large session', () => {
+    writeFileSync(
+      join(dir, 'many.jsonl'),
+      Array.from({ length: 3000 }, (_, i) =>
+        JSON.stringify({ type: 'message', message: { role: 'user', content: `${i}: ${'x'.repeat(2000)}` } }),
+      ).join('\n') + '\n',
+    );
+    expect(loadCrossSessionHistory({ sessionDir: dir, maxPrompts: 2 })).toEqual([
+      `2998: ${'x'.repeat(2000)}`,
+      `2999: ${'x'.repeat(2000)}`,
+    ]);
+  });
+
+  test('restores active-session prompts after replacing the editor on resume or reload', () => {
+    writeSession('old.jsonl', ['prior session'], -120_000);
+    const current = writeSession('current.jsonl', ['active first', 'active last'], -10_000);
+    const currentEntries = ['active first', 'active last'].map((content) => ({
+      type: 'message',
+      message: { role: 'user', content },
+    }));
+    expect(loadCrossSessionHistory({ sessionDir: dir, excludeFile: current, currentEntries })).toEqual([
+      'prior session',
+      'active first',
+      'active last',
+    ]);
+    expect(loadCrossSessionHistory({ sessionDir: dir, excludeFile: current, currentEntries, maxPrompts: 1 })).toEqual([
+      'active last',
+    ]);
+  });
+
+  test('restores in-memory active prompts without a persisted file and filters non-prompts', () => {
+    const currentEntries = [
+      { type: 'message', message: { role: 'user', content: 'submitted before abort' } },
+      { type: 'message', message: { role: 'assistant', content: 'reply' } },
+      { type: 'message', message: { role: 'user', content: ' ' } },
+      { type: 'message', message: { role: 'user', content: 'x'.repeat(DEFAULT_MAX_PROMPT_LENGTH + 1) } },
+    ];
+    expect(loadCrossSessionHistory({ sessionDir: join(dir, 'missing'), currentEntries })).toEqual([
+      'submitted before abort',
+    ]);
+    expect(loadCrossSessionHistory({ sessionDir: dir, currentEntries, maxFiles: 0 })).toEqual([
+      'submitted before abort',
+    ]);
+  });
+
   test('drops malformed JSONL files without throwing', () => {
     writeFileSync(join(dir, 'broken.jsonl'), 'not-json\nstill-not-json\n');
     writeSession('good.jsonl', ['good-1'], 0);

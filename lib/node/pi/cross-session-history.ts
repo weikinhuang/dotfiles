@@ -9,8 +9,9 @@
  * "Cross session, not cross project" falls out for free: pi already
  * buckets session jsonls per project under a slugified-cwd directory,
  * so we just read every `*.jsonl` in that one directory. The current
- * session's file is filtered out via `excludeFile` so the
- * pi-runtime's own in-session `addToHistory` calls aren't doubled.
+ * session's file is filtered out via `excludeFile`; its in-memory
+ * entries are supplied separately so replacing the editor doesn't
+ * discard recall history on resume or reload.
  *
  * Pure module - imports only `node:*` - so it's directly testable
  * with vitest under `tests/lib/node/pi/`.
@@ -24,9 +25,10 @@ import { isCacheTraceSidecar } from './cache-trace-config.ts';
 export const DEFAULT_MAX_PROMPTS = 100;
 /** Default max number of session files to scan (newest-first). */
 export const DEFAULT_MAX_FILES = 100;
-/** Default per-file size cap. Skip session files larger than this to avoid
- * pathological cases where a single session contains 100MB of pasted output. */
-export const DEFAULT_MAX_FILE_BYTES = 5 * 1024 * 1024;
+/** Cap memory for a single JSONL line; oversized tool/image lines are skipped,
+ * not the entire session containing them. */
+export const DEFAULT_MAX_LINE_BYTES = 5 * 1024 * 1024;
+const READ_CHUNK_BYTES = 64 * 1024;
 /** Default per-prompt length cap. Drop pasted blocks far larger than a line of
  * normal user input - they bloat the editor's history ring without being
  * useful to scroll back to. */
@@ -38,22 +40,26 @@ export const DEFAULT_MAX_PROMPT_LENGTH = 4000;
 export interface LoadHistoryOptions {
   /** Project-scoped session bucket, i.e. `ctx.sessionManager.getSessionDir()`. */
   sessionDir: string;
-  /** Active session file (`ctx.sessionManager.getSessionFile()`). Skipped so
-   * pi's per-session `addToHistory` isn't double-counted. */
+  /** Active session file (`ctx.sessionManager.getSessionFile()`). Skipped when
+   * its prompts are restored separately through `currentEntries`. */
   excludeFile?: string;
+  /** Active session's entries, appended after prior-session prompts. These
+   * restore history lost when installing a replacement editor. */
+  currentEntries?: readonly unknown[];
   /** Max number of prompts to return. Defaults to {@link DEFAULT_MAX_PROMPTS}. */
   maxPrompts?: number;
   /** Max number of session files to read. Defaults to {@link DEFAULT_MAX_FILES}. */
   maxFiles?: number;
-  /** Skip files larger than this byte count. Defaults to {@link DEFAULT_MAX_FILE_BYTES}. */
+  /** Optional whole-file byte cap. No whole-file cap by default. */
   maxFileBytes?: number;
   /** Skip individual prompts longer than this. Defaults to {@link DEFAULT_MAX_PROMPT_LENGTH}. */
   maxPromptLength?: number;
 }
 
 interface ExtractOptions {
-  maxFileBytes: number;
+  maxFileBytes?: number;
   maxPromptLength: number;
+  maxPrompts?: number;
 }
 
 function isObject(v: unknown): v is Record<string, unknown> {
@@ -125,16 +131,63 @@ export function extractUserPromptsFromText(jsonl: string, maxPromptLength: numbe
 
 /**
  * Parse a session jsonl and return user-typed prompts in document order
- * (which is chronological per pi's session-format). Throws on filesystem
+ * (which is chronological per pi's session-format). Scans backwards in bounded
+ * chunks, stopping once enough recent prompts have been found. Oversized lines
+ * are discarded without allocating their full contents. Throws on filesystem
  * errors; safe-ignores per-line JSON parse errors.
  */
 export function extractUserPromptsFromFile(file: string, opts: ExtractOptions): string[] {
-  const stat = fs.statSync(file);
-  if (!stat.isFile()) return [];
-  if (stat.size > opts.maxFileBytes) return [];
+  const fd = fs.openSync(file, 'r');
+  try {
+    const stat = fs.fstatSync(fd);
+    if (!stat.isFile() || (opts.maxFileBytes !== undefined && stat.size > opts.maxFileBytes)) return [];
+    const limit = opts.maxPrompts ?? Infinity;
+    const newest: string[] = [];
+    const chunk = Buffer.allocUnsafe(READ_CHUNK_BYTES);
+    let position = stat.size;
+    let fragments: Buffer[] = [];
+    let lineBytes = 0;
 
-  const raw = fs.readFileSync(file, 'utf8');
-  return extractUserPromptsFromText(raw, opts.maxPromptLength);
+    const addFragment = (fragment: Buffer): void => {
+      lineBytes += fragment.length;
+      if (lineBytes > DEFAULT_MAX_LINE_BYTES) fragments = [];
+      else if (fragment.length > 0) fragments.push(Buffer.from(fragment));
+    };
+    const finishLine = (): void => {
+      if (lineBytes > 0 && lineBytes <= DEFAULT_MAX_LINE_BYTES) {
+        const line = Buffer.concat(fragments.reverse()).toString('utf8');
+        const prompt = extractUserPromptsFromText(line, opts.maxPromptLength)[0];
+        if (prompt !== undefined) newest.push(prompt);
+      }
+      fragments = [];
+      lineBytes = 0;
+    };
+
+    while (position > 0 && newest.length < limit) {
+      const length = Math.min(chunk.length, position);
+      position -= length;
+      // A file may be truncated concurrently. Never parse unfilled buffer bytes.
+      let bytesRead = 0;
+      while (bytesRead < length) {
+        const count = fs.readSync(fd, chunk, bytesRead, length - bytesRead, position + bytesRead);
+        if (count === 0) return newest.reverse();
+        bytesRead += count;
+      }
+      let end = length;
+      for (let i = length - 1; i >= 0; i--) {
+        if (chunk[i] !== 10) continue;
+        addFragment(chunk.subarray(i + 1, end));
+        finishLine();
+        if (newest.length >= limit) return newest.reverse();
+        end = i;
+      }
+      addFragment(chunk.subarray(0, end));
+    }
+    if (newest.length < limit) finishLine();
+    return newest.reverse();
+  } finally {
+    fs.closeSync(fd);
+  }
 }
 
 /**
@@ -179,28 +232,35 @@ export function listSessionFilesNewestFirst(sessionDir: string, excludeFile?: st
 
 /**
  * Read the session bucket and return user prompts in chronological order
- * (oldest first), capped at `maxPrompts`. Returns an empty array on any
- * filesystem error - the caller treats that as "no history available."
+ * (oldest first), followed by active-session prompts, capped at `maxPrompts`.
+ * Missing/unreadable files are skipped without losing active-session history.
  */
 export function loadCrossSessionHistory(opts: LoadHistoryOptions): string[] {
   const maxPrompts = opts.maxPrompts ?? DEFAULT_MAX_PROMPTS;
   const maxFiles = opts.maxFiles ?? DEFAULT_MAX_FILES;
-  const maxFileBytes = opts.maxFileBytes ?? DEFAULT_MAX_FILE_BYTES;
   const maxPromptLength = opts.maxPromptLength ?? DEFAULT_MAX_PROMPT_LENGTH;
 
-  if (maxPrompts <= 0 || maxFiles <= 0) return [];
+  if (maxPrompts <= 0) return [];
+
+  const collected: string[] = [];
+  for (const entry of opts.currentEntries ?? []) {
+    const prompt = userPromptFromEntry(entry);
+    if (prompt !== undefined && prompt.length > 0 && prompt.length <= maxPromptLength) collected.push(prompt);
+  }
+  if (collected.length >= maxPrompts) return collected.slice(-maxPrompts);
+  if (maxFiles <= 0) return collected;
 
   const files = listSessionFilesNewestFirst(opts.sessionDir, opts.excludeFile);
-  if (files.length === 0) return [];
-
-  // Walk newest-first and prepend each file's chronological prompts so the
-  // running list is always oldest -> newest. Stop early once we already have
-  // enough material; the slice at the bottom keeps the most recent.
-  const collected: string[] = [];
+  // Walk newest-first and prepend each file's chronological prompts, keeping
+  // active-session prompts at the top of recall regardless of the file's mtime.
   for (const file of files.slice(0, maxFiles)) {
     let prompts: string[];
     try {
-      prompts = extractUserPromptsFromFile(file, { maxFileBytes, maxPromptLength });
+      prompts = extractUserPromptsFromFile(file, {
+        maxFileBytes: opts.maxFileBytes,
+        maxPromptLength,
+        maxPrompts: maxPrompts - collected.length,
+      });
     } catch {
       // Corrupt / unreadable file: skip it.
       continue;

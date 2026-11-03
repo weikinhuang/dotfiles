@@ -158,25 +158,29 @@ export default function crossSessionHistory(pi: ExtensionAPI): void {
   };
   (ourFactory as unknown as Record<symbol, unknown>)[FACTORY_TAG] = true;
 
-  pi.on('session_start', (_event, ctx) => {
+  pi.on('session_start', (event, ctx) => {
     activeUi = ctx.ui;
 
     try {
       const sessionDir = ctx.sessionManager.getSessionDir();
       const excludeFile = ctx.sessionManager.getSessionFile();
 
-      // Editor's arrow-up history (capped, chronological).
+      const currentEntries = ctx.sessionManager.getEntries();
+      // Startup renders active messages AFTER installing the editor; switches
+      // and reloads render BEFORE it. Only the latter need explicit reseeding.
       editorHistory = loadCrossSessionHistory({
         sessionDir,
         excludeFile,
+        currentEntries: event.reason === 'startup' ? undefined : currentEntries,
         maxPrompts,
         maxFiles,
       });
 
-      // Reverse-search pool (wider, deduped, most-recent-first).
+      // Reverse search never receives native editor-history updates.
       const wide = loadCrossSessionHistory({
         sessionDir,
         excludeFile,
+        currentEntries,
         maxPrompts: searchSize,
         maxFiles,
       });
