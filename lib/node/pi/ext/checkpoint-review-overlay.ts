@@ -14,7 +14,7 @@
 import { renderDiff, type Theme } from '@earendil-works/pi-coding-agent';
 import { type Component, Key, matchesKey, truncateToWidth, type TUI } from '@earendil-works/pi-tui';
 
-import { overlayViewportRows } from './overlay-window.ts';
+import { assembleWindowedBody, overlayViewportRows } from './overlay-window.ts';
 import { formatDiffForRender, unifiedDiffLines } from '../checkpoint/diff.ts';
 import type { FileStatus, FileTarget, ReviewRow } from '../checkpoint/types.ts';
 
@@ -138,10 +138,28 @@ export class ReviewOverlay implements Component {
     // chrome: title + subtitle + blank + position footer. Derive both budgets
     // from the terminal so neither mode renders taller than the viewport.
     const viewportRows = overlayViewportRows(rows);
-    this.visibleRows = Math.max(3, viewportRows - 6);
-    this.detailRows = Math.max(3, viewportRows - 5);
-    if (this.detail) this.clampScroll();
-    const lines = this.detail ? this.renderDetail(width) : this.renderList(width);
+    this.visibleRows = Math.max(1, viewportRows - 6);
+    this.detailRows = Math.max(1, viewportRows - 5);
+    if (!this.detail) this.clampScroll();
+    let lines = this.detail ? this.renderDetail(width) : this.renderList(width);
+    if (lines.length > viewportRows) {
+      const body = lines.slice(2, -2);
+      const selected = Math.max(
+        0,
+        body.findIndex((line) => line.includes('›')),
+      );
+      lines = assembleWindowedBody({
+        header: lines.slice(0, 2),
+        body,
+        footer: lines.slice(-2),
+        width,
+        viewportRows,
+        scrollTop: 0,
+        theme: this.theme,
+        keepStart: selected,
+        keepEnd: selected + 1,
+      }).lines;
+    }
     this.cachedLines = lines;
     this.cachedWidth = width;
     this.cachedRows = rows;
@@ -202,7 +220,7 @@ export class ReviewOverlay implements Component {
     ];
     for (const line of slice) out.push(truncateToWidth(line, width));
     out.push('');
-    const pos = total === 0 ? '0/0' : `${scroll + 1}-${Math.min(total, scroll + DETAIL_LINES)} / ${total}`;
+    const pos = total === 0 ? '0/0' : `${scroll + 1}-${Math.min(total, scroll + this.detailRows)} / ${total}`;
     out.push(truncateToWidth(`  ${th.fg('dim', `↑/↓ scroll · PgUp/PgDn · ← back · q close   [${pos}]`)}`, width));
     return out;
   }

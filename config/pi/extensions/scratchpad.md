@@ -47,10 +47,9 @@ Notes are trimmed on write; attempting to `update` a note with an empty body ret
   overlay is height-bounded to the terminal by internal windowing in
   [`lib/node/pi/scroll-window.ts`](../../../lib/node/pi/scroll-window.ts) so it never overflows the viewport - the
   header rule and hint stay pinned while the note list scrolls between them, with `↑ N more` / `↓ N more` indicators.
-  This avoids the screen-scroll/flicker pi's renderer produces when a component renders more lines than the terminal has
-  rows. (The component is mounted inline in the editor container, not as a real `overlay: true` overlay, so the
-  `maxHeight` passed to `ctx.ui.custom` is an inert backstop; the internal windowing does the bounding.) While the
-  notebook is open it raises the shared [`isModalUiActive()`](../../../lib/node/pi/ui-activity.ts) flag (via
+  The notebook mounts as a real overlay, so fullscreen widgets and the footer do not reduce its available height. Body
+  and heading editors are also height-bounded, following the cursor while keeping the save/cancel hint visible. While
+  the notebook is open it raises the shared [`isModalUiActive()`](../../../lib/node/pi/ui-activity.ts) flag (via
   `enterModalUi` / `exitModalUi`, reset on `session_shutdown`) so the `avatar` widget freezes its animation and doesn't
   re-emit its sprite image underneath - see [avatar.md](./avatar.md) § "Modal UI (animation freeze)". The notebook is
   editable in place:

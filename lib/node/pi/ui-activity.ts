@@ -1,14 +1,10 @@
 /**
  * Cross-extension "a modal custom-UI component is on screen" signal.
  *
- * Extensions mount interactive components via `ctx.ui.custom(...)`. Unless
- * they pass `overlay: true` (none of ours do), pi mounts the component into
- * the editor container rather than the overlay stack, so `TUI.hasOverlay()`
- * returns false for them. Animators in *other* extensions (the avatar widget)
- * therefore can't tell that a full-screen modal (the `/scratchpad` notebook,
- * `/todos`, …) is up, and keep re-rendering - which, for an image-protocol
- * avatar, re-emits the sprite (sixel/kitty/iterm2) on every animation tick and
- * scrolls/flickers the screen underneath the modal.
+ * `ext/show-modal.ts` raises this signal for every modal interaction, including
+ * explicit inline custom screens, which `TUI.hasOverlay()` cannot detect.
+ * Animators in other extensions (the avatar widget) pause while it is active,
+ * avoiding image re-emission and flicker underneath an interactive screen.
  *
  * This is a globalThis-anchored counter (NOT module-level: pi loads each
  * extension in its own jiti instance with `moduleCache: false`, so a
@@ -16,8 +12,8 @@
  * `cross-extension-singleton-pattern` reference). A counter (not a boolean)
  * so nested / overlapping modals compose correctly.
  *
- * Producer: `config/pi/extensions/scratchpad.ts` (enter on open, exit on
- * close, reset on `session_shutdown`). Consumer: `config/pi/extensions/
+ * Producer: `ext/show-modal.ts` (enter on open, exit on close; reset by
+ * extensions on `session_shutdown`). Consumer: `config/pi/extensions/
  * avatar.ts` (freezes animation while active). Pure module - no pi imports.
  */
 

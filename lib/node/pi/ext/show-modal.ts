@@ -4,13 +4,10 @@
  * component and lowers it when the component closes, even on error.
  *
  * Why: extensions mount interactive components with `ctx.ui.custom(...)`.
- * Unless they pass `overlay: true` (most don't), pi mounts them inline in the
- * editor container rather than the overlay stack, so `TUI.hasOverlay()` is
- * false for them and animator extensions (the avatar widget) can't tell a
- * full-screen modal is up - they keep re-rendering and, for an image-protocol
- * avatar, re-emit the sprite on every tick and scroll the screen underneath.
- * Routing the call through `showModal` sets `isModalUiActive()` so those
- * animators pause.
+ * Inline custom screens share the fullscreen dock with widgets and the footer,
+ * so a terminal-sized component can be clipped even when it windows its body.
+ * Default to a full-width real overlay with a terminal-relative row budget.
+ * The shared activity flag also pauses animators for explicit inline callers.
  *
  * Usage is a one-token change at the call site - the factory and options are
  * unchanged, only the receiver moves:
@@ -49,12 +46,23 @@ export interface ModalCapableUi {
 
 /**
  * Show a modal custom-UI component, flagging the UI as modal for its lifetime
- * so animator extensions pause. Resolves/rejects exactly as `ui.custom` does.
+ * so animator extensions pause. Explicit options (including `overlay: false`)
+ * still win. Percentage sizing is resolved by pi on every render, unlike an
+ * overlayOptions callback, which some pi versions evaluate only at mount time.
  */
 export async function showModal<T>(ui: ModalCapableUi, factory: ModalFactory<T>, options?: ModalOptions): Promise<T> {
   enterModalUi();
   try {
-    return await ui.custom<T>(factory, options);
+    return await ui.custom<T>(factory, {
+      overlay: true,
+      overlayOptions: {
+        width: '100%',
+        maxHeight: '100%',
+        anchor: 'bottom-center',
+        margin: { top: 1, bottom: 1 },
+      },
+      ...options,
+    });
   } finally {
     exitModalUi();
   }

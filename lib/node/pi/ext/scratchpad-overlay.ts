@@ -19,6 +19,7 @@
 import { type KeybindingsManager, type Theme } from '@earendil-works/pi-coding-agent';
 import {
   type Component,
+  CURSOR_MARKER,
   Editor,
   type EditorTheme,
   Input,
@@ -85,6 +86,14 @@ export interface ScratchpadOverlayDeps {
 type OverlayMode = 'list' | 'body' | 'heading' | 'add';
 
 export class ScratchpadOverlay implements Component {
+  get focused(): boolean {
+    return this.editor.focused;
+  }
+  set focused(value: boolean) {
+    this.editor.focused = value;
+    this.input.focused = value;
+  }
+
   private readonly deps: ScratchpadOverlayDeps;
   private readonly theme: Theme;
   private readonly tui: TUI;
@@ -504,15 +513,22 @@ export class ScratchpadOverlay implements Component {
     lines.push('');
 
     const widget = this.mode === 'heading' ? this.input : this.editor;
-    for (const line of widget.render(width - 2)) lines.push(line);
-
-    lines.push('');
+    const body = widget.render(Math.max(1, width - 2)).map((line) => truncateToWidth(line, width));
+    const cursor = body.findIndex((line) => line.includes(CURSOR_MARKER));
     const hint =
       this.mode === 'heading'
         ? 'Enter to save · Esc to cancel'
         : `Enter to save · Shift+Enter for newline · ${formatKeyChord(this.kb?.getKeys(EXTERNAL_EDITOR_BINDING)[0])} external editor · Esc to cancel`;
-    lines.push(truncateToWidth(`  ${th.fg('dim', hint)}`, width));
-    lines.push('');
-    return lines;
+    return assembleWindowedBody({
+      header: lines,
+      body,
+      footer: ['', truncateToWidth(`  ${th.fg('dim', hint)}`, width), ''],
+      width,
+      viewportRows: overlayViewportRows(this.tui.terminal.rows),
+      scrollTop: 0,
+      theme: th,
+      keepStart: cursor >= 0 ? cursor : undefined,
+      keepEnd: cursor >= 0 ? cursor + 1 : undefined,
+    }).lines;
   }
 }

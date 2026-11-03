@@ -12,10 +12,9 @@
 import { type Theme } from '@earendil-works/pi-coding-agent';
 import { type Component, Key, matchesKey, truncateToWidth, type TUI, visibleWidth } from '@earendil-works/pi-tui';
 
-import { overlayViewportRows } from './overlay-window.ts';
+import { assembleWindowedBody, overlayViewportRows } from './overlay-window.ts';
 import {
   childrenTotal,
-  clampScroll,
   formatAbsoluteShare,
   formatBreadcrumb,
   formatPercent,
@@ -24,7 +23,6 @@ import {
   GLYPH_PARTIAL,
   GLYPH_USED,
   sanitizeDetail,
-  scrollWindow,
   wrapPlain,
 } from '../context-usage/format.ts';
 import { buildGrid, chunkRows, DEFAULT_GRID } from '../context-usage/grid.ts';
@@ -86,6 +84,9 @@ export class ContextOverlay implements Component {
   private breakdown: Breakdown;
   private nav: NavState = initNav();
   private recon = false;
+  private reconScroll = 0;
+  private reconPage = 12;
+  private treeScroll = 0;
   private status?: string;
   /** When set, the scrollable content viewer for a leaf node is open. */
   private view: { node: CategoryNode; scroll: number } | undefined;
@@ -112,6 +113,25 @@ export class ContextOverlay implements Component {
       this.handleViewInput(data);
       return;
     }
+    if (this.recon) {
+      const page = Math.max(1, this.reconPage - 1);
+      if (matchesKey(data, Key.up) || matchesKey(data, 'k')) this.reconScroll -= 1;
+      else if (matchesKey(data, Key.down) || matchesKey(data, 'j')) this.reconScroll += 1;
+      else if (matchesKey(data, 'pageUp')) this.reconScroll -= page;
+      else if (matchesKey(data, 'pageDown') || matchesKey(data, Key.space)) this.reconScroll += page;
+      else if (matchesKey(data, 'home')) this.reconScroll = 0;
+      else if (matchesKey(data, 'end')) this.reconScroll = Number.MAX_SAFE_INTEGER;
+      else {
+        this.handleAction(data);
+        return;
+      }
+      this.invalidate();
+      return;
+    }
+    this.handleAction(data);
+  }
+
+  private handleAction(data: string): void {
     const children = currentChildren(this.breakdown.root, this.nav);
     if (matchesKey(data, Key.up) || matchesKey(data, 'k')) {
       this.nav = move(this.nav, -1, children.length);
@@ -224,28 +244,28 @@ export class ContextOverlay implements Component {
     if (!view) return [];
     const node = view.node;
     const crumb = formatBreadcrumb([...breadcrumbLabels(this.breakdown.root, this.nav.path), node.label]);
-    const bodyWidth = Math.max(10, width - 2);
-    const wrapped = wrapPlain(node.content ?? '', bodyWidth);
-    // Content chrome around the slice: header + blank + label + blank + blank
-    // + position footer = 6 rows. Adapt the visible slice to the terminal.
-    const visibleLines = Math.max(3, this.viewportRows() - 6);
-    this.contentPage = visibleLines;
-    const scroll = clampScroll(view.scroll, wrapped.length, visibleLines);
-    view.scroll = scroll;
-    const slice = wrapped.slice(scroll, scroll + visibleLines);
-
-    const out: string[] = [truncateToWidth(formatHeaderRule(crumb, undefined, width, th), width), ''];
+    const wrapped = wrapPlain(node.content ?? '', Math.max(1, width - 2));
     const detail = node.detail ? ` · ${sanitizeDetail(node.detail, 50)}` : '';
-    out.push(
-      truncateToWidth(`  ${th.fg('muted', `${node.label} · ${formatTokens(node.tokens)} tokens${detail}`)}`, width),
-    );
-    out.push('');
-    for (const line of slice) out.push(truncateToWidth(`  ${th.fg('toolOutput', line)}`, width));
-    out.push('');
-    const end = Math.min(wrapped.length, scroll + visibleLines);
-    const pos = wrapped.length === 0 ? '0/0' : `${scroll + 1}-${end} / ${wrapped.length}`;
-    out.push(truncateToWidth(`  ${th.fg('dim', `↑/↓ scroll · PgUp/PgDn · ← back · q close   [${pos}]`)}`, width));
-    return out;
+    const help = truncateToWidth(`  ${th.fg('dim', '↑/↓ scroll · PgUp/PgDn · ← back · q close')}`, width);
+    const result = assembleWindowedBody({
+      header: [
+        truncateToWidth(formatHeaderRule(crumb, undefined, width, th), width),
+        '',
+        truncateToWidth(`  ${th.fg('muted', `${node.label} · ${formatTokens(node.tokens)} tokens${detail}`)}`, width),
+        '',
+      ],
+      body: wrapped.map((line) => truncateToWidth(`  ${th.fg('toolOutput', line)}`, width)),
+      footer: ['', help],
+      width,
+      viewportRows: this.viewportRows(),
+      scrollTop: view.scroll,
+      theme: th,
+    });
+    this.contentPage = result.contentRows;
+    view.scroll = result.scrollTop;
+    const pos = wrapped.length === 0 ? '0/0' : `${result.winStart + 1}-${result.winEnd} / ${wrapped.length}`;
+    const footer = truncateToWidth(`  ${th.fg('dim', `↑/↓ scroll · PgUp/PgDn · ← back · q close   [${pos}]`)}`, width);
+    return result.lines.map((line) => (line === help ? footer : line));
   }
 
   // ── grid ────────────────────────────────────────────────────────────────
@@ -326,10 +346,8 @@ export class ContextOverlay implements Component {
     return `${cursor} ${marker} ${label}${drillable}`;
   }
 
-  /** Full info column: header + scrolled legend slice + (root) free-space row.
-   * `maxRows` bounds the whole column to the terminal so the tree never
-   * overflows the viewport (the legend scrolls within its share). */
-  private infoColumn(maxRows: number): string[] {
+  /** Full info column; the assembled tree windows around the selected row. */
+  private infoColumn(): string[] {
     const th = this.theme;
     const b = this.breakdown;
     const node = currentNode(b.root, this.nav);
@@ -337,15 +355,7 @@ export class ContextOverlay implements Component {
     const total = atRoot(this.nav) ? b.contextWindow : node.tokens;
 
     const header = this.infoHeader();
-    const freeRows = atRoot(this.nav) ? 1 : 0;
-    // Reserve two rows for the up/down "more" indicators so the column height
-    // is stable regardless of the scroll offset.
-    const legendBudget = Math.max(3, maxRows - header.length - freeRows - 2);
-    const legend: string[] = [];
-    const win = scrollWindow(children.length, this.nav.sel, legendBudget);
-    if (win.start > 0) legend.push(th.fg('dim', `  ↑ ${win.start} more`));
-    for (let i = win.start; i < win.end; i++) legend.push(this.legendRow(children[i], i, total));
-    if (win.end < children.length) legend.push(th.fg('dim', `  ↓ ${children.length - win.end} more`));
+    const legend = children.map((child, i) => this.legendRow(child, i, total));
 
     if (atRoot(this.nav)) {
       const free = Math.max(0, b.contextWindow - childrenTotal(b.root));
@@ -361,8 +371,6 @@ export class ContextOverlay implements Component {
     const th = this.theme;
     const b = this.breakdown;
     const lines: string[] = [];
-    lines.push(truncateToWidth(formatHeaderRule('Context reconciliation', undefined, width, th), width));
-    lines.push('');
     const row = (label: string, value: string): void => {
       lines.push(`  ${th.fg('muted', label.padEnd(22))} ${th.fg('text', value)}`);
     };
@@ -395,9 +403,23 @@ export class ContextOverlay implements Component {
     }
     lines.push('');
     lines.push(`  ${th.fg('dim', 'Per-category numbers are chars/4 estimates; the provider total is authoritative.')}`);
-    lines.push('');
-    lines.push(this.footer(width));
-    return lines.map((l) => truncateToWidth(l, width));
+    const result = assembleWindowedBody({
+      header: [truncateToWidth(formatHeaderRule('Context reconciliation', undefined, width, th), width), ''],
+      body: lines.map((l) => truncateToWidth(l, width)),
+      footer: [
+        '',
+        this.status
+          ? this.footer(width)
+          : truncateToWidth(`  ${th.fg('dim', '↑/↓ scroll · PgUp/PgDn · Home/End · t back · q close')}`, width),
+      ],
+      width,
+      viewportRows: this.viewportRows(),
+      scrollTop: this.reconScroll,
+      theme: th,
+    });
+    this.reconScroll = result.scrollTop;
+    this.reconPage = result.contentRows;
+    return result.lines;
   }
 
   // ── full tree view ─────────────────────────────────────────────────────────
@@ -408,21 +430,15 @@ export class ContextOverlay implements Component {
     const header = truncateToWidth(formatHeaderRule(crumb, undefined, width, th), width);
 
     const grid = this.gridLines();
-    const viewportRows = this.viewportRows();
-    // Tree chrome: header + blank (after header) + blank (before footer) +
-    // footer = 4 rows. In stacked mode the grid + its trailing blank sit above
-    // the info column too, so subtract those from the info column's budget.
-    const maxInfoRows =
-      width < STACK_BELOW ? Math.max(3, viewportRows - 4 - grid.length - 1) : Math.max(3, viewportRows - 4);
-    const info = this.infoColumn(maxInfoRows);
-
-    const out: string[] = [header, ''];
+    const info = this.infoColumn();
+    const selectedRow = this.infoHeader().length + this.nav.sel + (width < STACK_BELOW ? grid.length + 1 : 0);
+    const out: string[] = [];
 
     if (width < STACK_BELOW) {
       // Narrow terminal: stack grid above legend.
       for (const g of grid) out.push(truncateToWidth(`  ${g}`, width));
       out.push('');
-      for (const i of info) out.push(truncateToWidth(`  ${i}`, width));
+      for (const i of info) out.push(truncateToWidth(`  ${i}`, width, '…'));
     } else {
       const rowCount = Math.max(grid.length, info.length);
       const leftPad = '  ';
@@ -436,9 +452,19 @@ export class ContextOverlay implements Component {
       }
     }
 
-    out.push('');
-    out.push(this.footer(width));
-    return out;
+    const result = assembleWindowedBody({
+      header: [header, ''],
+      body: out,
+      footer: ['', this.footer(width)],
+      width,
+      viewportRows: this.viewportRows(),
+      scrollTop: this.treeScroll,
+      theme: th,
+      keepStart: selectedRow,
+      keepEnd: selectedRow + 1,
+    });
+    this.treeScroll = result.scrollTop;
+    return result.lines;
   }
 
   private footer(width: number): string {

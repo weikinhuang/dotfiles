@@ -129,3 +129,10 @@ test('AgentsRunningOverlay: empty state renders the hint', () => {
   const lines = overlay.render(120);
   expect(lines.some((l) => l.includes('No background sub-agents running'))).toBe(true);
 });
+
+test.each([3, 4, 6, 8, 10, 12])('Agents overlays: pinned details cannot overflow a %i-row terminal', (rows) => {
+  const loaded = new AgentsLoadedOverlay(makeAgents(24), theme, makeTui(rows), noop);
+  const running = makeRunning(rows, 16);
+  expect(loaded.render(120).length).toBeLessThanOrEqual(Math.max(1, rows - 2));
+  expect(running.render(120).length).toBeLessThanOrEqual(Math.max(1, rows - 2));
+});

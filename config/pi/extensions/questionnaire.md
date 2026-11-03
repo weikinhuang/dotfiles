@@ -71,6 +71,8 @@ chat-request the `content` is a one-line summary and `details.cancelled` / `deta
 ## TUI affordances
 
 - `↑` / `↓` - navigate options (no `j`/`k` alias).
+- `PgUp` / `PgDn` - scroll the question or review body without changing the selection. In a text editor, these keys
+  retain the editor's cursor-navigation behavior.
 - `1`-`9` - jump to option N. On `single`, also auto-confirms unless the target is the `Type something.` row. On
   `multi`, only moves the cursor - `Space` is still required to toggle.
 - `Space` - toggle checkbox on `multi`. No-op on `Next` / `Type something.` rows.
@@ -105,6 +107,10 @@ chat-request the `content` is a one-line summary and `details.cancelled` / `deta
   are shown verbatim and should still be pre-wrapped by the caller.
 - Footer - dynamic help line reflecting the current mode (editor vs options vs review, multi vs single, whether notes /
   chat are enabled).
+- Height and resize - opens as a real overlay with pinned tabs/help. All bodies are windowed, including split previews,
+  long prompts, free answers, notes, and review summaries. Selection changes reveal the active option or submit control;
+  split previews start beside the highlighted option rather than above the viewport. Editors keep the cursor visible.
+  Rendering reflows on width or height changes without requiring a keystroke.
 
 ## Internal structure
 
@@ -129,8 +135,8 @@ The `.ts` shell owns the pi/TUI event loop (`ctx.ui.custom`), the tab / notes / 
 - [`../../../lib/node/pi/questionnaire/layout.ts`](../../../lib/node/pi/questionnaire/layout.ts) -- preview-pane split /
   stacked layout math, `wrapWithPrefix` (ANSI-aware word-wrap with a first-line prefix and hanging continuation indent),
   and `windowTabSegments` (horizontal windowing that keeps the active tab visible when the tab bar overflows). The
-  vertical option-list windowing reuses [`scroll-window.ts`](../../../lib/node/pi/scroll-window.ts)'
-  `computeScrollWindow`.
+  vertical body windowing uses [`overlay-window.ts`](../../../lib/node/pi/ext/overlay-window.ts), backed by
+  [`scroll-window.ts`](../../../lib/node/pi/scroll-window.ts).
 
 ## Environment variables
 

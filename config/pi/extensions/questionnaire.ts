@@ -31,6 +31,7 @@
 
 import { type ExtensionAPI } from '@earendil-works/pi-coding-agent';
 import {
+  CURSOR_MARKER,
   Editor,
   type EditorTheme,
   Input,
@@ -51,8 +52,8 @@ import {
 } from '../../../lib/node/pi/ext/external-editor.ts';
 import { showModal } from '../../../lib/node/pi/ext/show-modal.ts';
 import { MultiSelectList } from '../../../lib/node/pi/ext/multi-select-list.ts';
+import { assembleWindowedBody, overlayViewportRows } from '../../../lib/node/pi/ext/overlay-window.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
-import { computeScrollWindow } from '../../../lib/node/pi/scroll-window.ts';
 import {
   padVisibleText,
   selectQuestionnairePreviewLayout,
@@ -171,8 +172,6 @@ function digitFromKey(data: string): number | null {
 // ─── Tool ─────────────────────────────────────────────────────────────────
 
 export default function questionnaire(pi: ExtensionAPI): void {
-  // TODO(phase-k): add a command-surface spec asserting this guard skips
-  // tool registration once this extension gains a spec file.
   if (envTruthy(process.env.PI_QUESTIONNAIRE_DISABLED)) return;
 
   pi.registerTool({
@@ -212,11 +211,19 @@ export default function questionnaire(pi: ExtensionAPI): void {
         // ─── State ────────────────────────────────────────────────────
         let currentTab = 0;
         let optionIndex = 0;
-        let optionsScrollTop = 0;
+        let optionsScrollTop = 0; // whole question/review body, including previews
+        let bodyPageRows = 1;
+        let bodyMaxScrollTop = 0;
+        let followSelection = true;
+        let activeStart = 0;
+        let activeEnd = 1;
+        let focused = false;
         let reviewIndex = 0; // 0 = Submit answers, 1 = Cancel
         let inputMode: 'free' | 'note' | null = null;
         let inputQuestionId: string | null = null;
         let cachedLines: string[] | undefined;
+        let cachedWidth: number | undefined;
+        let cachedRows: number | undefined;
         const answers = new Map<string, Answer>();
         // multi-select picker (checkbox working set + rendering) per question
         const multiLists = new Map<string, MultiSelectList>();
@@ -246,8 +253,9 @@ export default function questionnaire(pi: ExtensionAPI): void {
         const otherInput = new Input();
 
         // ─── Helpers ──────────────────────────────────────────────────
-        function refresh(): void {
+        function refresh(follow = true): void {
           cachedLines = undefined;
+          followSelection = follow;
           tui.requestRender();
         }
 
@@ -426,6 +434,12 @@ export default function questionnaire(pi: ExtensionAPI): void {
         };
 
         function handleInput(data: string): void {
+          if (!inputMode && (matchesKey(data, Key.pageUp) || matchesKey(data, Key.pageDown))) {
+            const delta = matchesKey(data, Key.pageUp) ? -bodyPageRows : bodyPageRows;
+            optionsScrollTop = Math.max(0, Math.min(bodyMaxScrollTop, optionsScrollTop + delta));
+            refresh(false);
+            return;
+          }
           // ─── Input mode: route to editor (free question / notes) ──
           if (inputMode) {
             if (matchesKey(data, Key.escape)) {
@@ -843,7 +857,7 @@ export default function questionnaire(pi: ExtensionAPI): void {
           const opt = opts[optionIndex];
           if (!opt?.preview) return [];
           const raw = opt.preview.split('\n');
-          const lines = raw.map((l) => truncateToWidth(l, width));
+          const lines = raw.map((l) => truncateToWidth(l, Math.max(1, width - 4)));
           // Draw a light rounded box around the preview.
           const top = theme.fg('dim', '┌' + '─'.repeat(Math.max(0, width - 2)) + '┐');
           const bot = theme.fg('dim', '└' + '─'.repeat(Math.max(0, width - 2)) + '┘');
@@ -877,7 +891,7 @@ export default function questionnaire(pi: ExtensionAPI): void {
               lines.push(truncateToWidth(theme.fg('muted', ' Start typing to answer. Esc to cancel.'), width));
             } else {
               lines.push(truncateToWidth(theme.fg('muted', ' Your answer:'), width));
-              for (const line of editor.render(width - 2)) {
+              for (const line of editor.render(Math.max(1, width - 2))) {
                 lines.push(truncateToWidth(` ${line}`, width));
               }
             }
@@ -890,13 +904,18 @@ export default function questionnaire(pi: ExtensionAPI): void {
           const previewLayout = selectQuestionnairePreviewLayout({ width, preview: activePreview });
 
           if (previewLayout.mode === 'split') {
-            const leftLines = renderOptionsList(previewLayout.leftWidth).lines;
-            // Size the preview box to the taller of the two columns so a long
-            // preview beside a short option list isn't clipped; the column zip
-            // pads whichever side is shorter.
+            const options = renderOptionsList(previewLayout.leftWidth);
+            const leftLines = options.lines;
+            activeStart = lines.length + options.activeStart;
+            activeEnd = lines.length + options.activeEnd;
+            // Align the preview with the active option, not the top of the
+            // unwindowed list. Otherwise selecting a late option can scroll
+            // the entire preview above the viewport and leave a blank pane.
             const previewRows = activePreview ? activePreview.split('\n').length + 2 : 0;
-            const paneHeight = Math.max(leftLines.length, previewRows);
-            const rightLines = renderPreviewPane(paneHeight, previewLayout.rightWidth);
+            const rightLines = [
+              ...Array<string>(options.activeStart).fill(''),
+              ...renderPreviewPane(previewRows, previewLayout.rightWidth),
+            ];
             const zipped = zipQuestionnaireColumns({
               left: leftLines,
               right: rightLines,
@@ -906,43 +925,14 @@ export default function questionnaire(pi: ExtensionAPI): void {
             });
             for (const z of zipped) lines.push(z);
           } else {
-            const { lines: optLines, activeStart, activeEnd } = renderOptionsList(width);
-            // Vertical budget: rows left after the header already pushed, the
-            // footer render() appends, the notes block, and a stacked preview.
-            // A list that fits renders whole (unchanged); a longer one windows
-            // around the cursor with `↑ N more` / `↓ N more` markers.
-            const termRows = tui.terminal?.rows ?? 0;
-            const stackedPreviewLines = previewLayout.mode === 'stacked' ? previewLayout.previewHeight + 1 : 0;
-            const noteLines =
-              inputMode === 'note' && inputQuestionId === q.id
-                ? 2 + editor.render(width - 2).length
-                : notes.get(q.id)
-                  ? 2
-                  : 0;
-            const footer = 2 + (allowChat ? 2 : 0) + 2;
-            const fullBudget = termRows - lines.length - footer - noteLines - stackedPreviewLines;
-            if (termRows <= 0 || optLines.length <= fullBudget) {
-              for (const l of optLines) lines.push(l);
-            } else {
-              const win = computeScrollWindow({
-                total: optLines.length,
-                rows: Math.max(1, fullBudget - 2), // reserve up to two indicator rows
-                scrollTop: optionsScrollTop,
-                keepStart: activeStart,
-                keepEnd: activeEnd,
-              });
-              optionsScrollTop = win.scrollTop;
-              if (win.hiddenAbove > 0) {
-                lines.push(truncateToWidth(theme.fg('dim', `   ↑ ${win.hiddenAbove} more`), width));
-              }
-              for (let i = win.start; i < win.end; i++) lines.push(optLines[i]);
-              if (win.hiddenBelow > 0) {
-                lines.push(truncateToWidth(theme.fg('dim', `   ↓ ${win.hiddenBelow} more`), width));
-              }
-            }
+            const options = renderOptionsList(width);
+            activeStart = lines.length + options.activeStart;
+            activeEnd = lines.length + options.activeEnd;
+            lines.push(...options.lines);
             if (previewLayout.mode === 'stacked') {
               lines.push('');
-              for (const l of renderPreviewPane(previewLayout.previewHeight, previewLayout.previewWidth)) {
+              const previewHeight = (activePreview?.split('\n').length ?? 0) + 2;
+              for (const l of renderPreviewPane(previewHeight, previewLayout.previewWidth)) {
                 lines.push(l);
               }
             }
@@ -953,7 +943,7 @@ export default function questionnaire(pi: ExtensionAPI): void {
           if (inputMode === 'note' && inputQuestionId === q.id) {
             lines.push('');
             lines.push(truncateToWidth(theme.fg('muted', ' Notes:'), width));
-            for (const line of editor.render(width - 2)) {
+            for (const line of editor.render(Math.max(1, width - 2))) {
               lines.push(truncateToWidth(` ${line}`, width));
             }
           } else if (savedNote) {
@@ -1018,6 +1008,10 @@ export default function questionnaire(pi: ExtensionAPI): void {
           const rows = ['Submit answers', 'Cancel'];
           for (let i = 0; i < rows.length; i++) {
             const selected = i === reviewIndex;
+            if (selected) {
+              activeStart = lines.length;
+              activeEnd = activeStart + 1;
+            }
             const prefix = selected ? theme.fg('accent', '❯ ') : '  ';
             const disabled = i === 0 && !allAnswered();
             const color = disabled ? 'dim' : selected ? 'accent' : 'text';
@@ -1026,21 +1020,27 @@ export default function questionnaire(pi: ExtensionAPI): void {
         }
 
         function render(width: number): string[] {
-          if (cachedLines) return cachedLines;
+          const terminalRows = tui.terminal.rows;
+          if (cachedLines && cachedWidth === width && cachedRows === terminalRows) return cachedLines;
+          editor.focused = focused && inputMode !== null;
+          otherInput.focused = focused && inputMode === null;
+          activeStart = 0;
+          activeEnd = 1;
 
-          const lines: string[] = [];
-          lines.push(theme.fg('accent', '─'.repeat(width)));
+          const header: string[] = [theme.fg('accent', '─'.repeat(width))];
 
           // Tab bar (always shown; acts as progress indicator even for
           // single-question questionnaires).
-          renderTabBar(width, lines);
+          renderTabBar(width, header);
 
+          const body: string[] = [];
           if (currentTab === questions.length) {
-            renderReview(width, lines);
+            renderReview(width, body);
           } else {
-            renderQuestionBody(width, lines);
+            renderQuestionBody(width, body);
           }
 
+          const lines: string[] = [];
           lines.push('');
           lines.push(theme.fg('accent', '─'.repeat(width)));
 
@@ -1074,11 +1074,29 @@ export default function questionnaire(pi: ExtensionAPI): void {
             if (allowChat) helpParts.push('c chat');
             helpParts.push('Esc cancel');
           }
+          helpParts.push('PgUp/PgDn scroll');
           lines.push(truncateToWidth(theme.fg('dim', ' ' + helpParts.join(' · ')), width));
           lines.push(theme.fg('accent', '─'.repeat(width)));
 
-          cachedLines = lines;
-          return lines;
+          const cursor = body.findIndex((line) => line.includes(CURSOR_MARKER));
+          const win = assembleWindowedBody({
+            header,
+            body: body.map((line) => truncateToWidth(line, width)),
+            footer: lines,
+            width,
+            viewportRows: overlayViewportRows(terminalRows),
+            scrollTop: optionsScrollTop,
+            theme,
+            keepStart: cursor >= 0 ? cursor : followSelection ? activeStart : undefined,
+            keepEnd: cursor >= 0 ? cursor + 1 : followSelection ? activeEnd : undefined,
+          });
+          optionsScrollTop = win.scrollTop;
+          bodyMaxScrollTop = win.maxScrollTop;
+          bodyPageRows = Math.max(1, win.contentRows);
+          cachedWidth = width;
+          cachedRows = terminalRows;
+          cachedLines = win.lines;
+          return win.lines;
         }
 
         // Seed proposed defaults so the agent can pre-fill answers; a valid
@@ -1101,6 +1119,13 @@ export default function questionnaire(pi: ExtensionAPI): void {
         optionsScrollTop = 0;
 
         return {
+          get focused(): boolean {
+            return focused;
+          },
+          set focused(value: boolean) {
+            focused = value;
+            cachedLines = undefined;
+          },
           render,
           invalidate: () => {
             cachedLines = undefined;

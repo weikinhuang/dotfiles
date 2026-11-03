@@ -72,6 +72,8 @@ assistant turn's provider `Usage` split (`input / cacheRead / cacheWrite / outpu
 post-compaction assistant turn exists yet, the real total is `unknown` and the panel notes that the estimate excludes
 the system prompt and tool schemas in that state.
 
+The panel is height-bounded, with `↑`/`↓`, `PgUp`/`PgDn`, and `Home`/`End` scrolling its rows while help stays pinned.
+
 ## Content viewer
 
 At the lowest level, leaf nodes that carry raw text open a scrollable content viewer when you press `⏎` on them (the
@@ -89,10 +91,10 @@ category legend size their visible rows to the terminal height, so the overlay n
 
 | Key                              | Action                                                        |
 | -------------------------------- | ------------------------------------------------------------- |
-| `↑` / `↓` (`k` / `j`)            | move selection (tree) / scroll (content viewer)               |
+| `↑` / `↓` (`k` / `j`)            | move selection (tree) / scroll (content or reconciliation)    |
 | `⏎` / `→` (`l`)                  | drill into a category, or open a leaf's content viewer        |
 | `←` / `esc` / `⌫` (`h`)          | back one level (or exit the viewer); close at the root        |
-| `PgUp` / `PgDn` / `Home` / `End` | page / jump in the content viewer                             |
+| `PgUp` / `PgDn` / `Home` / `End` | page / jump in content or reconciliation                      |
 | `c`                              | trigger `ctx.compact()`                                       |
 | `r`                              | recompute / refresh the breakdown                             |
 | `t`                              | toggle the reconciliation panel                               |

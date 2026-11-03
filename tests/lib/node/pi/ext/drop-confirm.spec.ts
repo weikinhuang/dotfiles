@@ -1,14 +1,15 @@
 /**
  * Tests for lib/node/pi/ext/drop-confirm.ts.
  *
- * The module imports `@earendil-works/pi-coding-agent` (type-only,
- * `ExtensionContext`) and drives the shared approval engine. We fake
- * `ctx.ui.select` / `input` / `custom` so the test can pick each dialog
- * option and assert the resulting outcome + session-flag mutation,
- * without a real TUI.
+ * Drives the real bounded approval presenter with a synthetic terminal and
+ * scripted keys, then checks decisions and session flags. The native select
+ * is forbidden so a return to the unbounded initial menu fails these tests.
+ * Feedback input and the subsequent multi-select result are stubbed here;
+ * the tmux integration exercises the complete flow.
  */
 
-import type { ExtensionContext } from '@earendil-works/pi-coding-agent';
+import type { ExtensionContext, KeybindingsManager, Theme } from '@earendil-works/pi-coding-agent';
+import { matchesKey, type TUI } from '@earendil-works/pi-tui';
 import { expect, test } from 'vitest';
 
 import {
@@ -17,7 +18,8 @@ import {
   type DropSessionFlags,
   emptyDropFlags,
 } from '../../../../../lib/node/pi/ext/drop-confirm.ts';
-import { type DropTitleItem } from '../../../../../lib/node/pi/context-edit/agent-drop.ts';
+import { buildDropEntries, type DropTitleItem } from '../../../../../lib/node/pi/context-edit/agent-drop.ts';
+import type { ModalFactory } from '../../../../../lib/node/pi/ext/show-modal.ts';
 
 const titleItems: DropTitleItem[] = [
   { ordinal: 2, label: 'image (24KB): cat' },
@@ -32,12 +34,48 @@ interface FakeUI {
 }
 
 function fakeCtx(hasUI: boolean, ui: FakeUI = {}): ExtensionContext {
+  let mounts = 0;
+  const bindings: Partial<Record<string, Parameters<typeof matchesKey>[1]>> = {
+    'tui.select.up': 'up',
+    'tui.select.down': 'down',
+    'tui.select.confirm': 'enter',
+    'tui.select.cancel': 'escape',
+  };
+  const kb = {
+    matches: (data: string, action: string): boolean => {
+      const key = bindings[action];
+      return key !== undefined && matchesKey(data, key);
+    },
+  } as unknown as KeybindingsManager;
+  const theme = {
+    fg: (_token: string, text: string): string => text,
+    bold: (text: string): string => text,
+  } as unknown as Theme;
+  const tui = {
+    terminal: { rows: 24, columns: 100 },
+    requestRender: (): void => {
+      /* no-op */
+    },
+  } as unknown as TUI;
   return {
     hasUI,
     ui: {
-      select: async (_title: string, options: string[]) => ui.selectLabel?.(options),
+      select: () => Promise.reject(new Error('Drop approval must not use the unbounded native select')),
       input: async () => ui.inputValue,
-      custom: async <T>() => ui.customResult as T,
+      custom: async <T>(factory: ModalFactory<T>): Promise<T> => {
+        if (mounts++ > 0) return ui.customResult as T;
+        let result: T | undefined;
+        const component = await factory(tui, theme, kb, (value) => {
+          result = value;
+        });
+        component.render(100);
+        const options = buildDropEntries('drop_image').map((entry) => entry.label);
+        const choice = ui.selectLabel?.(options);
+        const index = options.indexOf(choice ?? '');
+        for (let i = 0; i < index; i++) component.handleInput?.('\u001b[B');
+        component.handleInput?.(index < 0 ? '\u001b' : '\r');
+        return result as T;
+      },
     },
   } as unknown as ExtensionContext;
 }

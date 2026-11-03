@@ -66,6 +66,11 @@ resolved pairs (recency ordinal + label + size) so you verify targeting before a
 an in-memory flag cleared on `session_shutdown`; with no UI the call falls back to `PI_CONTEXT_TRIM_DROP_DEFAULT`
 (default `deny`, shared with `drop_image`).
 
+Both the initial approval and Edit selection picker are bounded overlays. In the initial approval, `PageUp` /
+`PageDown`, `Home` / `End`, or the mouse wheel (fullscreen mode) scroll details without moving the choices off-screen;
+`↑` / `↓` move the highlighted choice, `Enter` confirms, and `Esc` denies. In Edit selection, wrapped rows follow the
+highlighted item, with a pinned title/help line and live width/height reflow.
+
 ## Environment variables
 
 - `PI_TOOL_COLLAPSE_DISABLED=1` - skip the extension entirely.

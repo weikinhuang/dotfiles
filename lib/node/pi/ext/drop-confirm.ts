@@ -23,6 +23,7 @@
 import type { ExtensionContext } from '@earendil-works/pi-coding-agent';
 
 import { promptSelectWithFeedback } from '../approval-prompt.ts';
+import { promptApprovalSelect } from './approval-select.ts';
 import { buildDropEntries, buildDropTitle, type DropDecision, type DropTitleItem } from '../context-edit/agent-drop.ts';
 import { type MultiSelectItem } from './multi-select-list.ts';
 import { promptMultiSelect } from './multi-select-prompt.ts';
@@ -103,7 +104,12 @@ export async function confirmDrop(ctx: ExtensionContext, args: ConfirmDropArgs):
   });
 
   const decision = await promptSelectWithFeedback<DropDecision>(
-    ctx,
+    {
+      ui: {
+        select: (prompt, options) => promptApprovalSelect(ctx.ui, prompt, options),
+        input: (prompt, placeholder) => ctx.ui.input(prompt, placeholder),
+      },
+    },
     title,
     buildDropEntries(args.toolName),
     { title: 'Tell the model why:', placeholder: 'e.g. keep the latest render, I am iterating on it' },

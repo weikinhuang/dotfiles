@@ -5,7 +5,7 @@
  * UI glue) rather than the pure `lib/node/pi/` tree.
  *
  * It mounts the reusable {@link MultiSelectList} component (Section R) via
- * `ctx.ui.custom` with every row pre-checked: a checked row WILL be
+ * `showModal` with every row pre-checked: a checked row WILL be
  * dropped, so the human unchecks the one item they want to keep before
  * confirming. Returns the indices left checked (the final drop set), or
  * `undefined` when the human cancels (Esc) - the caller then treats the
@@ -13,13 +13,15 @@
  *
  * The selection math + rendering live in the pure
  * `MultiSelectList`; this module owns only the key handling and the
- * `ctx.ui.custom` lifecycle.
+ * modal lifecycle and bounded viewport.
  */
 
 import type { ExtensionContext } from '@earendil-works/pi-coding-agent';
-import { Key, matchesKey, truncateToWidth } from '@earendil-works/pi-tui';
+import { Key, matchesKey, truncateToWidth, wrapTextWithAnsi } from '@earendil-works/pi-tui';
 
 import { type MultiSelectItem, MultiSelectList } from './multi-select-list.ts';
+import { assembleWindowedBody, overlayViewportRows } from './overlay-window.ts';
+import { showModal } from './show-modal.ts';
 
 export interface MultiSelectPromptOptions {
   /** Dialog heading lines (rendered above the checkbox list). */
@@ -51,9 +53,12 @@ export async function promptMultiSelect(
   if (!ctx.hasUI) return undefined;
   const initial = options.initialSelected ?? options.items.map((_, i) => i);
 
-  return ctx.ui.custom<number[] | undefined>((tui, theme, _kb, done) => {
+  return showModal<number[] | undefined>(ctx.ui, (tui, theme, _kb, done) => {
     const list = new MultiSelectList(options.items, { initialSelected: initial });
     let cached: string[] | undefined;
+    let cachedWidth = 0;
+    let cachedRows = 0;
+    let scrollTop = 0;
 
     const refresh = (): void => {
       cached = undefined;
@@ -64,20 +69,48 @@ export async function promptMultiSelect(
 
     return {
       render(width: number): string[] {
-        if (cached) return cached;
-        const lines: string[] = [];
-        for (const t of titleLines) lines.push(truncateToWidth(theme.fg('text', t), width));
-        lines.push('');
-        lines.push(...list.render({ width, theme }));
-        lines.push('');
-        lines.push(
+        const terminalRows = tui.terminal.rows;
+        width = Math.max(1, width);
+        if (cached && cachedWidth === width && cachedRows === terminalRows) return cached;
+        const header = titleLines.map((t) => truncateToWidth(theme.fg('text', t), width));
+        header.push('');
+        const body: string[] = [];
+        let keepStart = 0;
+        let keepEnd = 0;
+        for (let i = 0; i < list.length; i++) {
+          const start = body.length;
+          // Render without truncation first so descriptions and labels reflow
+          // into actual terminal rows before computing the cursor's range.
+          const rows = list.renderRow(i, { width: Number.MAX_SAFE_INTEGER, theme, highlighted: i === list.cursor });
+          for (const row of rows) body.push(...wrapTextWithAnsi(row, width));
+          if (i === list.cursor) {
+            keepStart = start;
+            keepEnd = body.length;
+          }
+        }
+        const footer = [
+          '',
           truncateToWidth(
             theme.fg('dim', ' ↑↓ navigate · 1-9 jump · Space toggle · Enter confirm · Esc cancel'),
             width,
           ),
-        );
-        cached = lines;
-        return lines;
+        ];
+        const window = assembleWindowedBody({
+          header,
+          body,
+          footer,
+          width,
+          viewportRows: overlayViewportRows(terminalRows),
+          scrollTop,
+          theme,
+          keepStart,
+          keepEnd,
+        });
+        scrollTop = window.scrollTop;
+        cachedWidth = width;
+        cachedRows = terminalRows;
+        cached = window.lines;
+        return cached;
       },
       invalidate(): void {
         cached = undefined;

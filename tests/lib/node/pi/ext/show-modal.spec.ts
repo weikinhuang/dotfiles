@@ -34,6 +34,26 @@ test('showModal: flag is active while ui.custom is pending, cleared after', asyn
   expect(isModalUiActive()).toBe(false);
 });
 
+test('showModal: uses a responsive real overlay rather than the fullscreen dock', async () => {
+  let options: unknown;
+  const ui = {
+    custom: async <T>(_factory: ModalFactory<T>, received?: unknown): Promise<T> => {
+      options = received;
+      return undefined as T;
+    },
+  };
+  await showModal(ui, noopFactory);
+  expect(options).toEqual({
+    overlay: true,
+    overlayOptions: {
+      width: '100%',
+      maxHeight: '100%',
+      anchor: 'bottom-center',
+      margin: { top: 1, bottom: 1 },
+    },
+  });
+});
+
 test('showModal: clears the flag even when ui.custom rejects', async () => {
   const ui = {
     custom: async <T>(_factory: ModalFactory<T>): Promise<T> => {
@@ -55,5 +75,17 @@ test('showModal: forwards factory and options through to ui.custom', async () =>
   const opts = { overlay: true };
   await showModal(ui, noopFactory, opts);
   expect(received?.factory).toBe(noopFactory);
-  expect(received?.options).toBe(opts);
+  expect(received?.options).toMatchObject(opts);
+});
+
+test('showModal: allows an explicit inline custom component', async () => {
+  let options: unknown;
+  const ui = {
+    custom: async <T>(_factory: ModalFactory<T>, received?: unknown): Promise<T> => {
+      options = received;
+      return undefined as T;
+    },
+  };
+  await showModal(ui, noopFactory, { overlay: false });
+  expect(options).toMatchObject({ overlay: false });
 });

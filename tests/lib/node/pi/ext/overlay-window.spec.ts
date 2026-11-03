@@ -14,9 +14,42 @@ const theme = { fg: (_token: string, text: string): string => text } as unknown 
 
 const body = (n: number): string[] => Array.from({ length: n }, (_, i) => `line${i}`);
 
-test('overlayViewportRows: floors at MIN_OVERLAY_ROWS and subtracts the margin', () => {
+test('overlayViewportRows: subtracts the margin without inflating tiny terminals', () => {
   expect(overlayViewportRows(30)).toBe(28);
-  expect(overlayViewportRows(4)).toBe(6); // clamps up to MIN
+  expect(overlayViewportRows(4)).toBe(2);
+  expect(overlayViewportRows(1)).toBe(1);
+});
+
+test.each([0, 1, 2, 3, 4, 5, 6, 8, 12])('assembleWindowedBody: hard-bounds a %i-row viewport', (rows) => {
+  const r = assembleWindowedBody({
+    header: ['', 'Title', '', 'Summary'],
+    body: body(100),
+    footer: ['', 'Preview', 'Detail', '', 'Help', ''],
+    width: 40,
+    viewportRows: rows,
+    scrollTop: 0,
+    theme,
+    keepStart: 99,
+    keepEnd: 100,
+  });
+  expect(r.lines.length).toBeLessThanOrEqual(rows);
+  expect(r.lines.includes('line99')).toBe(rows > 0);
+  expect(r.lines.includes('Help')).toBe(rows >= 3);
+});
+
+test.each([1, 2])('assembleWindowedBody: does not overallocate indicators in a %i-row body', (rows) => {
+  const r = assembleWindowedBody({
+    header: ['Title'],
+    body: body(100),
+    footer: ['Help'],
+    width: 40,
+    viewportRows: rows + 2,
+    scrollTop: 50,
+    theme,
+  });
+  expect(r.lines.length).toBe(rows + 2);
+  expect(r.lines[0]).toBe('Title');
+  expect(r.lines.at(-1)).toBe('Help');
 });
 
 test('assembleWindowedBody: body that fits renders whole with no indicators', () => {

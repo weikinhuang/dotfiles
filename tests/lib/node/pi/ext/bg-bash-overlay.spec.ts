@@ -61,6 +61,15 @@ function makeOverlay(rows: number, jobCount: number): BgBashOverlay {
 
 const VIEWPORT = (rows: number): number => Math.max(6, rows - 2);
 
+test.each([3, 4, 6, 8, 10, 12])('BgBashOverlay: pinned details cannot overflow a %i-row terminal', (rows) => {
+  const overlay = makeOverlay(rows, 20);
+  overlay.render(120);
+  for (let i = 0; i < 19; i++) overlay.handleInput('\x1b[B');
+  const lines = overlay.render(120);
+  expect(lines.length).toBeLessThanOrEqual(Math.max(1, rows - 2));
+  expect(lines.some((line) => line.includes('job19'))).toBe(true);
+});
+
 test('BgBashOverlay: many jobs stay within the viewport (job list windowed)', () => {
   const rows = 24;
   const overlay = makeOverlay(rows, 20);

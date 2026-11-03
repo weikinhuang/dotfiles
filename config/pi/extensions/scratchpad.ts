@@ -55,7 +55,7 @@
 
 import { StringEnum } from '@earendil-works/pi-ai';
 import { type ExtensionAPI, type ExtensionContext, type Theme } from '@earendil-works/pi-coding-agent';
-import { Text, type TUI } from '@earendil-works/pi-tui';
+import { Text } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 
 import { completeSubverbs } from '../../../lib/node/pi/commands/complete.ts';
@@ -65,7 +65,6 @@ import {
   contextRemindersEnabled,
   type ReminderMessage,
 } from '../../../lib/node/pi/context-reminder.ts';
-import { MIN_OVERLAY_ROWS, overlayViewportRows } from '../../../lib/node/pi/ext/overlay-window.ts';
 import { ScratchpadOverlay, type ScratchpadOverlayDeps } from '../../../lib/node/pi/ext/scratchpad-overlay.ts';
 import { formatWorkingNotes } from '../../../lib/node/pi/scratchpad-prompt.ts';
 import { resetModalUi } from '../../../lib/node/pi/ui-activity.ts';
@@ -315,30 +314,9 @@ export default function scratchpadExtension(pi: ExtensionAPI): void {
             return newId;
           },
         };
-        // Capture the overlay's TUI so the maxHeight backstop can track the
-        // live terminal height (the factory runs before the first layout).
-        let overlayTui: TUI | undefined;
-        // showModal raises the shared modal-UI flag while the notebook is open
-        // so animator extensions (the avatar) pause. This component is mounted
-        // inline in the editor container (not `overlay: true`), so
-        // `TUI.hasOverlay()` stays false for it - the flag is how the avatar
-        // learns the notebook is up. See lib/node/pi/ui-activity.ts.
         await showModal<void>(
           ctx.ui,
-          (tui, theme, kb, done) => {
-            overlayTui = tui;
-            return new ScratchpadOverlay(deps, theme, tui, kb, () => done());
-          },
-          {
-            // maxHeight only takes effect if this is mounted as a real
-            // overlay (`overlay: true` -> showOverlay); today it's an inline
-            // editor component, so this is inert but harmless - the actual
-            // height bounding is the internal windowing in windowBody(). Kept
-            // as a correct backstop in case this becomes a true overlay.
-            overlayOptions: () => ({
-              maxHeight: overlayTui ? overlayViewportRows(overlayTui.terminal.rows) : MIN_OVERLAY_ROWS,
-            }),
-          },
+          (tui, theme, kb, done) => new ScratchpadOverlay(deps, theme, tui, kb, () => done()),
         );
         return;
       }

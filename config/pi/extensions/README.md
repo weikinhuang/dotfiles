@@ -7,6 +7,11 @@ Custom extensions auto-loaded by pi via the `extensions` array in
 Add new extensions to this directory, import their default export from `settings-baseline.json`, and run `/reload` in an
 interactive pi session to pick up changes without restarting.
 
+Modal screens use [`showModal`](../../../lib/node/pi/ext/show-modal.ts) to open full-width, bottom-anchored overlays,
+not replacements inside Pi's fullscreen editor dock. Components window their own content to the live terminal height;
+Pi's `maxHeight` is only a clipping backstop, not a scrolling mechanism. Long lists keep the selected row visible, and
+the shared window assembler reduces decorative chrome on very short terminals rather than returning an unbounded body.
+
 ## Index
 
 | Extension                                                      | Deep doc                                                     | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                               |

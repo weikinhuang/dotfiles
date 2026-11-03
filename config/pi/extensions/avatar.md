@@ -124,12 +124,11 @@ This is a flicker fix. Advancing the frame changes the sprite's image lines, and
 the image (sixel / kitty / iterm2) on every animation tick; when the modal fills the screen, that re-emit scrolls the
 viewport. Freezing keeps the widget's lines byte-stable so the diff renderer never re-emits.
 
-`tui.hasOverlay()` only covers **real** overlays (`ctx.ui.custom(..., { overlay: true })` -> `showOverlay`). Our custom
-components are mounted **inline in the editor container** (no `overlay: true`), so `hasOverlay()` is false for them. The
-[`isModalUiActive()`](../../../lib/node/pi/ui-activity.ts) signal (a globalThis-anchored counter set by the hosting
-extension via `enterModalUi` / `exitModalUi`) is how the avatar learns an inline modal is up across the extension
-boundary. Producer today: `scratchpad.ts`. If you add another full-screen `ctx.ui.custom` component, wrap it in
-`enterModalUi()` / `exitModalUi()` (with a `resetModalUi()` on `session_shutdown`) so the avatar pauses under it too.
+`tui.hasOverlay()` only covers **real** overlays (`ctx.ui.custom(..., { overlay: true })` -> `showOverlay`). Modal
+screens use [`showModal`](../../../lib/node/pi/ext/show-modal.ts), which defaults to a real overlay and also raises the
+shared [`isModalUiActive()`](../../../lib/node/pi/ui-activity.ts) counter. The counter keeps animation paused for
+callers that explicitly request an inline screen too. Use `showModal` for new modal interactions so the signal is paired
+across success, cancellation, and errors; `resetModalUi()` clears it on `session_shutdown`.
 
 ### tmux / screen
 

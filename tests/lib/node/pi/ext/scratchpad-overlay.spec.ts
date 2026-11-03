@@ -10,7 +10,7 @@
 import { expect, test } from 'vitest';
 
 import type { Theme } from '@earendil-works/pi-coding-agent';
-import type { TUI } from '@earendil-works/pi-tui';
+import { CURSOR_MARKER, visibleWidth, type TUI } from '@earendil-works/pi-tui';
 
 import { ScratchpadOverlay, type ScratchpadOverlayDeps } from '../../../../../lib/node/pi/ext/scratchpad-overlay.ts';
 import { type ScratchNote, type ScratchpadState } from '../../../../../lib/node/pi/scratchpad-reducer.ts';
@@ -22,13 +22,13 @@ const theme = {
   bold: (text: string): string => text,
 } as unknown as Theme;
 
-function makeTui(rows: number): TUI {
+function makeTui(rows: number): TUI & { terminal: { rows: number; columns: number } } {
   return {
     terminal: { rows, columns: 100 },
     requestRender: (): void => {
       /* no-op */
     },
-  } as unknown as TUI;
+  } as unknown as TUI & { terminal: { rows: number; columns: number } };
 }
 
 /** Read-only deps: a fixed state and no-op mutators (these tests never edit). */
@@ -108,6 +108,25 @@ test('ScratchpadOverlay: empty state renders the hint, no crash', () => {
   const overlay = new ScratchpadOverlay(depsFor({ notes: [], nextId: 1 }), theme, makeTui(20), undefined, noop);
   const lines = overlay.render(100);
   expect(lines.some((l) => l.includes('Scratchpad is empty'))).toBe(true);
+});
+
+test('ScratchpadOverlay: long editor stays bounded and keeps its cursor and save hint on resize', () => {
+  const state = { notes: [{ id: 1, body: Array.from({ length: 100 }, (_, i) => `line ${i}`).join('\n') }], nextId: 2 };
+  const tui = makeTui(16);
+  const overlay = new ScratchpadOverlay(depsFor(state), theme, tui, undefined, noop);
+  overlay.handleInput('e');
+  for (const [width, rows] of [
+    [60, 16],
+    [25, 10],
+    [80, 30],
+  ]) {
+    tui.terminal.rows = rows;
+    const lines = overlay.render(width);
+    expect(lines.length).toBeLessThanOrEqual(rows - 2);
+    expect(lines.some((line) => line.includes(CURSOR_MARKER))).toBe(true);
+    expect(lines.some((line) => line.includes('Enter to save'))).toBe(true);
+    expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
+  }
 });
 
 test('ScratchpadOverlay: renders grouped section labels and marks the selection', () => {

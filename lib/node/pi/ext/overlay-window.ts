@@ -9,11 +9,8 @@
  * and dim `↑ N more` / `↓ N more` indicator rows. It lives under `ext/`
  * because it imports pi runtime helpers (`truncateToWidth`, the `Theme`).
  *
- * Why overlays need this: pi mounts most `ctx.ui.custom` components inline in
- * the editor container. If a component returns more lines than the terminal
- * has rows, pi's compositor inflates the screen buffer past the viewport and
- * the screen scrolls/flickers (see config/pi/extensions/scratchpad.md). Bound
- * the body to the row budget and the flow stays put.
+ * Real overlays are clipped from the bottom by pi, not automatically scrolled.
+ * Bound the body internally so the selection and footer remain visible.
  *
  * Two usage modes (mirrors computeScrollWindow):
  *   - Selection-driven: pass `keepStart`/`keepEnd` for the selected item's
@@ -27,13 +24,13 @@ import { truncateToWidth } from '@earendil-works/pi-tui';
 
 import { computeScrollWindow } from '../scroll-window.ts';
 
-/** Rows kept clear above+below an inline overlay so it never touches the
+/** Rows kept clear above+below a modal overlay so it never touches the
  * screen edges (matches the scratchpad backstop). */
 export const OVERLAY_VERTICAL_MARGIN = 2;
-/** Smallest height we'll ever window into, even on a tiny terminal. */
-export const MIN_OVERLAY_ROWS = 6;
+/** Smallest usable viewport; never inflate a short terminal to six rows. */
+export const MIN_OVERLAY_ROWS = 1;
 
-/** Row budget an inline overlay renders into for a given terminal height. */
+/** Row budget a modal overlay renders into for a given terminal height. */
 export function overlayViewportRows(terminalRows: number): number {
   return Math.max(MIN_OVERLAY_ROWS, Math.floor(terminalRows) - OVERLAY_VERTICAL_MARGIN);
 }
@@ -80,11 +77,25 @@ export interface WindowedBodyResult {
  * the visible slice framed by `↑ N more` / `↓ N more`.
  */
 export function assembleWindowedBody(input: WindowedBodyInput): WindowedBodyResult {
-  const { header, body, footer, width, viewportRows, theme } = input;
+  const { body, width, theme } = input;
+  const viewportRows = Math.max(0, Math.floor(input.viewportRows));
+  let header = input.header;
+  let footer = input.footer;
+  // On tiny terminals, remove decorative blank rows first, then shorten the
+  // frame, reserving one row for content. Never fail open to the full body.
+  const frameRows = Math.max(0, viewportRows - Math.min(1, body.length));
+  if (header.length + footer.length > frameRows) {
+    header = header.filter((line) => line.trim().length > 0);
+    footer = footer.filter((line) => line.trim().length > 0);
+    const headerRows = Math.min(header.length, Math.ceil(frameRows / 2));
+    header = header.slice(0, headerRows);
+    const footerRows = Math.max(0, frameRows - header.length);
+    footer = footerRows > 0 ? footer.slice(-footerRows) : [];
+  }
   const regionRows = viewportRows - header.length - footer.length;
 
-  // Everything fits (or no room to scroll): render the whole body.
-  if (regionRows <= 0 || body.length <= regionRows) {
+  // Everything fits: render the whole body.
+  if (body.length <= regionRows) {
     return {
       lines: [...header, ...body, ...footer],
       scrollTop: 0,
@@ -95,8 +106,9 @@ export function assembleWindowedBody(input: WindowedBodyInput): WindowedBodyResu
     };
   }
 
-  // Reserve indicator rows so the height is stable regardless of offset.
-  const contentRows = Math.max(1, regionRows - 2);
+  // Reserve indicators only when there is also room for at least one body row.
+  const showIndicators = regionRows >= 3;
+  const contentRows = Math.max(0, regionRows - (showIndicators ? 2 : 0));
   const win = computeScrollWindow({
     total: body.length,
     rows: contentRows,
@@ -111,7 +123,13 @@ export function assembleWindowedBody(input: WindowedBodyInput): WindowedBodyResu
     win.hiddenBelow > 0 ? truncateToWidth(`  ${theme.fg('dim', `↓ ${win.hiddenBelow} more`)}`, width) : '';
 
   return {
-    lines: [...header, topIndicator, ...body.slice(win.start, win.end), bottomIndicator, ...footer],
+    lines: [
+      ...header,
+      ...(showIndicators ? [topIndicator] : []),
+      ...body.slice(win.start, win.end),
+      ...(showIndicators ? [bottomIndicator] : []),
+      ...footer,
+    ],
     scrollTop: win.scrollTop,
     winStart: win.start,
     winEnd: win.end,

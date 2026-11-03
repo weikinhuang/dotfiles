@@ -67,6 +67,33 @@ function makeOverlay(rows: number, fileCount: number): ReviewOverlay {
 
 const VIEWPORT = (rows: number): number => Math.max(6, rows - 2);
 
+test('ReviewOverlay: resizing a scrolled file list keeps the selected file visible', () => {
+  const terminal = { rows: 30, columns: 100 };
+  const tui = { terminal } as unknown as TUI;
+  const overlay = new ReviewOverlay(theme, makeRows(40), tui, noop);
+  overlay.render(100);
+  for (let i = 0; i < 39; i++) overlay.handleInput('\u001b[B');
+  for (const rows of [12, 8, 30]) {
+    terminal.rows = rows;
+    const lines = overlay.render(100);
+    expect(lines.length).toBeLessThanOrEqual(rows - 2);
+    expect(lines.some((line) => line.includes('›') && line.includes('file-39.ts'))).toBe(true);
+  }
+});
+
+test('ReviewOverlay: diff position range reflects the resized page, not a fixed 24 lines', () => {
+  const overlay = makeOverlay(16, 5);
+  overlay.handleInput('\r');
+  expect(overlay.render(100).at(-1)).toContain('[1-9 /');
+});
+
+test.each([3, 4, 5, 6, 8])('ReviewOverlay: both views fit a %i-row terminal', (rows) => {
+  const overlay = makeOverlay(rows, 40);
+  expect(overlay.render(100).length).toBeLessThanOrEqual(Math.max(1, rows - 2));
+  overlay.handleInput('\r');
+  expect(overlay.render(100).length).toBeLessThanOrEqual(Math.max(1, rows - 2));
+});
+
 test('ReviewOverlay: long file list stays within the viewport', () => {
   const rows = 20;
   const overlay = makeOverlay(rows, 40);

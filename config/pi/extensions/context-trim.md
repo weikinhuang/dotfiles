@@ -122,13 +122,18 @@ drop_image({
 Each `drop_image` call reuses the shared approval engine
 ([`lib/node/pi/approval-prompt.ts`](../../../lib/node/pi/approval-prompt.ts)) exactly as `bash-permissions` does. The
 dialog title echoes the **resolved** items (recency ordinal + label + size + the `summary`) so you verify targeting
-before anything drops, plus any tail-guarded / out-of-range ordinals. Options:
+before anything drops, plus any tail-guarded / out-of-range ordinals. The initial confirmation uses a bounded
+[`approval-select.ts`](../../../lib/node/pi/ext/approval-select.ts) overlay, not Pi's inline selector: `PageUp` /
+`PageDown`, `Home` / `End`, or the mouse wheel (fullscreen mode) scroll the details independently of the choice list.
+`↑` / `↓` move the highlighted choice, which stays visible on short terminals; `Enter` confirms it and `Esc` denies.
+Options:
 
 - **Allow once** - drop this selection, ask again next time.
 - **Allow `drop_image` for this session** - auto-allow for the rest of the session.
 - **Edit selection…** - open a checkbox multi-select of the resolved images (every row pre-checked = will drop); uncheck
   the keeper before confirming. Built on the reusable [`MultiSelectList`](../../../lib/node/pi/ext/multi-select-list.ts)
-  component.
+  component in a height-bounded overlay. Wrapped rows scroll to keep the highlighted item visible, and the picker
+  reflows when the terminal is resized.
 - **Deny** - do not drop, ask again.
 - **Deny with feedback…** - do not drop; the feedback text is returned to the model so it can adjust.
 - **Never allow this session** - auto-deny for the rest of the session.
