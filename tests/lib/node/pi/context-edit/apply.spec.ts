@@ -127,6 +127,184 @@ describe('applyDirectives - edit', () => {
   });
 });
 
+describe('applyDirectives - edit safety', () => {
+  test('merges multiple text parts at the first text position and preserves mixed images and metadata', () => {
+    const image = { type: 'image', data: 'AAAA', mimeType: 'image/png', width: 10 };
+    const messages: LooseMessage[] = [
+      {
+        role: 'user',
+        timestamp: 5,
+        custom: { keep: true },
+        content: [
+          image,
+          { type: 'text', text: 'first', textSignature: 'sig' },
+          image,
+          { type: 'text', text: 'second' },
+          image,
+        ],
+      },
+    ];
+    const before = structuredClone(messages);
+    const {
+      messages: out,
+      applied,
+      stale,
+    } = applyDirectives(messages, [
+      {
+        kind: 'edit',
+        id: 1,
+        target: { by: 'message', role: 'user', timestamp: 5 },
+        text: 'merged\ntext',
+        createdAt: 1,
+      },
+    ]);
+    expect(applied).toBe(1);
+    expect(stale).toEqual([]);
+    expect(out[0]).toEqual({
+      ...messages[0],
+      content: [
+        image,
+        { type: 'text', text: 'merged\ntext', textSignature: 'sig' },
+        image,
+        { type: 'text', text: '' },
+        image,
+      ],
+    });
+    expect(messages).toEqual(before);
+    expect(out[0]).not.toBe(messages[0]);
+    expect((out[0].content as LoosePart[])[0]).not.toBe(image);
+  });
+
+  test('preserves thinking, tool calls and paired results in their original relative order', () => {
+    const thinking = { type: 'thinking', thinking: 'reasoning', signature: 'signed' };
+    const call = { type: 'toolCall', id: 'c1', name: 'bash', arguments: { command: 'ls' } };
+    const messages: LooseMessage[] = [
+      {
+        role: 'assistant',
+        timestamp: 5,
+        model: 'test',
+        usage: { output: 10 },
+        content: [thinking, { type: 'text', text: 'first' }, call, { type: 'text', text: 'last' }, thinking],
+      },
+      { role: 'toolResult', timestamp: 6, toolCallId: 'c1', toolName: 'bash', content: 'result' },
+    ];
+    const before = structuredClone(messages);
+    const { messages: out, applied } = applyDirectives(messages, [
+      { kind: 'edit', id: 1, target: { by: 'message', role: 'assistant', timestamp: 5 }, text: 'edited', createdAt: 1 },
+    ]);
+    expect(applied).toBe(1);
+    expect(out[0]).toEqual({
+      ...messages[0],
+      content: [thinking, { type: 'text', text: 'edited' }, call, { type: 'text', text: '' }, thinking],
+    });
+    expect(out[1]).toEqual(messages[1]);
+    expect(messages).toEqual(before);
+  });
+
+  test('retains content indices so a subsequent image trim still targets the same block', () => {
+    const image = { type: 'image', data: 'AAAA', mimeType: 'image/png' };
+    const messages: LooseMessage[] = [
+      {
+        role: 'user',
+        timestamp: 5,
+        content: [{ type: 'text', text: 'first' }, { type: 'text', text: 'second' }, image],
+      },
+    ];
+    const edited = applyDirectives(messages, [
+      { kind: 'edit', id: 1, target: { by: 'message', role: 'user', timestamp: 5 }, text: 'merged', createdAt: 1 },
+    ]);
+    const trimmed = applyDirectives(edited.messages, [
+      { kind: 'trim', id: 1, target: { by: 'message', role: 'user', timestamp: 5, partIndex: 2 }, createdAt: 1 },
+    ]);
+    expect(edited.messages[0].content).toEqual([{ type: 'text', text: 'merged' }, { type: 'text', text: '' }, image]);
+    expect(trimmed.applied).toBe(1);
+    expect((trimmed.messages[0].content as LoosePart[])[2].type).toBe('text');
+  });
+
+  test('keeps an empty replacement as a real text part alongside images', () => {
+    const image = { type: 'image', data: 'AAAA', mimeType: 'image/png' };
+    const messages: LooseMessage[] = [{ role: 'user', timestamp: 5, content: [image, { type: 'text', text: 'old' }] }];
+    const {
+      messages: out,
+      applied,
+      stale,
+    } = applyDirectives(messages, [
+      { kind: 'edit', id: 1, target: { by: 'message', role: 'user', timestamp: 5 }, text: '', createdAt: 1 },
+    ]);
+    expect(applied).toBe(1);
+    expect(stale).toEqual([]);
+    expect(out[0].content).toEqual([image, { type: 'text', text: '' }]);
+  });
+
+  test.each([
+    { content: [] },
+    { content: [{ type: 'image', data: 'AAAA', mimeType: 'image/png' }] },
+    {
+      content: [
+        { type: 'thinking', text: 'not a text part' },
+        { type: 'toolCall', id: 'c1', name: 'bash', arguments: {} },
+      ],
+    },
+  ])('refuses whole-message edits of no-text content %j', ({ content }) => {
+    const messages: LooseMessage[] = [{ role: 'assistant', timestamp: 5, content }];
+    const {
+      messages: out,
+      applied,
+      stale,
+    } = applyDirectives(messages, [
+      {
+        kind: 'edit',
+        id: 7,
+        target: { by: 'message', role: 'assistant', timestamp: 5 },
+        text: 'replacement',
+        createdAt: 1,
+      },
+    ]);
+    expect(applied).toBe(0);
+    expect(stale).toEqual([7]);
+    expect(out).toEqual(messages);
+  });
+
+  test('leaves part-scoped behavior unchanged and does not merge neighboring text', () => {
+    const image = { type: 'image', data: 'AAAA', mimeType: 'image/png' };
+    const messages: LooseMessage[] = [
+      {
+        role: 'user',
+        timestamp: 5,
+        content: [{ type: 'text', text: 'first' }, image, { type: 'text', text: 'second', signature: 's' }],
+      },
+    ];
+    const {
+      messages: out,
+      applied,
+      stale,
+    } = applyDirectives(messages, [
+      {
+        kind: 'edit',
+        id: 1,
+        target: { by: 'message', role: 'user', timestamp: 5, partIndex: 2 },
+        text: '',
+        createdAt: 1,
+      },
+      {
+        kind: 'edit',
+        id: 2,
+        target: { by: 'message', role: 'user', timestamp: 5, partIndex: 1 },
+        text: 'not image',
+        createdAt: 1,
+      },
+    ]);
+    expect(applied).toBe(1);
+    expect(stale).toEqual([2]);
+    expect(out[0].content).toEqual([
+      { type: 'text', text: 'first' },
+      image,
+      { type: 'text', text: '', signature: 's' },
+    ]);
+    expect(text(messages[0], 2)).toBe('second');
+  });
+});
+
 describe('applyDirectives - collapse', () => {
   test('blanks the call arguments and replaces the result with a marker', () => {
     const messages: LooseMessage[] = [

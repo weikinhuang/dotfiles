@@ -19,18 +19,25 @@ export const CONTEXT_TRIM_USAGE = [
 ].join('\n');
 
 export const CONTEXT_EDIT_USAGE = [
-  'Usage: /context-edit [<id> | list | restore <id> | clear]',
+  'Usage: /context-edit [<handle> | <search words> | list | sort order|size | restore <id> | clear]',
   '',
   'Edit a user or assistant message in place for steering (OpenWebUI-style),',
   'without dropping any downstream turns. Non-destructive overlay: the original',
   'message stays in the session; the edit is reapplied each turn and survives',
   'reload and exit -> resume until you restore it.',
   '',
-  '  /context-edit              list editable messages',
-  '  /context-edit <id>         open an editor prefilled with message <id> (e.g. msg2)',
-  '  /context-edit list         show active edits',
-  '  /context-edit restore <id> undo an edit by its directive #id',
+  '  /context-edit              browse messages; type to search, Enter to edit',
+  '  /context-edit msg2         edit a message directly; Enter newline, Ctrl+S save',
+  '  /context-edit <words>      search full original/current text (multiple words allowed)',
+  '  /context-edit list         browse active edits, compare and restore',
+  '  /context-edit sort <order|size> change listing order for this session',
+  '  /context-edit restore <id> undo an edit by its directive id (7 or #7)',
   '  /context-edit clear        undo all edits',
+  '',
+  'Browser: Tab preview/search, Ctrl+T role, Ctrl+E edited only,',
+  'Ctrl+O original/current, Ctrl+R restore, Escape close.',
+  'Editor: Ctrl+S save, Enter newline, Escape cancel, Ctrl+G external editor.',
+  'Cmd+S saves only when the terminal forwards Super+S or maps it to Ctrl+S.',
 ].join('\n');
 
 export const TOOL_COLLAPSE_USAGE = [

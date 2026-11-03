@@ -14,8 +14,10 @@
  *                 (image part becomes a text part; oversized text part
  *                 becomes a short text part).
  *   - edit     -> replace the targeted message's text. Whole-message
- *                 edits collapse the message to a single text part;
- *                 part-scoped edits replace just that text part.
+ *                 edits merge text at the first text position, preserving
+ *                 non-text parts, block indices and metadata; later text
+ *                 slots are blanked and targets without text fail.
+ *                 Part-scoped edits replace just that text part.
  *   - collapse -> blank the tool call's arguments AND replace its paired
  *                 tool-result content with a marker, keeping the
  *                 call/result pairing valid for the provider.
@@ -104,8 +106,18 @@ function applyEdit(messages: LooseMessage[], d: EditDirective): boolean {
   const msg = messages[hit.messageIndex];
 
   if (hit.partIndex === undefined) {
-    // Replace the whole message with a single edited text part.
-    messages[hit.messageIndex] = { ...msg, content: [{ type: 'text', text: d.text }] };
+    const parts: LoosePart[] = [];
+    let replaced = false;
+    for (const part of toParts(msg.content)) {
+      if (isTextPart(part)) {
+        parts.push({ ...part, text: replaced ? '' : d.text });
+        replaced = true;
+      } else {
+        parts.push({ ...part });
+      }
+    }
+    if (!replaced) return false;
+    messages[hit.messageIndex] = { ...msg, content: parts };
     return true;
   }
   const parts = copyParts(toParts(msg.content));
