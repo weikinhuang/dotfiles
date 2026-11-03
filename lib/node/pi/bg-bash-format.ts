@@ -8,7 +8,7 @@
  * reducer: composes only `truncate` + reducer-shape types.
  */
 
-import { type BgBashState, type JobStatus, type JobSummary } from './bg-bash-reducer.ts';
+import { isJobRunning, type BgBashState, type JobStatus, type JobSummary } from './bg-bash-reducer.ts';
 import { byteLen, formatCompactBytes, sliceUtf8Suffix, truncate } from './shared.ts';
 
 const STATUS_ICON: Record<JobStatus, string> = {
@@ -19,7 +19,8 @@ const STATUS_ICON: Record<JobStatus, string> = {
   terminated: '◌',
 };
 
-export function statusIcon(status: JobStatus): string {
+export function statusIcon(status: JobStatus, exitCode = 0): string {
+  if (status === 'exited' && exitCode !== 0) return STATUS_ICON.error;
   return STATUS_ICON[status] ?? '?';
 }
 
@@ -77,7 +78,7 @@ export function formatJobLine(job: JobSummary, now: number): string {
   const label = job.label ? ` ${job.label}` : '';
   const cmd = truncate(job.command.replace(/\s+/g, ' '), 80);
   const bytes = formatBytes(job.stdoutBytes + job.stderrBytes);
-  const head = `[${job.id}]${label} ${statusIcon(job.status)} ${cmd}`;
+  const head = `[${job.id}]${label} ${statusIcon(job.status, job.exitCode)} ${cmd}`;
   const open = job.outputOpen ? ' (output pipe still held open by a background process)' : '';
   switch (job.status) {
     case 'running':
@@ -85,6 +86,9 @@ export function formatJobLine(job: JobSummary, now: number): string {
     case 'exited':
       return `${head} - exited ${job.exitCode ?? '?'} after ${dur}, ${bytes}${open}`;
     case 'signaled':
+      if (job.endedAt === undefined) {
+        return `${head} - still running ${dur}, ${bytes} (${job.signal ?? 'signal'} sent; awaiting exit)`;
+      }
       return `${head} - ${job.signal ?? 'signal'} after ${dur}, ${bytes}${open}`;
     case 'error':
       return `${head} - error: ${job.error ?? 'unknown'}`;
@@ -117,7 +121,7 @@ function headerGlyph(job: JobSummary, opts: { timedOut?: boolean }): string {
     case 'running':
       return '●';
     case 'exited':
-      return (job.exitCode ?? 0) === 0 ? '✓' : '✗';
+      return statusIcon(job.status, job.exitCode);
     case 'signaled':
       return '⚠';
     case 'error':
@@ -290,7 +294,7 @@ export function partitionJobs(
   const running: JobSummary[] = [];
   const recent: JobSummary[] = [];
   for (const j of state.jobs) {
-    if (j.status === 'running' || j.status === 'signaled') running.push(j);
+    if (isJobRunning(j)) running.push(j);
     else recent.push(j);
   }
   recent.sort((a, b) => (b.endedAt ?? b.startedAt) - (a.endedAt ?? a.startedAt));
@@ -307,5 +311,5 @@ export function partitionJobs(
  * "busy" for shutdown wait.
  */
 export function hasLiveJobs(state: BgBashState): boolean {
-  return state.jobs.some((j) => j.status === 'running' || j.status === 'signaled');
+  return state.jobs.some(isJobRunning);
 }

@@ -16,6 +16,7 @@ import {
   emptyState,
   findJob,
   isBgBashStateShape,
+  isJobRunning,
   type JobSummary,
   markLiveJobsTerminated,
   pruneUnattachableJobs,
@@ -45,6 +46,14 @@ function mkJob(overrides: Partial<JobSummary> = {}): JobSummary {
     ...overrides,
   };
 }
+
+test('isJobRunning distinguishes pending signals from reaped terminal jobs', () => {
+  expect(isJobRunning(mkJob())).toBe(true);
+  expect(isJobRunning(mkJob({ status: 'signaled' }))).toBe(true);
+  expect(isJobRunning(mkJob({ status: 'signaled', endedAt: 1000001 }))).toBe(false);
+  expect(isJobRunning(mkJob({ status: 'exited', exitCode: 1 }))).toBe(false);
+  expect(isJobRunning(mkJob({ status: 'error' }))).toBe(false);
+});
 
 function mkState(jobs: JobSummary[], nextId?: number): BgBashState {
   return { jobs: jobs.map((j) => ({ ...j })), nextId: nextId ?? jobs.length + 1 };
@@ -144,6 +153,11 @@ test('markLiveJobsTerminated: rewrites running + signaled jobs to terminated', (
   expect(s.jobs.find((j) => j.id === 'r1')?.status).toBe('running');
 });
 
+test('markLiveJobsTerminated preserves a finalized signal outcome', () => {
+  const finished = mkJob({ status: 'signaled', signal: 'SIGTERM', endedAt: 123 });
+  expect(markLiveJobsTerminated(mkState([finished]), 9999).jobs[0]).toEqual(finished);
+});
+
 test('markLiveJobsTerminated: preserves existing endedAt when already set', () => {
   const s = mkState([mkJob({ id: 'r1', status: 'running', endedAt: 123 })]);
   const out = markLiveJobsTerminated(s, 9_999);
@@ -171,6 +185,10 @@ test('pruneUnattachableJobs: keeps exited/signaled/error, drops running/terminat
   expect(out.nextId).toBe(s.nextId);
   // Input not mutated.
   expect(s.jobs.length).toBe(5);
+});
+
+test('pruneUnattachableJobs drops a pending signal with no reaped outcome', () => {
+  expect(pruneUnattachableJobs(mkState([mkJob({ status: 'signaled', signal: 'SIGTERM' })])).jobs).toEqual([]);
 });
 
 test('pruneUnattachableJobs: no-op on empty state', () => {

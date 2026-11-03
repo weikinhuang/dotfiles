@@ -115,6 +115,11 @@ export interface JobSummary {
   nudge?: boolean;
 }
 
+/** A sent signal is not a terminal outcome until the process has been reaped. */
+export function isJobRunning(job: Pick<JobSummary, 'status' | 'endedAt'>): boolean {
+  return job.status === 'running' || (job.status === 'signaled' && job.endedAt === undefined);
+}
+
 export interface BgBashState {
   jobs: JobSummary[];
   nextId: number;
@@ -183,7 +188,7 @@ export function markLiveJobsTerminated(state: BgBashState, now: number): BgBashS
   return {
     nextId: state.nextId,
     jobs: state.jobs.map((j) =>
-      j.status === 'running' || j.status === 'signaled'
+      isJobRunning(j)
         ? {
             ...j,
             status: 'terminated',
@@ -221,9 +226,7 @@ export function markLiveJobsTerminated(state: BgBashState, now: number): BgBashS
 export function pruneUnattachableJobs(state: BgBashState): BgBashState {
   return {
     nextId: state.nextId,
-    jobs: state.jobs
-      .filter((j) => j.status === 'exited' || j.status === 'signaled' || j.status === 'error')
-      .map(cloneSummary),
+    jobs: state.jobs.filter((j) => !isJobRunning(j) && j.status !== 'terminated').map(cloneSummary),
   };
 }
 

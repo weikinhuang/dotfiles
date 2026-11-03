@@ -34,7 +34,7 @@ interface ToolResult {
 type Execute = (
   id: string,
   params: Record<string, unknown>,
-  signal: undefined,
+  signal: AbortSignal | undefined,
   onUpdate: undefined,
   ctx: unknown,
 ) => Promise<ToolResult>;
@@ -46,7 +46,11 @@ interface Card {
 }
 
 interface Runtime {
-  call: (params: Record<string, unknown>) => Promise<ToolResult>;
+  call: (params: Record<string, unknown>, signal?: AbortSignal) => Promise<ToolResult>;
+  emit: (name: string, event?: unknown) => unknown;
+  idle: (value: boolean) => void;
+  command: (args: string) => Promise<void>;
+  notify: ReturnType<typeof vi.fn>;
   card: (params: Record<string, unknown>) => Promise<Card>;
   clear: () => Promise<void>;
   tree: () => Promise<void>;
@@ -74,6 +78,8 @@ function load(dir: string, mode = 'tui'): Runtime {
   let command: (args: string, ctx: unknown) => Promise<void>;
   const appendEntry = vi.fn();
   const sendMessage = vi.fn();
+  const notify = vi.fn();
+  let idle = true;
   const pi = {
     on: (name: string, handler: (event: unknown, ctx: unknown) => unknown) => {
       handlers.set(name, handler);
@@ -94,13 +100,13 @@ function load(dir: string, mode = 'tui'): Runtime {
     cwd: dir,
     mode,
     hasUI: mode === 'tui',
-    ui: { setStatus: vi.fn(), notify: vi.fn(), select: vi.fn(), input: vi.fn() },
+    ui: { setStatus: vi.fn(), notify, select: vi.fn(), input: vi.fn() },
     sessionManager: { getBranch: () => [] },
-    isIdle: () => true,
+    isIdle: () => idle,
   };
   void handlers.get('session_start')?.({}, ctx);
   let n = 0;
-  const card = async (params: Record<string, unknown>): Promise<Card> => {
+  const card = async (params: Record<string, unknown>, signal?: AbortSignal): Promise<Card> => {
     const invalidate = vi.fn();
     const context = {
       toolCallId: `call-${n++}`,
@@ -112,7 +118,7 @@ function load(dir: string, mode = 'tui'): Runtime {
     } as unknown as ToolRenderContext;
     tool.renderCall(params, theme, context);
     context.executionStarted = true;
-    const result = await tool.execute(context.toolCallId, params, undefined, undefined, ctx);
+    const result = await tool.execute(context.toolCallId, params, signal, undefined, ctx);
     return {
       result,
       invalidate,
@@ -130,7 +136,13 @@ function load(dir: string, mode = 'tui'): Runtime {
   };
   return {
     card,
-    call: async (params) => (await card(params)).result,
+    call: async (params, signal) => (await card(params, signal)).result,
+    emit: (name, event = {}) => handlers.get(name)?.(event, ctx),
+    idle: (value) => {
+      idle = value;
+    },
+    command: (args) => command(args, ctx),
+    notify,
     clear: async () => {
       await command('clear', ctx);
     },
@@ -340,6 +352,131 @@ describe('bg_bash runtime (real spawn)', () => {
     await rt.call({ action: 'wait', id, timeoutMs: 2000 });
     expect(card.render()).toBe(historical);
     expect(card.invalidate).not.toHaveBeenCalled();
+  });
+
+  test('busy completions batch at the boundary, preserving other extensions drafts', async () => {
+    rt.idle(false);
+    const first = await startId(rt, { command: 'echo first; exit 1', nudge: true });
+    await rt.call({ action: 'wait', id: first, timeoutMs: 2000 });
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    const second = await startId(rt, { command: 'echo second', nudge: true });
+    await rt.call({ action: 'wait', id: second, timeoutMs: 2000 });
+    expect(rt.sendMessage).not.toHaveBeenCalled();
+    const existing = { type: 'custom', customType: 'other-extension', data: {} };
+    const boundary = rt.emit('agent_before_settle', { outcome: 'completed', entries: [existing] }) as {
+      entries: { type: string; customType: string; content?: string; details?: { jobs: JobSummary[] } }[];
+      continue: boolean;
+    };
+    expect(boundary.continue).toBe(true);
+    expect(boundary.entries[0]).toEqual(existing);
+    expect(boundary.entries[1].details?.jobs.map((job) => job.id)).toEqual([first, second]);
+    expect(boundary.entries[1].content).toContain('✗');
+    expect(rt.sendMessage).not.toHaveBeenCalled();
+  });
+
+  test.each(['status', 'wait', 'logs', 'list'])(
+    'delivered terminal %s suppresses an already-pending nudge',
+    async (action) => {
+      rt.idle(false);
+      const id = await startId(rt, { command: 'echo completed; exit 1', nudge: true });
+      await rt.call({ action: 'wait', id, timeoutMs: 2000 });
+      const delivered = await rt.call({ action, id });
+      expect(delivered.content[0].text).toContain('exited 1');
+      rt.emit('message_end', { message: { role: 'toolResult', toolName: 'bg_bash', ...delivered } });
+      expect(rt.emit('agent_before_settle', { outcome: 'completed', entries: [] })).toBeUndefined();
+      rt.idle(true);
+      await new Promise((resolve) => setTimeout(resolve, 350));
+      expect(rt.sendMessage).not.toHaveBeenCalled();
+    },
+  );
+
+  test('running logs and live cards do not acknowledge an eventual failure', async () => {
+    rt.idle(false);
+    const card = await rt.card({
+      action: 'start',
+      command: 'read line; echo failure; exit 2',
+      interactiveStdin: true,
+      nudge: true,
+    });
+    const id = card.result.details.job!.id;
+    const logs = await rt.call({ action: 'logs', id });
+    rt.emit('message_end', { message: { role: 'toolResult', toolName: 'bg_bash', ...logs } });
+    card.render();
+    await rt.call({ action: 'stdin', id, text: 'finish\n' });
+    await rt.call({ action: 'wait', id, timeoutMs: 2000 });
+    expect(card.render()).toContain('exit 2');
+    const boundary = rt.emit('agent_before_settle', { outcome: 'completed', entries: [] });
+    expect(JSON.stringify(boundary)).toContain('exited 2');
+  });
+
+  test('clear cancels pending nudges, releases buffers, and includes finalized signaled jobs', async () => {
+    rt.idle(false);
+    const id = await startId(rt, { command: 'read line', interactiveStdin: true, nudge: true });
+    await rt.call({ action: 'signal', id });
+    await vi.waitFor(async () => expect((await rt.call({ action: 'status', id })).details.job?.endedAt).toBeDefined());
+    await rt.clear();
+    await rt.command(`logs ${id}`);
+    expect(rt.notify).toHaveBeenLastCalledWith(expect.stringContaining('No live job'), 'warning');
+    expect(rt.emit('agent_before_settle', { outcome: 'completed', entries: [] })).toBeUndefined();
+    expect((await rt.call({ action: 'status', id })).isError).toBe(true);
+  });
+
+  test('removed output-open jobs finish disk logging without resurrection or notifications', async () => {
+    vi.stubEnv('PI_BG_BASH_DRAIN_MS', '10');
+    await rt.shutdown();
+    rt = load(dir);
+    rt.idle(false);
+    const id = await startId(rt, {
+      command: `echo first; ${node} -e 'setTimeout(()=>console.log("late output"),350)' & exit 0`,
+      nudge: true,
+    });
+    const finished = await rt.call({ action: 'wait', id, timeoutMs: 2000 });
+    expect(finished.details.job?.outputOpen).toBe(true);
+    await rt.call({ action: 'remove', id });
+    await vi.waitFor(() => expect(readFileSync(finished.details.job!.logFile!, 'utf8')).toContain('late output'));
+    expect((await rt.call({ action: 'status', id })).isError).toBe(true);
+    expect(rt.emit('agent_before_settle', { outcome: 'completed', entries: [] })).toBeUndefined();
+    expect(rt.sendMessage).not.toHaveBeenCalled();
+  });
+
+  test('failed idle delivery retries once, retains pending outcomes, and warns locally', async () => {
+    rt.idle(false);
+    rt.sendMessage.mockImplementation(() => {
+      throw new Error('delivery rejected');
+    });
+    const id = await startId(rt, { command: 'exit 1', nudge: true });
+    await rt.call({ action: 'wait', id, timeoutMs: 2000 });
+    rt.idle(true);
+    await new Promise((resolve) => setTimeout(resolve, 850));
+    expect(rt.sendMessage).toHaveBeenCalledTimes(2);
+    expect(rt.notify).toHaveBeenCalledWith(expect.stringContaining('remain pending'), 'warning');
+    rt.emit('input', { source: 'interactive' });
+    rt.idle(false);
+    expect(JSON.stringify(rt.emit('agent_before_settle', { outcome: 'completed', entries: [] }))).toContain('exited 1');
+  });
+
+  test('a cancelled wait never acknowledges the later failure', async () => {
+    rt.idle(false);
+    const id = await startId(rt, { command: 'read line; exit 1', interactiveStdin: true, nudge: true });
+    const controller = new AbortController();
+    const waiting = rt.call({ action: 'wait', id, timeoutMs: 2000 }, controller.signal);
+    controller.abort();
+    const cancelled = await waiting;
+    rt.emit('message_end', { message: { role: 'toolResult', toolName: 'bg_bash', ...cancelled } });
+    await rt.call({ action: 'stdin', id, text: 'finish\n' });
+    await rt.call({ action: 'wait', id, timeoutMs: 2000 });
+    expect(JSON.stringify(rt.emit('agent_before_settle', { outcome: 'completed', entries: [] }))).toContain('exited 1');
+  });
+
+  test('wait removes its abort listener when a job exits before timeout', async () => {
+    const id = await startId(rt, { command: 'read line', interactiveStdin: true });
+    const controller = new AbortController();
+    const added = vi.spyOn(controller.signal, 'addEventListener');
+    const removed = vi.spyOn(controller.signal, 'removeEventListener');
+    const waiting = rt.call({ action: 'wait', id, timeoutMs: 2000 }, controller.signal);
+    await rt.call({ action: 'stdin', id, text: 'done\n' });
+    await waiting;
+    expect(removed).toHaveBeenCalledWith('abort', added.mock.calls[0]?.[1]);
   });
 
   test('shell: "bash" runs bash-only syntax; sh gets a warning instead', async () => {

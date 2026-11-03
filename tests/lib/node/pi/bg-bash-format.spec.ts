@@ -22,6 +22,7 @@ import {
   tailLines,
   tailN,
 } from '../../../../lib/node/pi/bg-bash-format.ts';
+import { formatBackgroundJobs } from '../../../../lib/node/pi/bg-bash-prompt.ts';
 import { type BgBashState, emptyState, type JobSummary } from '../../../../lib/node/pi/bg-bash-reducer.ts';
 
 // ──────────────────────────────────────────────────────────────────────
@@ -67,6 +68,13 @@ test('partitionJobs: splits running/signaled vs terminal, sorts recents newest-f
   expect(recent.map((j) => j.id)).toEqual(['c', 'e', 'a']); // 300 > 200 > 100
 });
 
+test('partitionJobs: finalized signals are recent, not permanently running', () => {
+  const finished = mkJob({ id: 'signal', status: 'signaled', signal: 'SIGTERM', endedAt: 1000001 });
+  const state = mkState([finished]);
+  expect(partitionJobs(state)).toEqual({ running: [], recent: [finished] });
+  expect(hasLiveJobs(state)).toBe(false);
+});
+
 test('partitionJobs: recentCap clamps the terminal list', () => {
   const s = mkState([
     mkJob({ id: 'a', status: 'exited', exitCode: 0, endedAt: 100 }),
@@ -92,6 +100,11 @@ test('hasLiveJobs: true iff any running or signaled', () => {
 test('statusIcon: returns a stable glyph per status', () => {
   expect(statusIcon('running')).toBe('●');
   expect(statusIcon('exited')).toBe('✓');
+  expect(statusIcon('exited', undefined)).toBe('✓');
+  expect(statusIcon('exited', 0)).toBe('✓');
+  expect(statusIcon('exited', 1)).toBe('✗');
+  expect(statusIcon('exited', 127)).toBe('✗');
+  expect(statusIcon('running', 1)).toBe('●');
   expect(statusIcon('signaled')).toBe('✗');
   expect(statusIcon('error')).toBe('✗');
   expect(statusIcon('terminated')).toBe('◌');
@@ -175,8 +188,18 @@ test('formatJobLine: exited shows exit code + wall clock', () => {
     endedAt: 1_005_000,
   });
 
-  expect(formatJobLine(j, 9_999_999)).toMatch(/exited 0 after 5s/);
+  expect(formatJobLine(j, 9_999_999)).toBe('[abc] ✓ make - exited 0 after 5s, 0B');
   expect(formatJobLine(j, 9_999_999)).not.toContain('output pipe');
+});
+
+test('formatJobLine: nonzero exit uses the failure glyph across state and reminder text', () => {
+  const j = mkJob({ id: 'abc', status: 'exited', exitCode: 2, endedAt: 1_005_000 });
+  const line = '[abc] ✗ echo hi - exited 2 after 5s, 0B';
+  const state = mkState([j]);
+
+  expect(formatJobLine(j, 9_999_999)).toBe(line);
+  expect(formatState(state, 9_999_999)).toBe(line);
+  expect(formatBackgroundJobs(state, { now: 9_999_999 })).toContain(`  - ${line}`);
 });
 
 test('formatJobLine: outputOpen notes the pipe held by a background process', () => {
@@ -184,6 +207,12 @@ test('formatJobLine: outputOpen notes the pipe held by a background process', ()
   expect(formatJobLine(j, 2000)).toMatch(
     /exited 0 after 1s, .* \(output pipe still held open by a background process\)$/,
   );
+});
+
+test('formatJobLine: signaled without endedAt is still awaiting exit', () => {
+  const j = mkJob({ id: 'abc', status: 'signaled', signal: 'SIGTERM' });
+
+  expect(formatJobLine(j, 1_003_000)).toBe('[abc] ✗ echo hi - still running 3s, 0B (SIGTERM sent; awaiting exit)');
 });
 
 test('formatJobLine: signaled shows the signal name', () => {

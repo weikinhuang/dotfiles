@@ -75,21 +75,27 @@ re-invokes the agent when a background command exits).
 - **Trigger.** Only when the job finishes **on its own**: [`isNudgeWorthy`](../../../lib/node/pi/bg-bash/nudge.ts)
   returns true for `exited` (any code) and runtime `error`. A `signaled` job was stopped deliberately (the agent's own
   `signal` action, or session shutdown) so whoever sent the signal already knows; `running` / `terminated` never nudge.
-- **Active `wait` suppression.** A job that exits while a `wait` action is in flight on it is skipped: that `wait`
-  returns the exit (status + log tail) inline, so the agent already learns of the completion this turn and a separate
-  nudge would just duplicate it. The extension reference-counts in-flight waits per job id (the `WaitBarrier`); the
-  finalize handler runs `enqueueNudge` synchronously before the racing `wait` resumes, so the count is still positive at
-  enqueue time and the nudge is dropped. A `wait` that **times out** (job still running) decrements the count on return,
-  so a later unattended exit nudges as normal.
-- **Delivery.** A `custom` message (`customType: 'bg-bash-nudge'`, distinct from the non-LLM `bg-bash-state` persistence
-  entry) sent via `pi.sendMessage`. pi's `convertToLlm` serializes it to a synthetic `user` turn, so the model reads it
-  as actionable content but it never pollutes the editor's up-arrow input history. When the agent is idle the nudge
-  starts a fresh turn (`triggerTurn`); when it is mid-turn the nudge is queued after the current turn
-  (`deliverAs: 'followUp'`) without interrupting. Idle is read from `ctx.isIdle()` off the per-turn `currentCtx`.
-- **Coalescing.** A burst of completions inside a `NUDGE_COALESCE_MS` (250 ms) window folds into one message via
-  [`formatBgBashNudge`](../../../lib/node/pi/bg-bash/nudge.ts) so N jobs finishing together cost one turn, not N.
-- **Shutdown.** `session_shutdown` sets a `shuttingDown` flag and drops any pending nudge, so the SIGTERM-induced exits
-  it forces don't fire spurious nudges.
+- **Delivered outcomes suppress redundant wakeups.** Terminal `status`, `wait`, `logs`, and `list` results, captured
+  reminders, and committed completion digests acknowledge only canonical job summaries actually present in their
+  model-facing text. Matching uses the immutable delivered snapshot, so late output changing byte counts does not undo
+  acknowledgement. Hidden registry metadata, running logs, timed-out waits, and user-only live cards never count.
+- **Active waits defer, not discard.** The `WaitBarrier` holds a completion while a wait is active. The delivered
+  terminal wait result acknowledges it; cancellation or a failed delivery leaves it pending rather than silently losing
+  the notification. Wait timeouts and abort listeners are removed when the wait settles.
+- **Busy-run batching.** Pending job identities stay inside the extension rather than entering pi's follow-up queue. At
+  a completed `agent_before_settle` boundary, fresh unacknowledged outcomes form one `bg-bash-nudge` custom-message
+  draft and request one continuation. Other extensions' drafts are preserved. Returning a draft is not delivery: the
+  extension confirms its committed session entry before acknowledging it.
+- **Idle wakeup.** A 250 ms coalescer groups nearby completions, then rechecks pending outcomes, active waits, and
+  `ctx.isIdle()` before using `triggerTurn`. If a user run has started, delivery stays pending for its boundary; no
+  stale follow-up is queued. A custom message reaches the model without polluting editor input history.
+- **Failure and abort handling.** Pending outcomes survive failed delivery. An idle send has a bounded confirmation
+  check and at most one automatic retry; repeated failure produces a local warning rather than a retry loop. Aborted or
+  failed runs suspend automatic wakeups until subsequent genuine user input. Committed digests remain acknowledged even
+  if their continuation is aborted, preventing duplicate notices.
+- **Removal and lifecycle.** Remove/clear discard matching pending identities. Shutdown and tree navigation cancel old
+  timers and delivery attempts before rebuilding state; generation guards prevent late output from an old branch
+  resurrecting jobs or sending stale completions. Shutdown-induced exits never nudge.
 - **Rendering.** A `registerMessageRenderer('bg-bash-nudge', …)` paints a compact `⊙ bg …` card (one line per finished
   job when expanded) instead of echoing the notice text back to the user.
 
@@ -99,9 +105,9 @@ still surface via the active-jobs block).
 
 ## Job completion and output draining
 
-A job is **finalized** (status flips to `exited` / `signaled`, `wait` returns, the completion nudge fires, the summary
-byte counts are frozen into the persisted snapshot) by [`attachJobIo`](../../../lib/node/pi/bg-bash-job-io.ts), never on
-the child's bare `'exit'` event:
+A job is **finalized** (status flips to `exited` / `signaled`, `wait` returns, a completion becomes eligible, the
+summary byte counts are frozen into the persisted snapshot) by [`attachJobIo`](../../../lib/node/pi/bg-bash-job-io.ts),
+never on the child's bare `'exit'` event:
 
 - `'exit'` only records the exit code / signal (and the wall-clock end shown as the duration). Node emits it as soon as
   the shell is reaped, which can be before its pipes are drained, and a backgrounded grandchild (`cmd &`, `npx` ->
@@ -115,6 +121,9 @@ the child's bare `'exit'` event:
 The byte counts in a job line (`exited 0 after 13s, 356B`) and the `logs` header (`N bytes total`) both come from the
 same ring-buffer counters, so at any moment they agree. A `logs` call on a still-running job says
 `(job still running - output so far)` in its header so a partial snapshot is never mistaken for the full output.
+Completed logs also include the canonical exit summary, including when only the on-disk log is available. If an exited
+job still has an inherited output pipe open, the logs explicitly distinguish a finished process from partial output.
+Nonzero exits use `✗` consistently in summaries, notifications, reminders, and live cards.
 
 ## Parallel tool batches
 
@@ -177,7 +186,9 @@ via `markLiveJobsTerminated` so the next runtime sees them as historical rather 
   `formatState` notify so headless calls still print something useful.
 - `/bg-bash logs <id>` - dump in-memory stdout + stderr for a live job.
 - `/bg-bash kill <id> [signal]` - signal a live job (default `SIGTERM`).
-- `/bg-bash clear` - drop terminal jobs from the registry; live jobs untouched.
+- `/bg-bash clear` - drop terminal jobs, their pending notifications, and closed-job buffers. Finalized signaled jobs
+  are terminal; jobs still awaiting exit are untouched. Removed jobs with inherited output pipes keep draining to their
+  disk log until close, without reappearing in the registry. Shutdown closes any remaining locally owned pipes.
 
 ### Overlay keybindings
 
@@ -260,6 +271,8 @@ per-call param > project config > user config > env knob > built-in default
   `detectBashOnlySyntax`, `bashOnlySyntaxWarning`.
 - [`../../../lib/node/pi/bg-bash-prompt.ts`](../../../lib/node/pi/bg-bash-prompt.ts) -
   `formatBackgroundJobs(state, { maxChars, now })` renders the active-jobs block (injected via the `context` hook).
+- [`../../../lib/node/pi/bg-bash/completions.ts`](../../../lib/node/pi/bg-bash/completions.ts) - pending completion
+  identities and acknowledgement from delivered immutable summaries.
 - [`../../../lib/node/pi/bg-bash/nudge.ts`](../../../lib/node/pi/bg-bash/nudge.ts) - `isNudgeWorthy(status)`,
   `formatBgBashNudge(jobs, now)`, and `BG_BASH_NUDGE_CUSTOM_TYPE` for the [completion nudge](#completion-nudge).
 - [`../../../lib/node/pi/bash/gate.ts`](../../../lib/node/pi/bash/gate.ts) - `requestBashApproval`, shared with the

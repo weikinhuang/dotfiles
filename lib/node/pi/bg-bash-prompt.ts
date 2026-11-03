@@ -21,7 +21,7 @@
  */
 
 import { formatJobLine, partitionJobs } from './bg-bash-format.ts';
-import { type BgBashState, type JobSummary } from './bg-bash-reducer.ts';
+import { isJobRunning, type BgBashState, type JobSummary } from './bg-bash-reducer.ts';
 import { isRecord } from './shared/guards.ts';
 
 const DEFAULT_RECENT_CAP = 5;
@@ -52,9 +52,7 @@ export function formatBackgroundJobs(state: BgBashState, opts: FormatOptions = {
 
   const visible = {
     ...state,
-    jobs: state.jobs.filter(
-      (job) => job.status === 'running' || job.status === 'signaled' || !opts.surfacedTerminalIds?.has(job.id),
-    ),
+    jobs: state.jobs.filter((job) => isJobRunning(job) || !opts.surfacedTerminalIds?.has(job.id)),
   };
   const { running, recent } = partitionJobs(visible, { recentCap });
   if (running.length === 0 && recent.length === 0) return null;
@@ -126,11 +124,7 @@ export function formatRegistryText(state: BgBashState, now: number = Date.now())
 /** A terminal line is acknowledged only when its exact rendered line was actually delivered. */
 export function surfacedTerminalJobs(state: BgBashState, text: string): string[] {
   return state.jobs
-    .filter(
-      (job) =>
-        !['running', 'signaled'].includes(job.status) &&
-        text.includes(formatJobLine(job, job.endedAt ?? job.startedAt)),
-    )
+    .filter((job) => !isJobRunning(job) && text.includes(formatJobLine(job, job.endedAt ?? job.startedAt)))
     .map((job) => job.id);
 }
 

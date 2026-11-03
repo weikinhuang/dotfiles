@@ -48,7 +48,7 @@ describe('formatBgBashNudge', () => {
 
   test('single job: one line referencing its id and exit', () => {
     const text = formatBgBashNudge([job({ id: '3', command: 'npm run build', exitCode: 0 })], now);
-    expect(text).toContain('Background job [3]');
+    expect(text).toContain('Background job [3] ✓');
     expect(text).toContain('exited 0');
     expect(text).toContain('bg_bash logs 3');
     expect(text).not.toContain('\n'); // single-job notice is one line
@@ -56,7 +56,8 @@ describe('formatBgBashNudge', () => {
 
   test('single job: surfaces a non-zero exit code', () => {
     const text = formatBgBashNudge([job({ id: '4', command: 'npm test', exitCode: 1 })], now);
-    expect(text).toContain('exited 1');
+    expect(text).toContain('[4] ✗ npm test - exited 1');
+    expect(text).not.toContain('✓');
   });
 
   test('multiple jobs: header count plus one indented line per job', () => {
@@ -65,14 +66,14 @@ describe('formatBgBashNudge', () => {
       now,
     );
     expect(text).toContain('2 background jobs finished:');
-    expect(text).toContain('  [3]');
-    expect(text).toContain('  [5]');
+    expect(text).toContain('  [3] ✓');
+    expect(text).toContain('  [5] ✗');
     expect(text).toContain('bg_bash logs <id>');
   });
 
   test('error job renders its message', () => {
     const text = formatBgBashNudge([job({ id: '7', status: 'error', error: 'ENOENT', exitCode: undefined })], now);
-    expect(text).toContain('error: ENOENT');
+    expect(text).toContain('[7] ✗ echo hi - error: ENOENT');
   });
 });
 

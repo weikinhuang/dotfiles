@@ -65,6 +65,7 @@
  */
 
 import { type ChildProcess, spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { createWriteStream, mkdirSync, type WriteStream } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -86,12 +87,12 @@ import {
 } from '../../../lib/node/pi/bg-bash/config.ts';
 import { bashOnlySyntaxWarning, shellSpawnArgs } from '../../../lib/node/pi/bg-bash/shell.ts';
 import { WaitBarrier } from '../../../lib/node/pi/bg-bash/wait-barrier.ts';
+import { deliveredTerminalJobs, PendingCompletions } from '../../../lib/node/pi/bg-bash/completions.ts';
 import { attachJobIo } from '../../../lib/node/pi/bg-bash-job-io.ts';
 import {
   BG_BASH_NUDGE_CUSTOM_TYPE,
   type BgBashNudgeDetails,
   formatBgBashNudge,
-  isNudgeWorthy,
 } from '../../../lib/node/pi/bg-bash/nudge.ts';
 import { BG_BASH_USAGE } from '../../../lib/node/pi/bg-bash/usage.ts';
 import { completeSubverbs } from '../../../lib/node/pi/commands/complete.ts';
@@ -108,7 +109,6 @@ import {
   BG_SURFACED_TYPE,
   formatBackgroundJobs,
   readSurfacedTerminalIds,
-  surfacedTerminalJobs,
 } from '../../../lib/node/pi/bg-bash-prompt.ts';
 import { extractContentText } from '../../../lib/node/pi/message-text.ts';
 import {
@@ -136,6 +136,7 @@ import {
   type JobStatus,
   type JobSummary,
   markLiveJobsTerminated,
+  isJobRunning,
   pruneUnattachableJobs,
   reduceBranch,
   removeJob,
@@ -258,7 +259,7 @@ const BgBashParams = Type.Object({
   nudge: Type.Optional(
     Type.Boolean({
       description:
-        '`start` only. Auto-message you on exit (wakes you when idle) so fire-and-forget jobs need no polling.',
+        '`start` only. Notify on an unhandled completion (wakes you when idle); already-delivered outcomes do not nudge again.',
     }),
   ),
 });
@@ -420,6 +421,9 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
   // hydrated so the LLM can still inspect the job metadata.
   let state: BgBashState = emptyState();
   const live = new Map<string, LiveJob>();
+  // Removed terminal shells may still own inherited pipes. Keep draining their
+  // disk logs, but never resurrect registry records or completion notifications.
+  const draining = new Map<string, LiveJob>();
   const startCards = new LiveToolCards<JobSummary>();
 
   let logDir: string | undefined;
@@ -439,11 +443,127 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
   let uiRef: ExtensionContext['ui'] | undefined;
   let lastStatusRunning = -1; // sentinel: forces the first paint
   let surfacedTerminalIds = new Set<string>();
-  const acknowledgeTerminals = (text: string): void => {
-    const fresh = surfacedTerminalJobs(state, text).filter((id) => !surfacedTerminalIds.has(id));
-    if (fresh.length === 0) return;
+
+  // Keep completion identities here until a result or a committed digest really
+  // delivers them. Busy runs never enqueue irrevocable follow-up messages.
+  const pendingNudge = new PendingCompletions();
+  const waits = new WaitBarrier();
+  const NUDGE_COALESCE_MS = 250;
+  let currentCtx: ExtensionContext | undefined;
+  let shuttingDown = false;
+  let nudgeSuspended = false;
+  let generation = 0;
+  let idleAttempts = 0;
+  let nudgeTimer: ReturnType<typeof setTimeout> | undefined;
+  let confirmTimer: ReturnType<typeof setTimeout> | undefined;
+  let deliveryAttempt: { id: string; jobs: JobSummary[] } | undefined;
+
+  const cancelNudgeTimer = (): void => {
+    clearTimeout(nudgeTimer);
+    nudgeTimer = undefined;
+  };
+  const clearDeliveryAttempt = (): void => {
+    clearTimeout(confirmTimer);
+    confirmTimer = undefined;
+    deliveryAttempt = undefined;
+  };
+  const acknowledgeTerminals = (text: string, details?: unknown): void => {
+    const ids = deliveredTerminalJobs(text, details, state);
+    pendingNudge.forget(ids);
+    if (pendingNudge.size === 0) cancelNudgeTimer();
+    const fresh = ids.filter((id) => !surfacedTerminalIds.has(id));
     for (const id of fresh) surfacedTerminalIds.add(id);
-    pi.appendEntry(BG_SURFACED_TYPE, fresh);
+    if (deliveryAttempt?.jobs.every((job) => surfacedTerminalIds.has(job.id))) {
+      clearDeliveryAttempt();
+      idleAttempts = 0;
+    }
+    if (fresh.length > 0) pi.appendEntry(BG_SURFACED_TYPE, fresh);
+  };
+  const reconcileDelivery = (ctx: ExtensionContext): void => {
+    if (!deliveryAttempt) return;
+    // Boundary custom messages commit without extension message_end events.
+    const id = deliveryAttempt.id;
+    for (const entry of ctx.sessionManager.getBranch()) {
+      if (entry.type !== 'custom_message' || entry.customType !== BG_BASH_NUDGE_CUSTOM_TYPE) continue;
+      const details = entry.details as BgBashNudgeDetails | undefined;
+      if (details?.deliveryId !== id) continue;
+      acknowledgeTerminals(extractContentText(entry.content), details);
+      clearDeliveryAttempt();
+      idleAttempts = 0;
+      break;
+    }
+  };
+  const readyNudges = (): JobSummary[] => pendingNudge.select(state, surfacedTerminalIds, (id) => waits.count(id) > 0);
+  const makeNudge = (
+    jobs: JobSummary[],
+  ): {
+    customType: string;
+    content: string;
+    display: boolean;
+    details: BgBashNudgeDetails & { deliveryId: string };
+  } => {
+    const deliveryId = randomUUID();
+    return {
+      customType: BG_BASH_NUDGE_CUSTOM_TYPE,
+      content: formatBgBashNudge(jobs, Date.now()),
+      display: true,
+      details: { jobs, deliveryId },
+    };
+  };
+  const warnDelivery = (): void => {
+    try {
+      uiRef?.notify(
+        'Background completion delivery failed; unhandled jobs remain pending for the next run.',
+        'warning',
+      );
+    } catch {
+      // A detached UI must not break job finalization.
+    }
+  };
+  function flushNudge(): void {
+    nudgeTimer = undefined;
+    const ctx = currentCtx;
+    if (!ctx || shuttingDown || nudgeSuspended || !nudgeEnabled) return;
+    reconcileDelivery(ctx);
+    if (deliveryAttempt || !ctx.isIdle()) return;
+    const jobs = readyNudges();
+    if (jobs.length === 0) return;
+    const message = makeNudge(jobs);
+    const id = message.details.deliveryId;
+    deliveryAttempt = { id, jobs };
+    idleAttempts++;
+    try {
+      pi.sendMessage(message, { triggerTurn: true });
+    } catch {
+      clearDeliveryAttempt();
+      warnDelivery();
+      if (idleAttempts < 2) nudgeTimer = setTimeout(flushNudge, NUDGE_COALESCE_MS);
+      return;
+    }
+    // sendMessage is void, not a persistence receipt. Recover preparation errors
+    // that return to idle without emitting settlement, with at most one retry.
+    if (deliveryAttempt?.id === id) {
+      confirmTimer = setTimeout(() => {
+        confirmTimer = undefined;
+        if (shuttingDown || !currentCtx) return;
+        reconcileDelivery(currentCtx);
+        if (deliveryAttempt?.id !== id || !currentCtx.isIdle()) return;
+        clearDeliveryAttempt();
+        warnDelivery();
+        if (!nudgeSuspended && idleAttempts < 2) nudgeTimer = setTimeout(flushNudge, NUDGE_COALESCE_MS);
+      }, 1000);
+      confirmTimer.unref?.();
+    }
+  }
+  const scheduleNudge = (): void => {
+    if (shuttingDown || nudgeSuspended || deliveryAttempt || pendingNudge.size === 0 || idleAttempts >= 2) return;
+    nudgeTimer ??= setTimeout(flushNudge, NUDGE_COALESCE_MS);
+    nudgeTimer.unref?.();
+  };
+  const enqueueNudge = (summary: JobSummary): void => {
+    if (!nudgeEnabled || shuttingDown || surfacedTerminalIds.has(summary.id)) return;
+    pendingNudge.add(summary);
+    scheduleNudge();
   };
   const unsubscribeSnapshots = pi.events.on('cache-reminders:captured', (data) => {
     const snapshot = data as { specs?: { id: string; body: string }[] };
@@ -455,64 +575,42 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
       (message.role === 'toolResult' && message.toolName === 'bg_bash') ||
       (message.role === 'custom' && message.customType === BG_BASH_NUDGE_CUSTOM_TYPE)
     ) {
-      acknowledgeTerminals(extractContentText(message.content));
+      acknowledgeTerminals(extractContentText(message.content), message.details);
     }
   });
-
-  // ── Completion nudge ───────────────────────────────────────────────
-  //
-  // When a job started with `nudge: true` finishes on its own we send an
-  // unsolicited `custom` message so the agent reacts to the completion
-  // even if it has gone idle at the prompt (Claude Code's background bash
-  // does the same - it re-invokes the agent on exit). `currentCtx` is
-  // captured every turn so the nudge can ask `ctx.isIdle()`: idle ->
-  // `triggerTurn` (start a fresh turn), busy -> `followUp` (queue after the
-  // current turn, no interruption). `shuttingDown` suppresses nudges from
-  // shutdown-induced exits. Bursts of completions are coalesced into one
-  // message via a short timer so N jobs finishing together cost one turn.
-  let currentCtx: ExtensionContext | undefined;
-  let shuttingDown = false;
-  const NUDGE_COALESCE_MS = 250;
-  const pendingNudge: JobSummary[] = [];
-  let nudgeTimer: ReturnType<typeof setTimeout> | undefined;
-
-  // In-flight `wait` actions per job id (multiple `wait` calls can await
-  // the same job). Two uses: (1) a job that exits while a `wait` is active
-  // has its completion delivered inline by that wait's return value, so
-  // the unsolicited nudge would be redundant - skip it; (2) a sibling
-  // `logs` / `status` in the same parallel tool batch awaits the wait so
-  // it reports the post-wait state instead of a stale mid-run snapshot.
-  const waits = new WaitBarrier();
-
-  const isIdle = (): boolean => currentCtx?.isIdle() ?? true;
-
-  const flushNudge = (): void => {
-    nudgeTimer = undefined;
-    const jobs = pendingNudge.splice(0);
-    if (jobs.length === 0) return;
-    const content = formatBgBashNudge(jobs, Date.now());
-    const details: BgBashNudgeDetails = { jobs };
-    try {
-      pi.sendMessage(
-        { customType: BG_BASH_NUDGE_CUSTOM_TYPE, content, display: true, details },
-        isIdle() ? { triggerTurn: true } : { deliverAs: 'followUp' },
-      );
-    } catch {
-      // Never let a delivery failure break the exit handler.
+  pi.on('input', (event, ctx) => {
+    if (event.source === 'extension') return;
+    currentCtx = ctx;
+    nudgeSuspended = false;
+    idleAttempts = 0;
+    cancelNudgeTimer();
+  });
+  pi.on('agent_start', (_event, ctx) => reconcileDelivery(ctx));
+  pi.on('agent_before_settle', (event, ctx) => {
+    reconcileDelivery(ctx);
+    if (event.outcome !== 'completed') {
+      nudgeSuspended = true;
+      cancelNudgeTimer();
+      return;
     }
-  };
+    if (shuttingDown || nudgeSuspended || deliveryAttempt || !nudgeEnabled) return;
+    const jobs = readyNudges();
+    if (jobs.length === 0) return;
+    cancelNudgeTimer();
+    const message = makeNudge(jobs);
+    deliveryAttempt = { id: message.details.deliveryId, jobs };
+    return { entries: [...event.entries, { type: 'custom_message' as const, ...message }], continue: true };
+  });
+  pi.on('agent_settled', (event, ctx) => {
+    currentCtx = ctx;
+    reconcileDelivery(ctx);
+    clearDeliveryAttempt();
+    if (event.aborted) nudgeSuspended = true;
+    if (nudgeSuspended) cancelNudgeTimer();
+    else scheduleNudge();
+  });
 
-  const enqueueNudge = (summary: JobSummary): void => {
-    if (!nudgeEnabled || shuttingDown) return;
-    if (summary.nudge !== true || !isNudgeWorthy(summary.status)) return;
-    // The agent is actively `wait`ing on this job; its return delivers the
-    // exit inline, so a separate nudge would just duplicate it.
-    if (waits.count(summary.id) > 0) return;
-    pendingNudge.push(cloneSummary(summary));
-    nudgeTimer ??= setTimeout(flushNudge, NUDGE_COALESCE_MS);
-  };
-
-  const liveCount = (): number => state.jobs.filter((j) => j.status === 'running' || j.status === 'signaled').length;
+  const liveCount = (): number => state.jobs.filter(isJobRunning).length;
 
   const updateStatusline = (): void => {
     if (!uiRef) return;
@@ -591,6 +689,13 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
   };
 
   const rebuildFromSession = (ctx: ExtensionContext): void => {
+    generation++;
+    cancelNudgeTimer();
+    clearDeliveryAttempt();
+    pendingNudge.clear();
+    nudgeSuspended = false;
+    shuttingDown = false;
+    idleAttempts = 0;
     // Re-resolve config now that the real session cwd is known, so a
     // project-local <cwd>/.pi/bg-bash.json takes effect (the
     // registration-time load used process.cwd()).
@@ -598,12 +703,9 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
     const branch = ctx.sessionManager.getBranch() as unknown as readonly BranchEntry[];
     surfacedTerminalIds = readSurfacedTerminalIds(branch);
     const replayed = reduceBranch(branch);
-    // Drop jobs we can't interact with: anything still `running` /
-    // `signaled` in a replayed snapshot is a ghost (its child died with
-    // the previous runtime), and `terminated` entries are informational
-    // noise. `pruneUnattachableJobs` keeps only `exited` / `error` so
-    // recent history stays visible but the LLM can't try to `wait` on a
-    // corpse.
+    // Drop ghosts still running/awaiting a signal exit in replayed snapshots.
+    // Finalized exit/error/signal outcomes remain inspectable as history;
+    // local ChildProcess handles are never reconstructed from persisted state.
     const pruned = pruneUnattachableJobs(replayed);
     state = pruned;
     // If we dropped anything, persist immediately so the next snapshot
@@ -643,6 +745,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
   }): JobSummary => {
     const id = allocateJobId(state);
     const startedAt = Date.now();
+    const jobGeneration = generation;
     const dir = ensureLogDir();
     const logFile = join(dir, `${id}.log`);
     let finished = false;
@@ -775,18 +878,20 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
     attachJobIo(child, {
       stdout,
       stderr,
-      log: (text) => logStream?.write(text),
+      log: (text) => {
+        if (!logStream?.writableEnded) logStream?.write(text);
+      },
       drainMs: config.drainMs,
       onData: () => {
         const cur = live.get(id);
-        if (!cur) return;
+        if (cur !== job) return;
         cur.summary = refreshBytes(cur);
-        state = upsertJob(state, cur.summary);
+        if (jobGeneration === generation) state = upsertJob(state, cur.summary);
       },
       onFinal: (final) => {
         finish();
         const cur = live.get(id);
-        if (cur) {
+        if (cur === job) {
           if (final.kind === 'error') {
             cur.summary = { ...refreshBytes(cur), status: 'error', error: final.error, endedAt: Date.now() };
           } else {
@@ -800,9 +905,10 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
               outputOpen: final.outputOpen ? true : undefined,
             };
           }
-          state = upsertJob(state, cur.summary);
+          if (jobGeneration === generation) state = upsertJob(state, cur.summary);
         }
         setExited();
+        if (cur !== job || jobGeneration !== generation || shuttingDown) return;
         persist();
         updateStatusline();
         startCards.refresh();
@@ -814,9 +920,14 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
         } catch {
           /* ignore */
         }
+        if (draining.get(id) === job) draining.delete(id);
         const cur = live.get(id);
-        if (!cur) return;
+        if (cur !== job) return;
         cur.child = undefined;
+        if (jobGeneration !== generation) {
+          live.delete(id);
+          return;
+        }
         if (cur.summary.outputOpen) {
           // The drain deadline finalized the job earlier; record the final
           // byte counts now that the background writer let go of the pipe.
@@ -937,9 +1048,10 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
         action: 'logs',
         job: cloneSummary(summary),
       };
-      const text = summary.logFile
+      const note = summary.logFile
         ? `(no in-memory buffer; read the log file directly: ${summary.logFile})`
         : '(no logs available - job predates this runtime)';
+      const text = isJobRunning(summary) ? note : `${formatJobLine(summary, Date.now())}\n${note}`;
       return { content: [{ type: 'text', text }], details };
     }
 
@@ -1003,6 +1115,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
             content,
             logFile: summary.logFile,
             jobStatus: summary.status,
+            job: summary,
           }),
         },
       ],
@@ -1019,7 +1132,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
     const summary = findJob(state, id);
     if (!summary) return errorReturn('wait', `job [${id}] not found`);
     const job = live.get(id);
-    if (!job || summary.status !== 'running') {
+    if (!job || !isJobRunning(summary)) {
       // Already terminal.
       const details: BgBashDetails = { ...cloneState(state), action: 'wait', job: cloneSummary(summary) };
       return { content: [{ type: 'text', text: formatJobLine(summary, Date.now()) }], details };
@@ -1027,34 +1140,33 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
 
     const timeoutMs = Math.max(0, params.timeoutMs ?? config.timeoutMs);
     let timedOut = false;
-    // Mark this job as actively waited so its completion nudge is suppressed
-    // (this wait's return delivers the exit inline) and so sibling `logs` /
+    // Hold its completion nudge until the terminal result is actually delivered,
+    // rather than forgetting it merely because a wait exists. Sibling `logs` /
     // `status` calls in the same parallel batch wait for this one. The
     // finalize handler runs `enqueueNudge` synchronously before this `await`
     // resumes, and siblings check the barrier at execute entry, so the
     // registration must happen synchronously, before we race on `job.exited`.
     const releaseWait = waits.enter(id);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let onAbort: (() => void) | undefined;
     try {
       await Promise.race([
         job.exited,
         new Promise<void>((resolve) => {
-          const timer = setTimeout(() => {
+          onAbort = () => {
             timedOut = true;
             resolve();
-          }, timeoutMs);
-          abort?.addEventListener(
-            'abort',
-            () => {
-              clearTimeout(timer);
-              timedOut = true;
-              resolve();
-            },
-            { once: true },
-          );
+          };
+          timer = setTimeout(onAbort, timeoutMs);
+          if (abort?.aborted) onAbort();
+          else abort?.addEventListener('abort', onAbort, { once: true });
         }),
       ]);
     } finally {
+      clearTimeout(timer);
+      if (onAbort) abort?.removeEventListener('abort', onAbort);
       releaseWait();
+      scheduleNudge();
     }
 
     const fresh = findJob(state, id) ?? summary;
@@ -1136,6 +1248,17 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
     };
   };
 
+  const releaseJob = (id: string): void => {
+    pendingNudge.forget([id]);
+    surfacedTerminalIds.delete(id);
+    if (pendingNudge.size === 0) cancelNudgeTimer();
+    const job = live.get(id);
+    if (!job) return;
+    live.delete(id);
+    if (job.summary.outputOpen || job.child) draining.set(id, job);
+    else if (!job.logStream?.writableEnded) job.logStream?.end();
+  };
+
   const actRemove = (params: { id?: string }): ToolReturn => {
     const id = params.id;
     if (!id) return errorReturn('remove', 'remove requires `id`');
@@ -1143,7 +1266,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
     if (!result.ok) return errorReturn('remove', result.error);
     startCards.refresh();
     state = result.state;
-    live.delete(id);
+    releaseJob(id);
     startCards.refresh();
     persist();
     updateStatusline();
@@ -1169,47 +1292,65 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
     startCards.reset(false);
     unsubscribeSnapshots();
     surfacedTerminalIds.clear();
-    // Suppress completion nudges: the exits we're about to force are
-    // shutdown-induced, not the job finishing on its own.
+    // Invalidate callbacks before aborting children or releasing UI resources.
     shuttingDown = true;
-    if (nudgeTimer) {
-      clearTimeout(nudgeTimer);
-      nudgeTimer = undefined;
+    generation++;
+    cancelNudgeTimer();
+    clearDeliveryAttempt();
+    pendingNudge.clear();
+    currentCtx = undefined;
+    try {
+      uiRef?.setStatus('bg-bash', undefined);
+    } catch {
+      // Shutdown may already have detached the UI.
     }
-    pendingNudge.length = 0;
+    uiRef = undefined;
+    lastStatusRunning = -1;
     // Best-effort reap of every live job. We can't await forever - pi
     // is already on its way out. SIGTERM everything, wait up to
     // `killGraceMs`, then SIGKILL the stragglers.
-    const livingIds = [...live.keys()];
+    const owned = new Map([...live, ...draining]);
+    const livingIds = [...owned.keys()];
     if (livingIds.length === 0) return;
 
     const now = Date.now();
     for (const id of livingIds) {
-      const job = live.get(id);
+      const job = owned.get(id);
       if (!job?.child || job.child.exitCode !== null) continue;
       sendSignalTo(job, 'SIGTERM');
     }
-    await Promise.race([
-      Promise.all(livingIds.map((id) => live.get(id)?.exited ?? Promise.resolve())),
-      new Promise((r) => setTimeout(r, config.killGraceMs)),
-    ]);
+    let grace: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        Promise.all(livingIds.map((id) => owned.get(id)?.exited ?? Promise.resolve())),
+        new Promise((resolve) => {
+          grace = setTimeout(resolve, config.killGraceMs);
+        }),
+      ]);
+    } finally {
+      clearTimeout(grace);
+    }
     for (const id of livingIds) {
-      const job = live.get(id);
+      const job = owned.get(id);
       if (!job?.child || job.child.exitCode !== null) continue;
       sendSignalTo(job, 'SIGKILL');
     }
     state = markLiveJobsTerminated(state, now);
     // A job finalized by the drain deadline can still have its log open
     // (a background grandchild holds the pipe); close what is left.
-    for (const job of live.values()) {
+    for (const job of owned.values()) {
       try {
+        job.child?.stdin?.destroy();
+        job.child?.stdout?.destroy();
+        job.child?.stderr?.destroy();
         if (job.logStream && !job.logStream.writableEnded) job.logStream.end();
       } catch {
         /* ignore */
       }
     }
+    live.clear();
+    draining.clear();
     persist();
-    updateStatusline();
   });
 
   // Refresh the captured UI reference + statusline at every turn start.
@@ -1279,7 +1420,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
       'stdin (write to a running job - only works when the job was started with interactiveStdin=true), ' +
       'remove (drop a terminal job from the registry). ' +
       'Stdin defaults to /dev/null; pass interactiveStdin=true on start to feed input via action stdin. ' +
-      'Pass nudge=true on start to be auto-messaged on exit (wakes you when idle). ' +
+      'Pass nudge=true for unhandled completion notifications (wakes you when idle; busy runs receive one digest). ' +
       'Commands run under /bin/sh by default; pass shell="bash" for bash-only syntax (PIPESTATUS, [[ ]], arrays). ' +
       'A logs/status call in the same batch as a wait on that job runs after the wait returns; ' +
       'other tools in that batch (e.g. read of a file the job writes) run concurrently with the wait, so issue them in a later turn. ' +
@@ -1456,12 +1597,11 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
    */
   const clearTerminalJobs = (): number => {
     startCards.refresh();
-    const before = state.jobs.length;
-    state = {
-      ...state,
-      jobs: state.jobs.filter((j) => j.status === 'running' || j.status === 'signaled'),
-    };
-    const removed = before - state.jobs.length;
+    const terminal = state.jobs.filter((job) => !isJobRunning(job));
+    state = { ...state, jobs: state.jobs.filter(isJobRunning) };
+    for (const job of terminal) releaseJob(job.id);
+    startCards.refresh();
+    const removed = terminal.length;
     if (removed > 0) {
       persist();
       updateStatusline();

@@ -7,8 +7,8 @@
  * the same proactive-wake behaviour Claude Code's background bash has
  * (it re-invokes the agent when a background command exits). This module
  * owns the pure parts: which terminal states warrant a nudge and how the
- * notice text reads. The extension keeps the pi-API plumbing (idle
- * gating, delivery, coalescing).
+ * notice text reads. The extension keeps idle wakeups and busy boundary
+ * delivery; completions.ts owns pending identities and acknowledgement.
  *
  * No pi imports - unit-tested under vitest.
  */
@@ -26,6 +26,8 @@ export const BG_BASH_NUDGE_CUSTOM_TYPE = 'bg-bash-nudge';
 /** Structured payload carried on the nudge message for the renderer. */
 export interface BgBashNudgeDetails {
   jobs: JobSummary[];
+  /** Runtime delivery receipt, confirmed only after the message is committed. */
+  deliveryId?: string;
 }
 
 /**

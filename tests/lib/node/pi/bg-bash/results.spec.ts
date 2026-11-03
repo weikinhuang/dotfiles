@@ -99,6 +99,88 @@ test('formatLogsText: omits the note when there is no logFile', () => {
   ).toBe('--- [3] merged: 4 bytes total, 0 dropped from memory ---\nbody');
 });
 
+test.each([
+  { summary: job({ status: 'exited', exitCode: 0, endedAt: 6000 }), line: '[3] ✓ echo hi - exited 0 after 5s, 0B' },
+  { summary: job({ status: 'exited', exitCode: 2, endedAt: 6000 }), line: '[3] ✗ echo hi - exited 2 after 5s, 0B' },
+  { summary: job({ status: 'error', error: 'ENOENT', endedAt: 1000 }), line: '[3] ✗ echo hi - error: ENOENT' },
+  {
+    summary: job({ status: 'signaled', signal: 'SIGTERM', endedAt: 6000 }),
+    line: '[3] ✗ echo hi - SIGTERM after 5s, 0B',
+  },
+  {
+    summary: job({ status: 'terminated', endedAt: 6000 }),
+    line: '[3] ◌ echo hi - terminated (pi session ended), ran 5s, 0B',
+  },
+  { summary: job({ status: 'exited', exitCode: 0 }), line: '[3] ✓ echo hi - exited 0 after 0s, 0B' },
+])('formatLogsText: stable completed summary $line', ({ summary, line }) => {
+  expect(
+    formatLogsText({
+      id: '3',
+      stream: 'merged',
+      totalBytes: 4,
+      droppedBytes: 0,
+      droppedBefore: false,
+      content: 'body',
+      logFile: '/tmp/3.log',
+      jobStatus: summary.status,
+      job: summary,
+    }),
+  ).toBe(`--- [3] merged: 4 bytes total, 0 dropped from memory ---\n${line}\nbody\n--- full log: /tmp/3.log ---`);
+});
+
+test.each([job(), job({ status: 'signaled', signal: 'SIGTERM' })])(
+  'formatLogsText: $status without an outcome stays partial',
+  (summary) => {
+    expect(
+      formatLogsText({
+        id: '3',
+        stream: 'merged',
+        totalBytes: 4,
+        droppedBytes: 0,
+        droppedBefore: false,
+        content: 'body',
+        jobStatus: 'exited',
+        job: summary,
+      }),
+    ).toBe('--- [3] merged: 4 bytes total, 0 dropped from memory (job still running - output so far) ---\nbody');
+  },
+);
+
+test('formatLogsHeader: status-only signaled jobs are conservatively partial', () => {
+  expect(
+    formatLogsHeader({
+      id: '3',
+      stream: 'merged',
+      totalBytes: 4,
+      droppedBytes: 0,
+      droppedBefore: false,
+      jobStatus: 'signaled',
+    }),
+  ).toBe('--- [3] merged: 4 bytes total, 0 dropped from memory (job still running - output so far) ---');
+});
+
+test.each([
+  job({ status: 'exited', exitCode: 0, endedAt: 6000, outputOpen: true }),
+  job({ status: 'exited', exitCode: 1, endedAt: 6000, outputOpen: true }),
+  job({ status: 'signaled', signal: 'SIGTERM', endedAt: 6000, outputOpen: true }),
+])('formatLogsText: $status with an open output pipe has an outcome but partial output', (summary) => {
+  const text = formatLogsText({
+    id: '3',
+    stream: 'merged',
+    totalBytes: 4,
+    droppedBytes: 0,
+    droppedBefore: false,
+    content: 'body',
+    jobStatus: summary.status,
+    job: summary,
+  });
+
+  expect(text).toContain('(job finished - output still partial; output pipe open) ---\n[3]');
+  expect(text).toContain('after 5s, 0B (output pipe still held open by a background process)\nbody');
+  expect(text).not.toContain('still running');
+  expect(text).toContain(summary.exitCode === 0 ? '[3] ✓' : '[3] ✗');
+});
+
 test('formatWaitResult: timed-out and exited variants', () => {
   const running = job({ id: '7', status: 'running', startedAt: 0 });
   expect(formatWaitResult(running, { timedOut: true, timeoutMs: 500 }, 1000)).toContain('Still running after 500ms: ');
