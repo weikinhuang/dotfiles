@@ -35,7 +35,7 @@
  * Composition:
  *
  *   - We do NOT auto-retry - surfacing the mistake keeps
- *     `verify-before-claim` / `loop-breaker` / `stall-recovery`
+ *     `loop-breaker` / `stall-recovery`
  *     honest, and lets the model actually see what it got wrong.
  *   - Runs BEFORE `tool-output-condenser` (alphabetical extension
  *     load order) so the condenser sees the augmented content and

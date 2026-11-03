@@ -23,7 +23,7 @@
  * Design notes:
  *
  *   - We DO NOT block the tool call. Blocking interacts badly with
- *     `verify-before-claim` / `todo` guardrails and removes the "one
+ *     `todo` guardrails and removes the "one
  *     more try with different inputs" escape hatch. Steering is
  *     strictly additive.
  *   - The history survives across turns within a session - a slow

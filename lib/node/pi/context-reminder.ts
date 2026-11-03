@@ -57,7 +57,7 @@
  * Purity
  * ──────
  * No pi imports. Operates on a duck-typed `ReminderMessage` structural
- * subset (same pattern as `verify-detect.ts`'s `BranchEntry`) so it stays
+ * subset (same pattern as `branch-marker.ts`'s `BranchEntry`) so it stays
  * under the root tsconfig + vitest. The caller casts pi's `AgentMessage`
  * to/from `ReminderMessage`.
  */

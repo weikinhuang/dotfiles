@@ -1,9 +1,9 @@
 /**
  * Shared "deferred follow-up nudge" delivery for the `agent_end`
  * extensions that inject a synthetic follow-up after a turn ends
- * (`stall-recovery`, `verify-before-claim`, `stream-watchdog`).
+ * (`stall-recovery`, `stream-watchdog`).
  *
- * All three hit the same pi lifecycle quirk: pi 0.75.4 moved `agent_end`
+ * Both hit the same pi lifecycle quirk: pi 0.75.4 moved `agent_end`
  * into the awaited agent lifecycle, so the handler runs while the
  * runtime still sees `isStreaming === true`. Sending synchronously there
  * routes the message through the follow-up queue, which the exiting

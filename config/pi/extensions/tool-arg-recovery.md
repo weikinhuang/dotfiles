@@ -22,8 +22,7 @@ This extension intercepts `tool_result` on validation failures, cross-references
 
 Pi’s original error stays intact at index 0; the recovery block is appended as a second text part, matching
 [`extensions/edit-recovery.ts`](./edit-recovery.ts)’s composition pattern. No auto-retry - surfacing the mistake keeps
-[`verify-before-claim`](./verify-before-claim.md), [`loop-breaker`](./loop-breaker.ts), and
-[`stall-recovery`](./stall-recovery.md) honest.
+[`loop-breaker`](./loop-breaker.ts) and [`stall-recovery`](./stall-recovery.md) honest.
 
 Nested calls made through `ctx.executeTool()` are left unchanged. Pi v1's codemode layer already validates those calls
 and returns recovery guidance to the script, so adding a second model-oriented block would only alter programmatic error

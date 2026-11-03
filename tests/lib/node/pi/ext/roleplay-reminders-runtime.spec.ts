@@ -630,7 +630,7 @@ test('an initially empty lore selection cannot be activated by a tool keyword, b
   expect(text(activated.at(-1)!)).toContain('KEYWORD_SPIRE');
 });
 
-test.each(['bg-bash-completion', 'verify-before-claim-steer'])(
+test.each(['bg-bash-completion', 'todo-guardrail-nudge'])(
   '%s does not create roleplay specs, consume queued events, or advance delayed lore timing',
   async (customType) => {
     const h = await harness({ note: true });

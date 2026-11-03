@@ -31,7 +31,7 @@
  * Composition notes:
  *
  *   - We do NOT auto-retry. Auto-retry hides the fault from
- *     `verify-before-claim` / `stall-recovery` / `todo` guardrails
+ *     `stall-recovery` / `todo` guardrails
  *     and masks "the model didn't understand what it was doing"
  *     failures. Surfacing the actual file content lets the model
  *     succeed on the retry without losing the honest turn shape.

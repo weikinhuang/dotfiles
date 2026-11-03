@@ -29,7 +29,7 @@ test('formatters frame author note + lore', () => {
 test('only user and scheduled-prompt starts advance narrative state', () => {
   expect(isNarrativeRoleplayStart({ messageType: 'user' })).toBe(true);
   expect(isNarrativeRoleplayStart({ messageType: 'custom', message: { customType: 'scheduled-prompt' } })).toBe(true);
-  for (const customType of ['bg-bash-completion', 'verify-before-claim-steer', 'stall-recovery-steer']) {
+  for (const customType of ['bg-bash-completion', 'todo-guardrail-nudge', 'stall-recovery-steer']) {
     expect(isNarrativeRoleplayStart({ messageType: 'custom', message: { customType } })).toBe(false);
   }
 });

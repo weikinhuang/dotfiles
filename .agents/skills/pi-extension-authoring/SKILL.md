@@ -75,7 +75,7 @@ If the extension uses a local tiny model (e.g. a small quantized local model) fo
 
 ## Deep-doc (`.md`) shape
 
-The `.md` file is the reference, not a tutorial. Mirror the shape of existing docs like `verify-before-claim.md`:
+The `.md` file is the reference, not a tutorial. Mirror the shape of existing docs like `bash-exit-watchdog.md`:
 
 1. **One-sentence purpose** - what failure mode the extension addresses.
 2. **Composition table** (when multiple extensions listen on the same hook) - how this extension distinguishes its

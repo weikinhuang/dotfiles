@@ -75,9 +75,9 @@ import {
 } from '../../../lib/node/pi/context-reminder.ts';
 import { formatActivePlan, looksLikeCompletionClaim } from '../../../lib/node/pi/todo-prompt.ts';
 import {
-  type BranchEntry as VerifyBranchEntry,
+  type BranchEntry as NudgeBranchEntry,
   lastUserMessageHasMarker as branchLastUserMessageHasMarker,
-} from '../../../lib/node/pi/verify-detect.ts';
+} from '../../../lib/node/pi/branch-marker.ts';
 import { formatText, formatTodoProgress, groupTodos, transitionGlyphs } from '../../../lib/node/pi/todo-format.ts';
 import {
   actAdd,
@@ -171,7 +171,7 @@ function actionToStatus(action: string): Todo['status'] {
 }
 
 function lastUserMessageHasMarker(ctx: ExtensionContext, marker: string, customType?: string): boolean {
-  const branch = ctx.sessionManager.getBranch() as unknown as readonly VerifyBranchEntry[];
+  const branch = ctx.sessionManager.getBranch() as unknown as readonly NudgeBranchEntry[];
   return branchLastUserMessageHasMarker(branch, marker, customType);
 }
 

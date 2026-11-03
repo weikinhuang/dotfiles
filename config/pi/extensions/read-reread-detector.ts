@@ -30,8 +30,8 @@
  *   - Composes with `tool-output-condenser`: we append our nudge as an
  *     extra text part; the condenser operates on the first text part
  *     only.
- *   - Does NOT mutate `event.isError`, so `verify-before-claim` +
- *     `stall-recovery` stay oblivious.
+ *   - Does NOT mutate `event.isError`, so `stall-recovery` stays
+ *     oblivious.
  *
  * Environment:
  *   PI_READ_REREAD_DISABLED=1     skip the extension entirely

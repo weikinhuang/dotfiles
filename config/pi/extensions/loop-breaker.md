@@ -20,8 +20,7 @@ asking the user.
 5. The statusline footer shows `⟳ loop-breaker: steered (N repeats)` until the next reset.
 
 Detection is strictly additive - the tool call itself is **not** blocked. Blocking interacts badly with
-[`verify-before-claim.ts`](./verify-before-claim.md) / [`todo.ts`](./todo.md) guardrails and removes the "one more try
-with different inputs" escape hatch.
+[`todo.ts`](./todo.md) guardrails and removes the "one more try with different inputs" escape hatch.
 
 Calls made by another tool through `ctx.executeTool()` carry `parentToolCallId` and are ignored. A codemode script may
 legitimately call the same tool repeatedly or in parallel; those calls must not look like a model reasoning loop.

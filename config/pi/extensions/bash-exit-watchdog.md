@@ -25,10 +25,6 @@ The rewrite shape is `{ content: [{ type: 'text', text: '<warning>\n<original>' 
 chains cleanly with [`tool-output-condenser.ts`](./tool-output-condenser.md) - condensation applies to the body, the
 short header rides through intact.
 
-Complements [`verify-before-claim.ts`](./verify-before-claim.md): that extension catches "tests pass" claims without
-backing evidence; this one catches the upstream case where the model never noticed the command failed in the first
-place.
-
 ## Config
 
 User rules live at `~/.pi/agent/exit-watchdog.json` or project `.pi/exit-watchdog.json`, merged on top of the built-in

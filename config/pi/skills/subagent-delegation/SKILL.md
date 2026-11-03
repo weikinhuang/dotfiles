@@ -120,8 +120,8 @@ When to use it:
 When NOT to use it:
 
 - Planning, design, or anything with "should we …?" in the prompt. Weak models will confidently pick wrong.
-- Tasks that need tool-call accuracy (multi-step edits). The `tool-arg-recovery` / `verify-before-claim` extensions
-  help, but strong models still win on complex tool use.
+- Tasks that need tool-call accuracy (multi-step edits). The `tool-arg-recovery` / `edit-recovery` extensions help, but
+  strong models still win on complex tool use.
 - When the child's answer will be fed straight back into a critical decision. Round-trip through the parent first.
 
 Pair `modelOverride` with `returnFormat: "json"` and a strict schema in `task` when you need machine-readable output

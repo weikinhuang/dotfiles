@@ -32,10 +32,6 @@
  *     chains cleanly with `tool-output-condenser` (condensation still
  *     applies to the body; our warning is a short header and rides
  *     through untouched).
- *   - Complements `verify-before-claim`. That extension catches "tests
- *     pass" claims without backing evidence; this one catches the
- *     upstream case where the model never noticed the command failed
- *     in the first place.
  *
  * Environment:
  *   PI_EXIT_WATCHDOG_DISABLED=1   skip the extension entirely

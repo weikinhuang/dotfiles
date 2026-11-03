@@ -1,8 +1,8 @@
 /**
  * Config loader for the `secret-redactor` extension. Reads the global +
  * project `secret-redactor.json` (JSONC), stacks them (project last), and
- * compiles a `RedactorConfig`. Mirrors `verify-detect-config.ts`: missing
- * files are silent; malformed JSON / bad regex / wrong-typed fields push
+ * compiles a `RedactorConfig`. Missing files are silent; malformed
+ * JSON / bad regex / wrong-typed fields push
  * a structured `ConfigWarning` the extension surfaces once.
  */
 

@@ -21,8 +21,7 @@ Nested edits made through `ctx.executeTool()` are left unchanged. Pi v1's codemo
 tool failures to the calling script, while this extension's recovery block is written for a model issuing `edit`
 directly.
 
-Auto-retry is deliberately **not** attempted - that hides the fault from
-[`verify-before-claim.ts`](./verify-before-claim.md) / [`stall-recovery.ts`](./stall-recovery.md) /
+Auto-retry is deliberately **not** attempted - that hides the fault from [`stall-recovery.ts`](./stall-recovery.md) /
 [`todo.ts`](./todo.md) guardrails and masks "model didn't understand what it was doing" failures. Surfacing the actual
 file content lets the model succeed on the retry without losing the honest turn shape.
 
