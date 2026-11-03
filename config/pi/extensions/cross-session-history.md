@@ -4,7 +4,8 @@ Brings Claude Code-style cross-session prompt history to pi's input editor:
 
 - **Arrow-up** scrolls back through prompts you submitted in **prior** sessions of the same project, not just the
   current session.
-- **Ctrl+R** opens a fzf-style reverse-search overlay against the same project history; type to filter, enter to insert.
+- **Ctrl+R** opens full-text project-history search with matching snippets, multiline previews, session-opener
+  indicators, and an optional continuation-only filter; enter inserts without sending.
 
 ## What it does
 
@@ -33,23 +34,50 @@ not recorded.
 
 ### Ctrl+R reverse search
 
-When the editor has focus, `Ctrl+R` opens a centered overlay populated with a deduplicated, most-recent-first list of
-project prompts (default cap 5000; one entry per unique prompt -- the most recent occurrence wins). The pool includes
-active-session prompts present at `session_start`, even when they have no persisted session file yet. It is refreshed on
-startup, session switches, and `/reload`, not on every submission. Inside the overlay:
+Every `Ctrl+R` opening refreshes the project bucket and reads the active session's current in-memory entries. Newly
+submitted prompts are available immediately, including prompts without a persisted file. The pool is deduplicated and
+most-recent-first (default cap 5000 before deduplication). The newest occurrence supplies metadata; an opener flag is
+preserved if any loaded occurrence of that text opened a session.
 
-- Type to fuzzy-match. The matcher in [`lib/node/pi/fuzzy-match.ts`](../../../lib/node/pi/fuzzy-match.ts) is a
-  subsequence ranker (fzf-style), case-insensitive with a small bonus for case-exact matches, with bonuses for
-  consecutive runs and word-start positions. Matched characters are highlighted in the accent color.
-- `↑` / `↓` (or `Ctrl+P` / `Ctrl+N`) move the selection. `PageUp` / `PageDown` jump by a page (the visible-row count).
-- `Ctrl+R` cycles to the next match -- bash-style "press again to find next older."
-- `enter` accepts the highlighted prompt and replaces the editor's current text with it.
-- `escape` or `Ctrl+C` cancels.
+The search model lives in [`cross-session-history-search.ts`](../../../lib/node/pi/cross-session-history-search.ts). It
+uses the existing case-insensitive subsequence matcher across the complete retained prompt, including later lines.
+Results prefer the strongest matching line over scattered matches in earlier text, with its line number and highlighted
+characters. Cross-line matches remain available. Long lines are clipped around the match rather than always showing
+their beginning. Equal-score matches retain recency ordering.
 
-The overlay is intentionally simple: it shows the first line of each prompt truncated to terminal width, with no preview
-pane. Multi-line prompts are matched against their first line only, so what you can see is what you can match. The
-visible-result count is capped at ten but shrinks to the terminal height (a short pane shows fewer rows and scrolls the
-selection) so the overlay never renders taller than the viewport.
+The selected result has a wrapped multiline preview, a scroll range, and a timestamp when available. Selection changes
+reset the preview to the selected matching line. A tall terminal stacks the preview below up to ten results; a short
+terminal switches between results and preview so neither pane is squeezed out.
+
+| Key                            | Action                                                               |
+| ------------------------------ | -------------------------------------------------------------------- |
+| Type                           | Search the complete prompt, even while preview navigation is focused |
+| `↑` / `↓`, `Ctrl+P` / `Ctrl+N` | Move results, or scroll the preview when it is focused               |
+| `PageUp` / `PageDown`          | Page the focused region independently                                |
+| `Tab`                          | Switch navigation between results and preview                        |
+| `Shift+↑` / `Shift+↓`          | Scroll the preview without changing result selection                 |
+| `Ctrl+R`                       | Select the next result, regardless of preview focus                  |
+| `Ctrl+O`                       | Toggle inclusion of continuation-only prompts                        |
+| `Enter`                        | Insert the complete selected prompt for editing, never submit it     |
+| `Escape` / `Ctrl+C`            | Cancel without changing the original editor draft                    |
+
+### Session openers and continuation noise
+
+`[opener]` marks text used as a session's first user message; the preview also says `session opener`. This is an
+indicator for manual reuse, not an automatic retry, session switch, or new-session action.
+
+The metadata loader identifies the first actual user entry before applying prompt-length and history-pool caps. For
+prior files, a separate prefix probe reads at most 5 MiB in 64 KiB chunks and compares byte offsets, independently of
+where the reverse scan stops. Empty, image-only, and over-length opening messages do not promote a later prompt to
+opener. If a malformed or uninspectable prefix prevents reliable identification, opener status remains unknown. Opener
+marking does not bypass retention caps; an over-length opener can still be absent from the pool.
+
+The picker initially hides only whole-prompt variants of `continue`, `please continue`, `go on`, `keep going`,
+`proceed`, and `carry on`, allowing case, whitespace, and simple terminal punctuation differences. It hides them only
+when every loaded occurrence is a known non-opener. Confirmed openers and unknown opener statuses stay visible.
+Substantive instructions such as `please continue with the tests`, short answers such as `yes`, and `stop` are not
+filtered. The header reports the hidden count; `Ctrl+O` reveals those entries and makes them searchable. Filtering is
+picker-local and never removes prompts from session files or Up-arrow history.
 
 Ctrl+R is intercepted **inside the editor** (`HistoryEditor extends CustomEditor`), so it doesn't conflict with the
 global `app.session.rename` binding -- that binding only fires inside the session-selector overlay.
@@ -89,8 +117,8 @@ If you install another editor extension AFTER this one, pi's last-write-wins sem
 - `PI_CROSS_SESSION_HISTORY_DISABLED=1` -- skip the extension entirely.
 - `PI_CROSS_SESSION_HISTORY_MAX_PROMPTS=N` -- cap on prompts loaded into the editor's arrow-up history (default `100`).
   The editor's internal ring also caps at 100, so values above 100 silently truncate.
-- `PI_CROSS_SESSION_HISTORY_MAX_FILES=N` -- max session files scanned per startup (default `100`, newest-first by
-  mtime). Bound on disk I/O for projects with very long session histories.
+- `PI_CROSS_SESSION_HISTORY_MAX_FILES=N` -- max session files scanned per startup or search opening (default `100`,
+  newest-first by mtime). Bounds the number of files read, not total scan bytes.
 - `PI_CROSS_SESSION_HISTORY_SEARCH_SIZE=N` -- max prompts in the Ctrl+R reverse-search pool, before deduplication
   (default `5000`). Independent of the arrow-up cap.
 - `PI_CROSS_SESSION_HISTORY_DEBUG=1` -- `ctx.ui.notify` how many prompts were loaded each `session_start` (both pools).
@@ -108,5 +136,8 @@ Edit [`extensions/cross-session-history.ts`](./cross-session-history.ts),
 [`lib/node/pi/cross-session-history.ts`](../../../lib/node/pi/cross-session-history.ts), or
 [`lib/node/pi/fuzzy-match.ts`](../../../lib/node/pi/fuzzy-match.ts) and run `/reload` in an interactive pi session. On
 reload the `session_shutdown` handler hands the editor back to the previously-installed factory (the foreign editor, or
-pi's default) and drops the captured UI ref + both prompt caches, so our factory closure isn't left mounted. The next
-`session_start` then rebuilds the caches from disk and re-installs the editor factory cleanly.
+pi's default) and drops the captured UI, editor history, and search-loader callback. It also invalidates pending picker
+results so a late selection cannot replace a different session's draft. The next `session_start` re-installs editor
+history; each subsequent `Ctrl+R` loads fresh search records. Changes to
+[`cross-session-history-search.ts`](../../../lib/node/pi/cross-session-history-search.ts) and
+[`cross-session-history-overlay.ts`](../../../lib/node/pi/ext/cross-session-history-overlay.ts) also use `/reload`.

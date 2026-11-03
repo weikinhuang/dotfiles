@@ -12,9 +12,9 @@
  *     prompts in chronological order, capped at the editor's 100-entry
  *     internal cap. Arrow-up just works across sessions.
  *
- *   - When the editor has focus, Ctrl+R opens a `ReverseSearchOverlay`
- *     (defined below). Typing fuzzy-matches across the deduplicated
- *     project history; enter inserts the chosen prompt into the editor.
+ *   - When the editor has focus, Ctrl+R refreshes project history and opens
+ *     a full-text `ReverseSearchOverlay` with a multiline preview, opener
+ *     indicators, and reversible continuation filtering. Enter inserts only.
  *
  * Cross session, NEVER cross project: pi already buckets sessions per
  * cwd into `~/.pi/agent/sessions/<slug>/`, so just listing that one
@@ -48,11 +48,13 @@ import { type EditorComponent, Key, matchesKey, type TUI, type EditorTheme } fro
 type EditorFactory = (tui: TUI, theme: EditorTheme, keybindings: KeybindingsManager) => EditorComponent;
 
 import {
-  dedupKeepMostRecent,
   DEFAULT_MAX_FILES,
   DEFAULT_MAX_PROMPTS,
   loadCrossSessionHistory,
+  loadCrossSessionHistoryItems,
+  type PromptHistoryEntry,
 } from '../../../lib/node/pi/cross-session-history.ts';
+import { dedupHistoryEntries } from '../../../lib/node/pi/cross-session-history-search.ts';
 import { ReverseSearchOverlay } from '../../../lib/node/pi/ext/cross-session-history-overlay.ts';
 import { envTruthy, parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
 
@@ -115,17 +117,28 @@ export default function crossSessionHistory(pi: ExtensionAPI): void {
 
   // Mutable state refreshed each session_start; closures below read these.
   let editorHistory: string[] = [];
-  let searchHistory: string[] = [];
+  let refreshSearchHistory: (() => PromptHistoryEntry[]) | undefined;
   let foreignFactory: EditorFactory | undefined;
   let activeUi: ExtensionUIContext | undefined;
+  let searchOpen = false;
+  let generation = 0;
 
   const openReverseSearch = (): void => {
     const ui = activeUi;
-    if (!ui) return;
+    if (!ui || !refreshSearchHistory || searchOpen) return;
+    let searchHistory: PromptHistoryEntry[];
+    try {
+      searchHistory = refreshSearchHistory();
+    } catch {
+      ui.notify('Unable to load project history.', 'warning');
+      return;
+    }
     if (searchHistory.length === 0) {
       ui.notify('No prior prompts in this project yet.', 'info');
       return;
     }
+    searchOpen = true;
+    const openedGeneration = generation;
     void ui
       .custom<string | null>(
         (_tui, theme, _kb, done) => {
@@ -137,9 +150,13 @@ export default function crossSessionHistory(pi: ExtensionAPI): void {
         { overlay: true },
       )
       .then((result) => {
-        if (result !== null) {
-          ui.setEditorText(result);
-        }
+        if (result !== null && openedGeneration === generation) ui.setEditorText(result);
+      })
+      .catch(() => {
+        if (openedGeneration === generation) ui.notify('History search could not be opened.', 'warning');
+      })
+      .finally(() => {
+        if (openedGeneration === generation) searchOpen = false;
       });
   };
 
@@ -160,6 +177,20 @@ export default function crossSessionHistory(pi: ExtensionAPI): void {
 
   pi.on('session_start', (event, ctx) => {
     activeUi = ctx.ui;
+    generation++;
+    searchOpen = false;
+    // Read the current manager on every opening, not a startup snapshot. This
+    // includes prompts submitted since startup without waiting for a reload.
+    refreshSearchHistory = () =>
+      dedupHistoryEntries(
+        loadCrossSessionHistoryItems({
+          sessionDir: ctx.sessionManager.getSessionDir(),
+          excludeFile: ctx.sessionManager.getSessionFile(),
+          currentEntries: ctx.sessionManager.getEntries(),
+          maxPrompts: searchSize,
+          maxFiles,
+        }),
+      );
 
     try {
       const sessionDir = ctx.sessionManager.getSessionDir();
@@ -175,19 +206,8 @@ export default function crossSessionHistory(pi: ExtensionAPI): void {
         maxPrompts,
         maxFiles,
       });
-
-      // Reverse search never receives native editor-history updates.
-      const wide = loadCrossSessionHistory({
-        sessionDir,
-        excludeFile,
-        currentEntries,
-        maxPrompts: searchSize,
-        maxFiles,
-      });
-      searchHistory = dedupKeepMostRecent(wide);
     } catch {
       editorHistory = [];
-      searchHistory = [];
     }
 
     const existing = ctx.ui.getEditorComponent();
@@ -202,7 +222,7 @@ export default function crossSessionHistory(pi: ExtensionAPI): void {
 
     if (debug) {
       ctx.ui.notify(
-        `cross-session-history: ${editorHistory.length} editor / ${searchHistory.length} search prompts`,
+        `cross-session-history: ${editorHistory.length} editor / ${refreshSearchHistory().length} search prompts`,
         'info',
       );
     }
@@ -212,8 +232,8 @@ export default function crossSessionHistory(pi: ExtensionAPI): void {
     // Hand the editor back to whatever was installed before us (the
     // foreign factory, or pi's default) so our factory - which closes
     // over `activeUi` / the prompt caches - isn't left mounted across a
-    // /reload. Then drop the captured ctx + caches; the next
-    // session_start rebuilds them from disk.
+    // /reload. Drop captured state and invalidate pending selections; the
+    // next session_start reinstalls editor history and its search loader.
     if (ctx.hasUI) {
       try {
         ctx.ui.setEditorComponent(foreignFactory);
@@ -221,9 +241,11 @@ export default function crossSessionHistory(pi: ExtensionAPI): void {
         // best-effort: shutdown must never throw.
       }
     }
+    generation++;
+    searchOpen = false;
     activeUi = undefined;
     editorHistory = [];
-    searchHistory = [];
+    refreshSearchHistory = undefined;
     foreignFactory = undefined;
   });
 }

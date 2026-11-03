@@ -29,6 +29,8 @@ export const DEFAULT_MAX_FILES = 100;
  * not the entire session containing them. */
 export const DEFAULT_MAX_LINE_BYTES = 5 * 1024 * 1024;
 const READ_CHUNK_BYTES = 64 * 1024;
+/** Independent forward-probe budget, even when the reverse scan stops early. */
+const OPENER_PROBE_MAX_BYTES = 5 * 1024 * 1024;
 /** Default per-prompt length cap. Drop pasted blocks far larger than a line of
  * normal user input - they bloat the editor's history ring without being
  * useful to scroll back to. */
@@ -56,6 +58,14 @@ export interface LoadHistoryOptions {
   maxPromptLength?: number;
 }
 
+/** One prompt occurrence, with metadata when its origin is known. */
+export interface PromptHistoryEntry {
+  prompt: string;
+  isOpener?: boolean;
+  timestamp?: string;
+  sessionFile?: string;
+}
+
 interface ExtractOptions {
   maxFileBytes?: number;
   maxPromptLength: number;
@@ -64,6 +74,24 @@ interface ExtractOptions {
 
 function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null;
+}
+
+function isUserEntry(entry: unknown): boolean {
+  return isObject(entry) && entry.type === 'message' && isObject(entry.message) && entry.message.role === 'user';
+}
+
+function historyItem(
+  entry: unknown,
+  prompt: string,
+  isOpener: boolean | undefined,
+  sessionFile?: string,
+): PromptHistoryEntry {
+  return {
+    prompt,
+    isOpener,
+    timestamp: isObject(entry) && typeof entry.timestamp === 'string' ? entry.timestamp : undefined,
+    sessionFile,
+  };
 }
 
 function normalizePrompt(text: string): string {
@@ -129,6 +157,52 @@ export function extractUserPromptsFromText(jsonl: string, maxPromptLength: numbe
   return out;
 }
 
+/** Find the first actual user occurrence, not the first recallable prompt.
+ * An incomplete or malformed prefix cannot establish an opener safely. Reads
+ * at most 5MiB in 64KiB chunks, independent of the reverse scanner's cutoff. */
+function probeFirstUserOffset(fd: number, size: number): number | undefined {
+  const chunk = Buffer.allocUnsafe(READ_CHUNK_BYTES);
+  const budget = Math.min(size, OPENER_PROBE_MAX_BYTES);
+  let position = 0;
+  let lineOffset = 0;
+  let fragments: Buffer[] = [];
+  while (position < budget) {
+    const count = fs.readSync(fd, chunk, 0, Math.min(chunk.length, budget - position), position);
+    if (count === 0) return undefined;
+    let start = 0;
+    for (let i = 0; i < count; i++) {
+      if (chunk[i] !== 10) continue;
+      fragments.push(Buffer.from(chunk.subarray(start, i)));
+      const line = Buffer.concat(fragments).toString('utf8');
+      if (line.trim().length > 0) {
+        let entry: unknown;
+        try {
+          entry = JSON.parse(line);
+        } catch {
+          return undefined;
+        }
+        if (isUserEntry(entry)) return lineOffset;
+      }
+      fragments = [];
+      lineOffset = position + i + 1;
+      start = i + 1;
+    }
+    if (start < count) fragments.push(Buffer.from(chunk.subarray(start, count)));
+    position += count;
+  }
+  // Only a real EOF terminates a line without a newline, not the probe budget.
+  if (position === size && fragments.length > 0) {
+    let entry: unknown;
+    try {
+      entry = JSON.parse(Buffer.concat(fragments).toString('utf8'));
+    } catch {
+      return undefined;
+    }
+    if (isUserEntry(entry)) return lineOffset;
+  }
+  return undefined;
+}
+
 /**
  * Parse a session jsonl and return user-typed prompts in document order
  * (which is chronological per pi's session-format). Scans backwards in bounded
@@ -136,13 +210,19 @@ export function extractUserPromptsFromText(jsonl: string, maxPromptLength: numbe
  * are discarded without allocating their full contents. Throws on filesystem
  * errors; safe-ignores per-line JSON parse errors.
  */
-export function extractUserPromptsFromFile(file: string, opts: ExtractOptions): string[] {
+function extractHistoryItemsFromFile(
+  file: string,
+  opts: ExtractOptions,
+  includeMetadata: boolean,
+): PromptHistoryEntry[] {
   const fd = fs.openSync(file, 'r');
   try {
     const stat = fs.fstatSync(fd);
     if (!stat.isFile() || (opts.maxFileBytes !== undefined && stat.size > opts.maxFileBytes)) return [];
     const limit = opts.maxPrompts ?? Infinity;
-    const newest: string[] = [];
+    const newest: PromptHistoryEntry[] = [];
+    const firstUserOffset = includeMetadata ? probeFirstUserOffset(fd, stat.size) : undefined;
+    const sessionFile = includeMetadata ? path.resolve(file) : undefined;
     const chunk = Buffer.allocUnsafe(READ_CHUNK_BYTES);
     let position = stat.size;
     let fragments: Buffer[] = [];
@@ -153,11 +233,26 @@ export function extractUserPromptsFromFile(file: string, opts: ExtractOptions): 
       if (lineBytes > DEFAULT_MAX_LINE_BYTES) fragments = [];
       else if (fragment.length > 0) fragments.push(Buffer.from(fragment));
     };
-    const finishLine = (): void => {
+    const finishLine = (offset: number): void => {
       if (lineBytes > 0 && lineBytes <= DEFAULT_MAX_LINE_BYTES) {
         const line = Buffer.concat(fragments.reverse()).toString('utf8');
-        const prompt = extractUserPromptsFromText(line, opts.maxPromptLength)[0];
-        if (prompt !== undefined) newest.push(prompt);
+        let entry: unknown;
+        try {
+          entry = JSON.parse(line);
+        } catch {
+          // Ignore interrupted or malformed JSONL lines.
+        }
+        const prompt = userPromptFromEntry(entry);
+        if (prompt !== undefined && prompt.length > 0 && prompt.length <= opts.maxPromptLength) {
+          newest.push(
+            historyItem(
+              entry,
+              prompt,
+              firstUserOffset === undefined ? undefined : offset === firstUserOffset,
+              sessionFile,
+            ),
+          );
+        }
       }
       fragments = [];
       lineBytes = 0;
@@ -177,17 +272,22 @@ export function extractUserPromptsFromFile(file: string, opts: ExtractOptions): 
       for (let i = length - 1; i >= 0; i--) {
         if (chunk[i] !== 10) continue;
         addFragment(chunk.subarray(i + 1, end));
-        finishLine();
+        finishLine(position + i + 1);
         if (newest.length >= limit) return newest.reverse();
         end = i;
       }
       addFragment(chunk.subarray(0, end));
     }
-    if (newest.length < limit) finishLine();
+    if (newest.length < limit) finishLine(0);
     return newest.reverse();
   } finally {
     fs.closeSync(fd);
   }
+}
+
+/** String-only compatibility API; does not need the metadata prefix probe. */
+export function extractUserPromptsFromFile(file: string, opts: ExtractOptions): string[] {
+  return extractHistoryItemsFromFile(file, opts, false).map((item) => item.prompt);
 }
 
 /**
@@ -230,22 +330,23 @@ export function listSessionFilesNewestFirst(sessionDir: string, excludeFile?: st
   return candidates.map((c) => c.file);
 }
 
-/**
- * Read the session bucket and return user prompts in chronological order
- * (oldest first), followed by active-session prompts, capped at `maxPrompts`.
- * Missing/unreadable files are skipped without losing active-session history.
- */
-export function loadCrossSessionHistory(opts: LoadHistoryOptions): string[] {
+function loadHistoryItems(opts: LoadHistoryOptions, includeMetadata: boolean): PromptHistoryEntry[] {
   const maxPrompts = opts.maxPrompts ?? DEFAULT_MAX_PROMPTS;
   const maxFiles = opts.maxFiles ?? DEFAULT_MAX_FILES;
   const maxPromptLength = opts.maxPromptLength ?? DEFAULT_MAX_PROMPT_LENGTH;
 
   if (maxPrompts <= 0) return [];
 
-  const collected: string[] = [];
+  const collected: PromptHistoryEntry[] = [];
+  let seenUser = false;
+  const currentFile = opts.excludeFile ? path.resolve(opts.excludeFile) : undefined;
   for (const entry of opts.currentEntries ?? []) {
+    const isOpener = !seenUser;
+    if (isUserEntry(entry)) seenUser = true;
     const prompt = userPromptFromEntry(entry);
-    if (prompt !== undefined && prompt.length > 0 && prompt.length <= maxPromptLength) collected.push(prompt);
+    if (prompt !== undefined && prompt.length > 0 && prompt.length <= maxPromptLength) {
+      collected.push(historyItem(entry, prompt, isOpener, currentFile));
+    }
   }
   if (collected.length >= maxPrompts) return collected.slice(-maxPrompts);
   if (maxFiles <= 0) return collected;
@@ -254,13 +355,17 @@ export function loadCrossSessionHistory(opts: LoadHistoryOptions): string[] {
   // Walk newest-first and prepend each file's chronological prompts, keeping
   // active-session prompts at the top of recall regardless of the file's mtime.
   for (const file of files.slice(0, maxFiles)) {
-    let prompts: string[];
+    let prompts: PromptHistoryEntry[];
     try {
-      prompts = extractUserPromptsFromFile(file, {
-        maxFileBytes: opts.maxFileBytes,
-        maxPromptLength,
-        maxPrompts: maxPrompts - collected.length,
-      });
+      prompts = extractHistoryItemsFromFile(
+        file,
+        {
+          maxFileBytes: opts.maxFileBytes,
+          maxPromptLength,
+          maxPrompts: maxPrompts - collected.length,
+        },
+        includeMetadata,
+      );
     } catch {
       // Corrupt / unreadable file: skip it.
       continue;
@@ -272,6 +377,20 @@ export function loadCrossSessionHistory(opts: LoadHistoryOptions): string[] {
 
   if (collected.length <= maxPrompts) return collected;
   return collected.slice(collected.length - maxPrompts);
+}
+
+/**
+ * Read the session bucket and return user prompts in chronological order
+ * (oldest first), followed by active-session prompts, capped at `maxPrompts`.
+ * Missing/unreadable files are skipped without losing active-session history.
+ */
+export function loadCrossSessionHistory(opts: LoadHistoryOptions): string[] {
+  return loadHistoryItems(opts, false).map((item) => item.prompt);
+}
+
+/** Metadata-aware history, oldest first with active-session entries last. */
+export function loadCrossSessionHistoryItems(opts: LoadHistoryOptions): PromptHistoryEntry[] {
+  return loadHistoryItems(opts, true);
 }
 
 /**

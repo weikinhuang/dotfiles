@@ -10,16 +10,21 @@ import { mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import * as fs from 'node:fs';
 
 import {
   dedupKeepMostRecent,
   DEFAULT_MAX_PROMPT_LENGTH,
+  extractUserPromptsFromFile,
   extractUserPromptsFromText,
   listSessionFilesNewestFirst,
   loadCrossSessionHistory,
+  loadCrossSessionHistoryItems,
   userPromptFromEntry,
 } from '../../../../lib/node/pi/cross-session-history.ts';
+
+vi.mock('node:fs', { spy: true });
 
 let dir: string;
 
@@ -328,6 +333,140 @@ describe('loadCrossSessionHistory', () => {
     writeFileSync(join(dir, 'broken.jsonl'), 'not-json\nstill-not-json\n');
     writeSession('good.jsonl', ['good-1'], 0);
     expect(loadCrossSessionHistory({ sessionDir: dir })).toEqual(['good-1']);
+  });
+});
+
+describe('loadCrossSessionHistoryItems', () => {
+  function user(content: unknown, timestamp?: unknown): unknown {
+    return { type: 'message', timestamp, message: { role: 'user', content } };
+  }
+
+  function session(entries: unknown[], name = 'old.jsonl'): string {
+    const file = join(dir, name);
+    writeFileSync(file, entries.map((entry) => JSON.stringify(entry)).join('\n') + '\n');
+    return file;
+  }
+
+  test('keeps old and active opener flags, timestamps and absolute source paths', () => {
+    const old = session([user('old opener', '2026-01-01'), user('old later', 123)]);
+    const active = session([user('disk copy must be excluded')], 'active.jsonl');
+    const currentEntries = [{ type: 'session' }, user('active opener', '2026-02-01'), user('active later')];
+    const opts = { sessionDir: dir, excludeFile: active, currentEntries };
+    expect(loadCrossSessionHistoryItems(opts)).toEqual([
+      { prompt: 'old opener', isOpener: true, timestamp: '2026-01-01', sessionFile: old },
+      { prompt: 'old later', isOpener: false, timestamp: undefined, sessionFile: old },
+      { prompt: 'active opener', isOpener: true, timestamp: '2026-02-01', sessionFile: active },
+      { prompt: 'active later', isOpener: false, timestamp: undefined, sessionFile: active },
+    ]);
+    expect(loadCrossSessionHistory(opts)).toEqual(loadCrossSessionHistoryItems(opts).map((item) => item.prompt));
+    expect(loadCrossSessionHistoryItems({ ...opts, maxPrompts: 1 })).toEqual([
+      { prompt: 'active later', isOpener: false, sessionFile: active, timestamp: undefined },
+    ]);
+  });
+
+  test('does not use repeated prompt text as occurrence identity', () => {
+    session([user('continue'), user('continue'), user('continue')]);
+    expect(loadCrossSessionHistoryItems({ sessionDir: dir }).map((item) => item.isOpener)).toEqual([
+      true,
+      false,
+      false,
+    ]);
+  });
+
+  test('finds the opener independently when the reverse cap stops far before it', () => {
+    session([
+      user('opener 🌏'),
+      ...Array.from({ length: 100 }, () => ({ type: 'custom', data: 'x'.repeat(2000) })),
+      user('latest'),
+    ]);
+    expect(loadCrossSessionHistoryItems({ sessionDir: dir, maxPrompts: 1 })).toMatchObject([
+      { prompt: 'latest', isOpener: false },
+    ]);
+  });
+
+  test.each([
+    ['long', 'x'.repeat(DEFAULT_MAX_PROMPT_LENGTH + 1)],
+    ['image-only', [{ type: 'image', data: 'image', mimeType: 'image/png' }]],
+    ['empty', '   '],
+  ])('does not promote a later disk or active prompt after a %s first user', (_name, content) => {
+    const entries = [user(content), user('later')];
+    session(entries);
+    expect(loadCrossSessionHistoryItems({ sessionDir: dir })).toMatchObject([{ prompt: 'later', isOpener: false }]);
+    expect(loadCrossSessionHistoryItems({ sessionDir: dir, currentEntries: entries, maxFiles: 0 })).toMatchObject([
+      { prompt: 'later', isOpener: false },
+    ]);
+  });
+
+  test('uses the configured length cap without redefining the first user', () => {
+    session([user('long opener'), user('ok')]);
+    expect(loadCrossSessionHistoryItems({ sessionDir: dir, maxPromptLength: 2 })).toMatchObject([
+      { prompt: 'ok', isOpener: false },
+    ]);
+  });
+
+  test.each(['user', 'toolResult'])('keeps unknown opener status after an oversized %s prefix', (role) => {
+    const file = session([
+      { type: 'message', message: { role, content: 'x'.repeat(6 * 1024 * 1024) } },
+      user('retained', 'timestamp'),
+    ]);
+    expect(loadCrossSessionHistoryItems({ sessionDir: dir })).toEqual([
+      { prompt: 'retained', isOpener: undefined, timestamp: 'timestamp', sessionFile: file },
+    ]);
+    expect(extractUserPromptsFromFile(file, { maxPromptLength: 4000 })).toEqual(['retained']);
+    expect(loadCrossSessionHistoryItems({ sessionDir: dir, maxFileBytes: 1024 })).toEqual([]);
+  });
+
+  test('bounds the forward probe to 5MiB and all reads to 64KiB', () => {
+    session([
+      ...Array.from({ length: 100 }, () => ({ type: 'custom', data: 'x'.repeat(64 * 1024) })),
+      user('late opener'),
+    ]);
+    const read = vi.spyOn(fs, 'readSync');
+    try {
+      expect(loadCrossSessionHistoryItems({ sessionDir: dir, maxPrompts: 1 })[0]?.isOpener).toBeUndefined();
+      // readSync's last overload uses an options object; runtime calls here
+      // deliberately use its positional overload instead.
+      const calls: readonly (readonly unknown[])[] = read.mock.calls;
+      expect(calls.every((call) => typeof call[3] === 'number' && call[3] <= 64 * 1024)).toBe(true);
+      // 80 forward chunks, then one reverse chunk containing the last prompt.
+      expect(calls).toHaveLength(81);
+      expect(calls[79]?.[4]).toBe(5 * 1024 * 1024 - 64 * 1024);
+    } finally {
+      read.mockRestore();
+    }
+  });
+
+  test('keeps unknown status after an unparseable prefix instead of promoting a later user', () => {
+    const file = join(dir, 'broken-prefix.jsonl');
+    writeFileSync(file, 'not-json\n' + JSON.stringify(user('later')));
+    expect(loadCrossSessionHistoryItems({ sessionDir: dir })[0]?.isOpener).toBeUndefined();
+  });
+
+  test('handles UTF-8 byte offsets, a multi-chunk prefix, and an unterminated opener', () => {
+    session([{ type: 'custom', data: '🌏'.repeat(20_000) }, user('continue'), user('continue')]);
+    expect(loadCrossSessionHistoryItems({ sessionDir: dir }).map((item) => item.isOpener)).toEqual([true, false]);
+    writeFileSync(join(dir, 'old.jsonl'), JSON.stringify(user('no newline')));
+    expect(loadCrossSessionHistoryItems({ sessionDir: dir })[0]?.isOpener).toBe(true);
+  });
+
+  test('preserves pool/file caps, bucket isolation and cache trace exclusion', () => {
+    const old = session([user('old')]);
+    const recent = session([user('new opener'), user('new later')], 'new.jsonl');
+    utimesSync(old, new Date(0), new Date(0));
+    utimesSync(recent, new Date(10_000), new Date(10_000));
+    session([user('sidecar')], 'latest.cache-trace.jsonl');
+    expect(loadCrossSessionHistoryItems({ sessionDir: dir, maxPrompts: 1 })).toMatchObject([
+      { prompt: 'new later', isOpener: false },
+    ]);
+    expect(loadCrossSessionHistoryItems({ sessionDir: dir, maxFiles: 1 }).map((item) => item.prompt)).toEqual([
+      'new opener',
+      'new later',
+    ]);
+    expect(loadCrossSessionHistoryItems({ sessionDir: join(dir, 'other-project') })).toEqual([]);
+    expect(loadCrossSessionHistoryItems({ sessionDir: dir, maxPrompts: 0 })).toEqual([]);
+    expect(loadCrossSessionHistoryItems({ sessionDir: dir, currentEntries: [user('in memory')], maxFiles: 0 })).toEqual(
+      [{ prompt: 'in memory', isOpener: true, timestamp: undefined, sessionFile: undefined }],
+    );
   });
 });
 
