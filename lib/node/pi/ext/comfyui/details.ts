@@ -24,6 +24,13 @@ export interface GenerateDetails {
   ephemeral?: boolean;
 }
 
+/** Human-only projection; never stored in tool results or session entries. */
+export interface GenerateLiveCard {
+  job: ImageJob;
+  elapsedMs: number;
+  progress?: string;
+}
+
 /** Action verbs accepted by the `image_jobs` tool. */
 export type JobsAction = 'list' | 'collect' | 'cancel';
 

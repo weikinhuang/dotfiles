@@ -92,6 +92,7 @@ import {
   type ChildToolAggregate,
 } from '../../../lib/node/pi/subagent/aggregate.ts';
 import { showModal } from '../../../lib/node/pi/ext/show-modal.ts';
+import { LiveToolCards } from '../../../lib/node/pi/ext/live-tool-cards.ts';
 import {
   AgentsLoadedOverlay,
   AgentsRunningOverlay,
@@ -462,6 +463,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 
   const backgroundChildren = new Map<string, RunningChild>();
   const handleCounter = makeHandleCounter();
+  const liveCards = new LiveToolCards<{ details: SubagentDetails; body: string; activity: string[] }>();
 
   /**
    * Build a `SubagentDetails` for an entry that is still running (no
@@ -497,8 +499,10 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     };
   };
 
-  const pruneBackground = (): void =>
+  const pruneBackground = (): void => {
+    liveCards.refresh();
     pruneBackgroundRegistry(backgroundChildren, envPositiveInt('PI_SUBAGENT_BG_MAX', DEFAULT_BG_REGISTRY_CAP));
+  };
 
   // Idempotent release of the child's concurrency slot. The
   // `semaphoreReleased` guard makes a second call a no-op, so both the
@@ -518,6 +522,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
   const finalizeChildRun = (entry: RunningChild, result: RunChildResult): void => {
     releaseSlot(entry);
     if (entry.generation !== sessionGeneration) return;
+    liveCards.refresh();
     try {
       pi.appendEntry(SUBAGENT_CUSTOM_TYPE, result.details);
     } catch {
@@ -567,6 +572,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
   }
 
   pi.on('session_start', (_event, ctx) => {
+    liveCards.reset(ctx.mode === 'tui');
     sessionController = new AbortController();
     sessionGeneration++;
     reload(ctx.cwd);
@@ -607,7 +613,10 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     if (debug && removed > 0) ctx.ui.notify(`subagent: swept ${removed} stale session file(s)`, 'info');
   });
 
+  pi.on('session_tree', (_event, ctx) => liveCards.reset(ctx.mode === 'tui'));
+
   pi.on('session_shutdown', async (_event, ctx) => {
+    liveCards.reset();
     sessionController.abort();
     // Drain running background children first. We fire `abort()` on
     // each and wait up to PI_SUBAGENT_BG_SHUTDOWN_MS total for their
@@ -1310,7 +1319,7 @@ export default function subagentExtension(pi: ExtensionAPI): void {
     parameters: SubagentParams,
     executionMode: 'parallel',
 
-    async execute(_toolCallId, rawParams, signal, _onUpdate, ctx) {
+    async execute(toolCallId, rawParams, signal, _onUpdate, ctx) {
       const params = rawParams;
       // Unknown name: re-scan the agent directories once so a `.md` added
       // mid-session works without `/reload`. The tool description keeps
@@ -1464,6 +1473,17 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       pruneBackground();
 
       if (background) {
+        liveCards.bind(toolCallId, ctx, () => {
+          if (entry.generation !== sessionGeneration) return undefined;
+          return {
+            value: {
+              details: entry.outcome?.details ?? entryToRunningDetails(entry),
+              body: entry.outcome?.content ?? '',
+              activity: getSessionActivityRings().get(entry.handle)?.snapshot().slice(-8) ?? [],
+            },
+            active: entry.running,
+          };
+        });
         return {
           content: [
             {
@@ -1499,7 +1519,8 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       };
     },
 
-    renderCall(args, theme, _context) {
+    renderCall(args, theme, context) {
+      liveCards.capture(context);
       const a = args;
       const name = a.agent || '(no agent)';
       const preview = a.task ? (a.task.length > 80 ? `${a.task.slice(0, 80)}…` : a.task) : '';
@@ -1508,8 +1529,9 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       return new Text(text, 0, 0);
     },
 
-    renderResult(result, { expanded }, theme, _context) {
-      const details = (result.details ?? {}) as Partial<SubagentDetails>;
+    renderResult(result, { expanded }, theme, context) {
+      const live = liveCards.read(context);
+      const details = live?.details ?? ((result.details ?? {}) as Partial<SubagentDetails>);
       const stopReason: ScorecardStopReason = details.stopReason ?? 'spawned';
       const lead = renderScorecard({
         theme,
@@ -1523,17 +1545,23 @@ export default function subagentExtension(pi: ExtensionAPI): void {
         leadSuffix: stopReason === 'spawned' ? 'spawned in background' : details.timedOut ? 'timed out' : undefined,
       });
       const first = result.content.find((c) => c.type === 'text');
-      const body = first?.type === 'text' ? first.text : '';
+      const body = live?.body ?? (first?.type === 'text' ? first.text : '');
       // Background spawns embed handle + task + hint into `content`; that
       // duplicates the scorecard lead, so we lean on the scorecard for
       // the visible card and only show the body when there is something
       // distinct to read (sync completion or wait response).
-      if (stopReason === 'spawned') {
+      if (stopReason === 'spawned' || stopReason === 'running') {
         const taskLine = details.task
           ? theme.fg('dim', `   task: ${details.task.length > 80 ? `${details.task.slice(0, 79)}…` : details.task}`)
           : '';
-        const hint = theme.fg('muted', '   Use `subagent_send` to check status, steer, or retrieve the result.');
-        return new Text([lead, taskLine, hint].filter(Boolean).join('\n'), 0, 0);
+        const activity = live?.activity.slice(expanded ? -8 : -1).map((line) => theme.fg('dim', `   ${line}`)) ?? [];
+        const hint = theme.fg(
+          'muted',
+          live
+            ? '   Live · /agents for details'
+            : '   Use `subagent_send` to check status, steer, or retrieve the result.',
+        );
+        return new Text([lead, taskLine, ...activity, hint].filter(Boolean).join('\n'), 0, 0);
       }
       if (expanded && body.trim()) {
         return new Text(`${lead}\n${theme.fg('text', body)}`, 0, 0);

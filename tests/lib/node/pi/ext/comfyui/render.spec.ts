@@ -11,7 +11,11 @@ import type { Text } from '@earendil-works/pi-tui';
 import { describe, expect, test } from 'vitest';
 
 import type { ImageJob } from '../../../../../../lib/node/pi/comfyui/jobs.ts';
-import type { GenerateDetails, JobsDetails } from '../../../../../../lib/node/pi/ext/comfyui/details.ts';
+import type {
+  GenerateDetails,
+  GenerateLiveCard,
+  JobsDetails,
+} from '../../../../../../lib/node/pi/ext/comfyui/details.ts';
 import {
   renderGenerateCall,
   renderGenerateResult,
@@ -118,6 +122,73 @@ describe('renderGenerateResult', () => {
     expect(out(r)).toBe(
       '✓ 2 images\nprompt:   a cat\nnegative: (workflow default)\nsaved:    /a.png\nsaved:    /b.png',
     );
+  });
+});
+
+describe('live generate_image projection', () => {
+  function card(patch: Partial<ImageJob> = {}): GenerateLiveCard {
+    return {
+      job: {
+        id: '1',
+        promptId: 'p1',
+        workflow: 'named',
+        prompt: 'rendered prompt',
+        negative: 'rendered negative',
+        seed: 7,
+        status: 'running',
+        savedPaths: [],
+        saveDir: '/out',
+        sendToModel: true,
+        startedAt: 0,
+        ...patch,
+      },
+      elapsedMs: 65000,
+      progress: 'generating 12/30',
+    };
+  }
+  test.each(['running', 'done', 'error', 'cancelled'] as const)(
+    'shows %s, elapsed, seed and terminal information',
+    (status) => {
+      const live = card({ status, error: 'failed to download', savedPaths: status === 'done' ? ['/out/a.png'] : [] });
+      const text = out(renderGenerateResult(gen({ background: true, jobId: '1' }), {}, theme, {}, live));
+      expect(text).toContain(`background [1] ${status} · 1m05s · seed 7`);
+      const notes = {
+        running: 'generating 12/30',
+        done: '1 image · /out/a.png',
+        error: 'failed to download',
+        cancelled: 'seed 7',
+      };
+      expect(text).toContain(notes[status]);
+      expect(text.includes('generating')).toBe(status === 'running');
+    },
+  );
+  test('expanded live view uses rendered prompts, not stale original call args', () => {
+    const live = card({ status: 'done', managed: true, savedPaths: ['/out/a.png', '/out/b.wav'] });
+    live.progress = 'accepted after 2 renders';
+    const text = out(
+      renderGenerateResult(
+        gen({ background: true }),
+        { expanded: true },
+        theme,
+        { args: { prompt: 'original prompt' } },
+        live,
+      ),
+    );
+    expect(text).toContain('workflow: named');
+    expect(text).toContain('prompt id: p1');
+    expect(text).toContain('prompt:   rendered prompt');
+    expect(text).toContain('negative: rendered negative');
+    expect(text).toContain('refine:   accepted after 2 renders');
+    expect(text).toContain('saved:    /out/b.wav');
+    expect(text).not.toContain('original prompt');
+  });
+  test('queued raw workflow view names the file without invented prompt metadata', () => {
+    const live = card({ promptId: '', prompt: '', workflowFile: '/workflow.api.json' });
+    const text = out(renderGenerateResult(gen({ background: true }), { expanded: true }, theme, {}, live));
+    expect(text).toContain('queued');
+    expect(text).toContain('workflow: /workflow.api.json');
+    expect(text).not.toContain('negative:');
+    expect(text).not.toContain('prompt id:');
   });
 });
 

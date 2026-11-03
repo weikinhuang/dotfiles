@@ -38,6 +38,20 @@ serialized through a promise-chain mutex so concurrent `start` calls don't stack
   running or unsurfaced terminal jobs, nothing is injected. (`uiRef` / statusline are still refreshed on
   `before_agent_start`, which now does only that.)
 
+## Live START cards (TUI only)
+
+The original `start` result card follows its exact runtime job after the tool returns: a compact status line shows
+elapsed time, bytes and exit status, with recent stdout/stderr underneath. Each stream uses the existing 200-byte
+summary tail (at most three lines collapsed or eight expanded); expansion also shows pid and cwd. Signaled jobs keep
+refreshing until an end time is recorded, and `outputOpen` jobs keep following late output until the pipes close.
+
+This is a display-only projection via [`LiveToolCards`](../../../lib/node/pi/ext/live-tool-cards.ts), with one
+demand-driven 500 ms refresh timer. It never rewrites returned `content` / `details`, appends session entries, sends
+messages, or changes reminder/nudge delivery. Only the original row captured before execution attaches to live data.
+Exported, replayed and historical rows, and all `status` / `logs` / `wait` / `list` cards, retain their recorded
+snapshots. Completion freezes the original card; removing or clearing a job preserves its final UI data. Session
+start/tree resets ownership, and shutdown stops refreshes before child teardown.
+
 ## Tool: `bg_bash`
 
 | Action   | Required  | Optional                                                                                                            | Notes                                                                                                                                     |

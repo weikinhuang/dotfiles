@@ -7,7 +7,9 @@ import {
   SettingsManager,
   type AgentSessionEvent,
   type ExtensionAPI,
+  type Theme,
 } from '@earendil-works/pi-coding-agent';
+import type { Component } from '@earendil-works/pi-tui';
 import type { AssistantMessage } from '@earendil-works/pi-ai';
 import { Type } from 'typebox';
 import { execFileSync } from 'node:child_process';
@@ -16,6 +18,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { setImmediate } from 'node:timers/promises';
 import { afterEach, beforeEach, describe, expect, test, vi, type MockInstance } from 'vitest';
+import type { LiveCardRenderContext as ToolRenderContext } from '../../../../../lib/node/pi/ext/live-tool-cards.ts';
 import {
   registerSubagentInjection,
   unregisterSubagentInjection,
@@ -45,6 +48,15 @@ interface RunDetails {
   turns: number;
   tokens: { input: number; output: number };
   childSessionFile?: string;
+}
+
+const theme = {
+  fg: (_token: string, text: string) => text,
+  bold: (text: string) => text,
+} as unknown as Theme;
+
+function renderText(component: Component): string {
+  return component.render(200).join('\n');
 }
 
 // Only provider entry points are replaced. Resource discovery, extension loading,
@@ -271,6 +283,127 @@ describe('subagent actual SDK runtime (provider-free)', () => {
     expect(final.isError).toBe(false);
     expect(final.content).toEqual([{ type: 'text', text: 'background answer' }]);
     expect(details(final).stopReason).toBe('completed');
+  });
+
+  test('the original background card updates activity and completion without changing its tool result', async () => {
+    await parent.bindExtensions({ mode: 'tui' });
+    const started = gate();
+    const release = gate();
+    promptImpl = async (session) => {
+      started.resolve();
+      await release.promise;
+      finish(session, 'live card final answer');
+    };
+    const args = { agent: 'review', task: 'live progress', run_in_background: true };
+    const definition = parent.extensionRunner.getToolDefinition('subagent')!;
+    const invalidated = vi.fn();
+    const context: ToolRenderContext = {
+      args,
+      toolCallId: `test-${pending.length}`,
+      state: {},
+      invalidate: invalidated,
+      lastComponent: undefined,
+      cwd,
+      executionStarted: false,
+      argsComplete: true,
+      isPartial: true,
+      expanded: false,
+      showImages: false,
+      isError: false,
+      durationMs: undefined,
+      outputPad: 1,
+    };
+    definition.renderCall!(args, theme, context);
+    context.executionStarted = true;
+    const spawned = await spawn('live progress', { run_in_background: true });
+    await started.promise;
+    const original = JSON.stringify(spawned);
+    context.isPartial = false;
+    const render = (ctx = context, expanded = false): string =>
+      renderText(
+        definition.renderResult!(
+          spawned as Parameters<NonNullable<typeof definition.renderResult>>[0],
+          { expanded, isPartial: false },
+          theme,
+          ctx,
+        ),
+      );
+    expect(render()).toContain('Live · /agents');
+    const child = [...children][0];
+    emit(child, {
+      type: 'tool_execution_start',
+      toolCallId: 'live-read',
+      toolName: 'read',
+      args: { path: 'live-file.ts' },
+    });
+    const entriesBeforeTick = parent.sessionManager.getEntries().length;
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(invalidated).toHaveBeenCalledTimes(3);
+    expect(render()).toContain('live-file.ts');
+    expect(render()).toContain('read');
+    expect(parent.sessionManager.getEntries()).toHaveLength(entriesBeforeTick);
+
+    const exported: ToolRenderContext = { ...context, state: {}, invalidate: vi.fn() };
+    definition.renderCall!(args, theme, exported);
+    expect(render(exported)).toContain('spawned in background');
+    expect(render(exported)).not.toContain('live-file.ts');
+    release.resolve();
+    await Promise.allSettled(pending);
+    await setImmediate();
+    expect(render()).toContain('live card final answer');
+    expect(render()).not.toContain('Live · /agents');
+    expect(render()).not.toContain('spawned in background');
+    expect(JSON.stringify(spawned)).toBe(original);
+    const calls = invalidated.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(6000);
+    expect(invalidated).toHaveBeenCalledTimes(calls);
+    expect(exported.invalidate).not.toHaveBeenCalled();
+    expect(render(context, true)).toContain('live card final answer');
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  test('live card refresh detaches before shutdown drains a background child', async () => {
+    await parent.bindExtensions({ mode: 'tui' });
+    const release = gate();
+    promptImpl = async (session) => {
+      await release.promise;
+      finish(session);
+    };
+    const args = { agent: 'review', task: 'shutdown card', run_in_background: true };
+    const definition = parent.extensionRunner.getToolDefinition('subagent')!;
+    const invalidated = vi.fn();
+    const context: ToolRenderContext = {
+      args,
+      toolCallId: `test-${pending.length}`,
+      state: {},
+      invalidate: invalidated,
+      lastComponent: undefined,
+      cwd,
+      executionStarted: false,
+      argsComplete: true,
+      isPartial: true,
+      expanded: false,
+      showImages: false,
+      isError: false,
+      durationMs: undefined,
+      outputPad: 1,
+    };
+    definition.renderCall!(args, theme, context);
+    const spawned = await spawn('shutdown card', { run_in_background: true });
+    definition.renderResult!(
+      spawned as Parameters<NonNullable<typeof definition.renderResult>>[0],
+      { expanded: false, isPartial: false },
+      theme,
+      context,
+    );
+    const shutdown = parent.extensionRunner.emit({ type: 'session_shutdown', reason: 'reload' });
+    await vi.advanceTimersByTimeAsync(1200);
+    await shutdown;
+    expect(invalidated).not.toHaveBeenCalled();
+    release.resolve();
+    await Promise.allSettled(pending);
+    await vi.advanceTimersByTimeAsync(6000);
+    expect(invalidated).not.toHaveBeenCalled();
   });
 
   test.each([false, true])(

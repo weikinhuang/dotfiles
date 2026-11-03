@@ -41,6 +41,8 @@ import { emptyRegistry, formatRunningBlock, type JobRegistry, runningJobs, updat
 import { type CollectOutcome, pollJobOnce } from '../../comfyui/poll.ts';
 import { extractSceneContext, mergeSceneContext } from '../../comfyui/scene-context.ts';
 import type { ComfyuiConfig } from '../../comfyui/types.ts';
+import { LiveToolCards } from '../live-tool-cards.ts';
+import type { GenerateLiveCard } from './details.ts';
 
 // Custom session-entry type under which the ephemeral-render collapse set
 // is persisted. Distinct from tool-collapse's own store so the two
@@ -74,6 +76,9 @@ export class ComfyuiRuntime {
   // bg-bash) - reattaching to a prior runtime's promptId is best handled
   // by re-submitting, and the server's own history outlives us anyway.
   registry: JobRegistry = emptyRegistry();
+
+  // Original executing TUI rows only, independent of persisted tool results.
+  readonly liveCards = new LiveToolCards<GenerateLiveCard>();
 
   // Generation registry: every render that landed on disk, addressable by
   // a `g<n>` id for the gallery + `variationOf` / `refine` reuse. Persisted
@@ -162,6 +167,8 @@ export class ComfyuiRuntime {
   // ── Statusline ──────────────────────────────────────────────────────
 
   updateStatusline(): void {
+    // Flush terminal snapshots even without a statusline or before registry cleanup.
+    this.liveCards.refresh();
     if (!this.uiRef) return;
     const running = runningJobs(this.registry).length;
     if (running === this.lastStatusRunning) return;
@@ -288,6 +295,7 @@ export class ComfyuiRuntime {
   // ── Lifecycle hooks (delegated from the shell's pi.on handlers) ──────
 
   onSessionStart(ctx: ExtensionContext): void {
+    this.liveCards.reset(ctx.mode === 'tui');
     // Re-point cwd from the registration-time `process.cwd()` seed to the
     // real session cwd. The `/comfyui workflows` completion resolver
     // closes over `rt.cwd` (completions get no `ctx`), so this keeps it
@@ -307,11 +315,13 @@ export class ComfyuiRuntime {
   // the ephemeral overlay + generation registry from the new branch's
   // persisted snapshots.
   onSessionTree(ctx: ExtensionContext): void {
+    this.liveCards.reset(ctx.mode === 'tui');
     this.ephemeral = reduceBranch(ctx.sessionManager.getBranch(), EPHEMERAL_CUSTOM_TYPE);
     this.generations = reduceGenerations(ctx.sessionManager.getBranch(), GENERATIONS_CUSTOM_TYPE);
   }
 
   onShutdown(ctx: ExtensionContext): void {
+    this.liveCards.reset(false);
     // Clear the statusline badge and drop the in-memory job registry so
     // a /reload doesn't leave a stale `▦ img:N` count claiming the slot
     // or surface a prior session's background jobs. ComfyUI owns the

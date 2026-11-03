@@ -13,7 +13,8 @@
  *     `logs` call the post-wait state rather than a mid-run snapshot.
  */
 
-import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
+import type { ExtensionAPI, Theme } from '@earendil-works/pi-coding-agent';
+import type { Component } from '@earendil-works/pi-tui';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -22,6 +23,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import bgBash from '../../../../config/pi/extensions/bg-bash.ts';
 import { type JobSummary } from '../../../../lib/node/pi/bg-bash-reducer.ts';
+import type { LiveCardRenderContext as ToolRenderContext } from '../../../../lib/node/pi/ext/live-tool-cards.ts';
 
 interface ToolResult {
   content: { type: 'text'; text: string }[];
@@ -37,39 +39,106 @@ type Execute = (
   ctx: unknown,
 ) => Promise<ToolResult>;
 
+interface Card {
+  result: ToolResult;
+  render: (expanded?: boolean, freshState?: boolean) => string;
+  invalidate: ReturnType<typeof vi.fn>;
+}
+
 interface Runtime {
   call: (params: Record<string, unknown>) => Promise<ToolResult>;
+  card: (params: Record<string, unknown>) => Promise<Card>;
+  clear: () => Promise<void>;
+  tree: () => Promise<void>;
+  appendEntry: ReturnType<typeof vi.fn>;
+  sendMessage: ReturnType<typeof vi.fn>;
   shutdown: () => Promise<void>;
 }
 
-function load(dir: string): Runtime {
+interface Renderers {
+  execute: Execute;
+  renderCall: (args: Record<string, unknown>, theme: Theme, context: ToolRenderContext) => Component;
+  renderResult: (
+    result: ToolResult,
+    options: { expanded: boolean },
+    theme: Theme,
+    context: ToolRenderContext,
+  ) => Component;
+}
+
+const theme = { fg: (_color: string, text: string) => text, bold: (text: string) => text } as Theme;
+
+function load(dir: string, mode = 'tui'): Runtime {
   const handlers = new Map<string, (event: unknown, ctx: unknown) => unknown>();
-  let execute: Execute | undefined;
+  let tool: Renderers;
+  let command: (args: string, ctx: unknown) => Promise<void>;
+  const appendEntry = vi.fn();
+  const sendMessage = vi.fn();
   const pi = {
     on: (name: string, handler: (event: unknown, ctx: unknown) => unknown) => {
       handlers.set(name, handler);
     },
-    registerTool: (definition: { execute: Execute }) => {
-      execute = definition.execute;
+    registerTool: (definition: Renderers) => {
+      tool = definition;
     },
-    registerCommand: vi.fn(),
+    registerCommand: (_name: string, definition: { handler: typeof command }) => {
+      command = definition.handler;
+    },
     registerMessageRenderer: vi.fn(),
-    appendEntry: vi.fn(),
-    sendMessage: vi.fn(),
+    appendEntry,
+    sendMessage,
     events: { on: () => (): void => undefined },
   } as unknown as ExtensionAPI;
   bgBash(pi);
   const ctx = {
     cwd: dir,
-    hasUI: false,
+    mode,
+    hasUI: mode === 'tui',
     ui: { setStatus: vi.fn(), notify: vi.fn(), select: vi.fn(), input: vi.fn() },
     sessionManager: { getBranch: () => [] },
     isIdle: () => true,
   };
   void handlers.get('session_start')?.({}, ctx);
   let n = 0;
+  const card = async (params: Record<string, unknown>): Promise<Card> => {
+    const invalidate = vi.fn();
+    const context = {
+      toolCallId: `call-${n++}`,
+      state: {},
+      args: params,
+      executionStarted: false,
+      isPartial: false,
+      invalidate,
+    } as unknown as ToolRenderContext;
+    tool.renderCall(params, theme, context);
+    context.executionStarted = true;
+    const result = await tool.execute(context.toolCallId, params, undefined, undefined, ctx);
+    return {
+      result,
+      invalidate,
+      render: (expanded = false, freshState = false) => {
+        const row = freshState ? { ...context, state: {} } : context;
+        // Exports/replayed rows may render the call again, but execution has already started.
+        tool.renderCall(params, theme, row);
+        return tool
+          .renderResult(result, { expanded }, theme, row)
+          .render(2000)
+          .map((line) => line.trimEnd())
+          .join('\n');
+      },
+    };
+  };
   return {
-    call: (params) => execute!(`call-${n++}`, params, undefined, undefined, ctx),
+    card,
+    call: async (params) => (await card(params)).result,
+    clear: async () => {
+      await command('clear', ctx);
+    },
+    tree: async () => {
+      await handlers.get('session_tree')?.({}, ctx);
+    },
+    appendEntry,
+    sendMessage,
     shutdown: async () => {
       await handlers.get('session_shutdown')?.({}, ctx);
     },
@@ -140,6 +209,137 @@ describe('bg_bash runtime (real spawn)', () => {
       expect(logs.details.logExcerpt).toBe('first\n');
       expect(logs.content[0].text).toContain('(job still running - output so far)');
     });
+  });
+
+  test('only the original START card follows output and completion without rewriting results or history', async () => {
+    const card = await rt.card({
+      action: 'start',
+      interactiveStdin: true,
+      command:
+        'while IFS= read -r line; do [ "$line" = done ] && exit 7; printf "%s\\n" "$line"; printf "err:%s\\n" "$line" >&2; done',
+    });
+    const id = card.result.details.job!.id;
+    const original = JSON.stringify(card.result);
+    expect(card.render()).toContain('running');
+    expect(card.render(true)).toContain(`cwd ${dir}`);
+    const historical = card.render(false, true);
+    const status = await rt.card({ action: 'status', id });
+    const logs = await rt.card({ action: 'logs', id });
+    const wait = await rt.card({ action: 'wait', id, timeoutMs: 1 });
+    const list = await rt.card({ action: 'list' });
+    const snapshots = [status, logs, wait, list].map((row) => row.render());
+
+    await rt.call({ action: 'stdin', id, text: `${'x'.repeat(1000)}recent-output\n` });
+    const entries = rt.appendEntry.mock.calls.length;
+    const messages = rt.sendMessage.mock.calls.length;
+    card.invalidate.mockClear();
+    await vi.waitFor(() => expect(card.invalidate).toHaveBeenCalled(), { timeout: 1500 });
+    expect(card.render()).toContain('stdout:');
+    expect(card.render()).toContain('stderr:');
+    expect(card.render()).toContain('recent-output');
+    expect(card.render().length).toBeLessThan(800);
+    expect(rt.appendEntry).toHaveBeenCalledTimes(entries);
+    expect(rt.sendMessage).toHaveBeenCalledTimes(messages);
+    expect(card.render(false, true)).toBe(historical);
+
+    card.invalidate.mockClear();
+    await rt.call({ action: 'stdin', id, text: 'done\n' });
+    // No status/wait call is needed to update the original result row.
+    await vi.waitFor(() => expect(card.invalidate).toHaveBeenCalled());
+    expect(card.render()).toContain('exit 7');
+    expect(JSON.stringify(card.result)).toBe(original);
+    expect([status, logs, wait, list].map((row) => row.render())).toEqual(snapshots);
+    expect([status, logs, wait, list].every((row) => row.invalidate.mock.calls.length === 0)).toBe(true);
+    const terminal = card.render();
+    await rt.call({ action: 'remove', id });
+    expect(card.render()).toBe(terminal);
+    expect(card.render(false, true)).toBe(historical);
+    card.invalidate.mockClear();
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    expect(card.invalidate).not.toHaveBeenCalled();
+    expect(JSON.stringify(card.result)).toBe(original);
+  });
+
+  test('terminal START data survives clear, while tree navigation restores historical rendering', async () => {
+    const card = await rt.card({ action: 'start', command: 'read line; echo cleared', interactiveStdin: true });
+    const id = card.result.details.job!.id;
+    card.render();
+    await rt.call({ action: 'stdin', id, text: 'go\n' });
+    await vi.waitFor(() => expect(card.invalidate).toHaveBeenCalled());
+    const terminal = card.render();
+    expect(terminal).toContain('exit 0');
+    expect(terminal).toContain('stdout: cleared');
+    await rt.clear();
+    expect(card.render()).toBe(terminal);
+    await rt.tree();
+    expect(card.render()).toBe(card.render(false, true));
+    expect(card.render()).not.toContain('stdout: cleared');
+  });
+
+  test('shutdown stops original-card invalidation before child teardown', async () => {
+    const card = await rt.card({ action: 'start', command: 'read line', interactiveStdin: true });
+    card.render();
+    card.invalidate.mockClear();
+    await rt.shutdown();
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    expect(card.invalidate).not.toHaveBeenCalled();
+    expect(card.render()).toBe(card.render(false, true));
+  });
+
+  test('signaled-without-endedAt stays live until the process actually finishes', async () => {
+    const card = await rt.card({
+      action: 'start',
+      interactiveStdin: true,
+      command: `exec ${node} -e 'process.on("SIGTERM",()=>setTimeout(()=>{console.log("signal-drained");process.exit(0)},800)); console.log("ready"); process.stdin.resume()'`,
+    });
+    const id = card.result.details.job!.id;
+    await vi.waitFor(() => expect(card.render()).toContain('stdout: ready'));
+    const signal = await rt.call({ action: 'signal', id });
+    expect(signal.details.job?.endedAt).toBeUndefined();
+    card.render();
+    await new Promise((resolve) => setTimeout(resolve, 550));
+    expect(card.render()).not.toContain('signal-drained');
+    await vi.waitFor(
+      () => {
+        expect(card.render()).toContain('signal-drained');
+        expect(card.render()).toContain('exit 0');
+      },
+      { timeout: 2000 },
+    );
+  });
+
+  test('an outputOpen START card keeps following late bytes until the inherited pipe closes', async () => {
+    vi.stubEnv('PI_BG_BASH_DRAIN_MS', '10');
+    await rt.shutdown();
+    rt = load(dir);
+    const card = await rt.card({
+      action: 'start',
+      interactiveStdin: true,
+      command: `read line; ${node} -e 'setTimeout(()=>console.log("late-pipe-output"),900)' & exit 0`,
+    });
+    const id = card.result.details.job!.id;
+    card.render();
+    await rt.call({ action: 'stdin', id, text: 'go\n' });
+    await vi.waitFor(() => expect(card.render()).toContain('output pipe still open'));
+    card.invalidate.mockClear();
+    await vi.waitFor(() => expect(card.invalidate).toHaveBeenCalled(), { timeout: 1500 });
+    await vi.waitFor(() => expect(card.render()).toContain('stdout: late-pipe-output'), { timeout: 2000 });
+    expect(card.render()).not.toContain('output pipe still open');
+    const terminal = card.render();
+    await rt.call({ action: 'remove', id });
+    expect(card.render()).toBe(terminal);
+  });
+
+  test('non-TUI execution never attaches live START rendering', async () => {
+    await rt.shutdown();
+    rt = load(dir, 'rpc');
+    const card = await rt.card({ action: 'start', command: 'read line; echo rpc-output', interactiveStdin: true });
+    const historical = card.render();
+    const id = card.result.details.job!.id;
+    await rt.call({ action: 'stdin', id, text: 'go\n' });
+    await rt.call({ action: 'wait', id, timeoutMs: 2000 });
+    expect(card.render()).toBe(historical);
+    expect(card.invalidate).not.toHaveBeenCalled();
   });
 
   test('shell: "bash" runs bash-only syntax; sh gets a warning instead', async () => {

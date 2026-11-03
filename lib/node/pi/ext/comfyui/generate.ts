@@ -74,7 +74,7 @@ export async function executeGenerate(
   signal: AbortSignal | undefined,
   onUpdate: AgentToolUpdateCallback<GenerateDetails> | undefined,
   ctx: ExtensionContext,
-  options: { requireEnhance?: boolean; isolatedContext?: boolean } = {},
+  options: { requireEnhance?: boolean; isolatedContext?: boolean; liveCard?: boolean } = {},
 ): Promise<GenerateToolResult> {
   const config = rt.loadConfig(ctx.cwd);
 
@@ -456,6 +456,31 @@ export async function executeGenerate(
     rt.updateStatusline();
     details.background = true;
     details.jobId = jobId;
+    // Only the registered generate_image invocation opts in. Alternate interfaces
+    // must not acquire a card merely by sharing an outer tool-call id.
+    let bgProgress = 'preparing…';
+    if (options.liveCard) {
+      rt.liveCards.bind(toolCallId, ctx, () => {
+        const job = findJob(rt.registry, jobId);
+        if (!job) return undefined;
+        return {
+          value: {
+            job: { ...job, savedPaths: [...job.savedPaths] },
+            elapsedMs: Math.max(0, (job.endedAt ?? Date.now()) - job.startedAt),
+            progress:
+              job.status === 'running'
+                ? [job.progress, rt.inFlight.has(jobId) ? 'checking / downloading outputs…' : bgProgress]
+                    .filter(Boolean)
+                    .join(' · ')
+                : job.progress,
+          },
+          active: job.status === 'running',
+        };
+      });
+    }
+    const reportBackground = (text: string): void => {
+      bgProgress = text;
+    };
     // Spin the poll timer up now (idempotent); it skips jobs whose
     // deferred submit hasn't filled in a prompt id yet, so it simply
     // starts watching the moment the submit lands. A managed (auto-refine)
@@ -468,9 +493,7 @@ export async function executeGenerate(
       const bgAc = new AbortController();
       const bgTimer = setTimeout(() => bgAc.abort(), conn.timeoutMs);
       try {
-        const result = await runPipeline(randomUUID(), bgAc.signal, () => {
-          /* off-turn: progress lines have nowhere to stream */
-        });
+        const result = await runPipeline(randomUUID(), bgAc.signal, reportBackground);
         if (!result.ok) {
           rt.registry = updateJob(rt.registry, jobId, { status: 'error', error: result.error, endedAt: Date.now() });
           rt.updateStatusline();
@@ -497,6 +520,7 @@ export async function executeGenerate(
           prompt: result.prompt,
           negative: result.negative,
         });
+        bgProgress = autoDownload ? 'waiting for outputs…' : 'waiting for collect (auto-download off)…';
         if (!refineActive || refiner === null) {
           if (autoDownload) rt.ensurePollTimer(config.pollIntervalMs);
           return;
@@ -507,11 +531,13 @@ export async function executeGenerate(
         // per-round progress on the job status text + statusline. The
         // converged best-so-far is what a later `image_jobs collect`
         // returns; the poll timer skips this job (it is `managed`).
+        bgProgress = 'waiting for outputs…';
         rt.registry = updateJob(rt.registry, jobId, { progress: 'rendering' });
         rt.updateStatusline();
         const waker = createWaker();
         const refs = await waitForImages(conn, result.promptId, bgAc.signal, waker);
         const bgPreview = previewTransformFor(params.previewMaxDimension ?? config.previewMaxDimension);
+        bgProgress = 'downloading outputs…';
         const saved = await fetchAndSave(conn, refs, saveDir, bgAc.signal, bgPreview);
         const first = saved.find(isSavedImage);
         if (first === undefined) {
@@ -543,9 +569,7 @@ export async function executeGenerate(
                 cwd: ctx.cwd,
                 saveDir,
                 signal: bgAc.signal,
-                report: () => {
-                  /* off-turn: progress lines have nowhere to stream */
-                },
+                report: reportBackground,
                 ...(bgPreview !== undefined ? { previewTransform: bgPreview } : {}),
                 sourceWf: wf,
                 sourceName: name,

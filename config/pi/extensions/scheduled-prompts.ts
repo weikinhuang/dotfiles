@@ -71,6 +71,7 @@ import { Type } from 'typebox';
 import { completeSubverbs } from '../../../lib/node/pi/commands/complete.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { createGlobalSlot } from '../../../lib/node/pi/global-slot.ts';
+import { LiveToolCards } from '../../../lib/node/pi/ext/live-tool-cards.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 import { formatDuration, parseDuration } from '../../../lib/node/pi/scheduled-prompts/duration.ts';
 import { renderPrompt } from '../../../lib/node/pi/scheduled-prompts/template.ts';
@@ -139,6 +140,72 @@ export default function scheduledPromptsExtension(pi: ExtensionAPI): void {
 
   let currentCtx: ExtensionContext | undefined;
   let cwd = process.cwd();
+
+  // Only original executing TUI rows own these projections. Nothing here is
+  // persisted or returned to the model, and UI ticks never drive the scheduler.
+  const liveCards = new LiveToolCards<string>();
+  interface ScheduleView {
+    schedule: Schedule;
+    status: 'enabled' | 'paused' | 'deleted' | 'exhausted';
+  }
+  const liveSchedules = new Map<string, ScheduleView>();
+  const viewKey = (schedule: Schedule): string => `${schedule.scope}:${schedule.id}`;
+  const scheduleStatus = (schedule: Schedule): ScheduleView['status'] =>
+    !schedule.enabled ? 'paused' : schedule.nextFireAt === undefined ? 'exhausted' : 'enabled';
+
+  const refreshLiveSchedules = (schedules: Schedule[]): void => {
+    for (const [key, view] of liveSchedules) {
+      const current = schedules.find((s) => viewKey(s) === key);
+      if (current) {
+        view.schedule = current;
+        view.status = scheduleStatus(current);
+      } else {
+        view.status = 'deleted';
+      }
+    }
+    liveCards.refresh();
+    for (const [key, view] of liveSchedules) {
+      if (view.status === 'deleted' || view.status === 'exhausted') liveSchedules.delete(key);
+    }
+  };
+
+  const retireLiveSchedule = (schedule: Schedule): void => {
+    const key = viewKey(schedule);
+    const view = liveSchedules.get(key);
+    if (!view) return;
+    view.schedule = schedule;
+    view.status = 'exhausted';
+    // Capture the final run count before the scheduler removes the schedule.
+    liveCards.refresh();
+    liveSchedules.delete(key);
+  };
+
+  const describeNext = (schedule: Schedule): string => {
+    if (!schedule.enabled) return 'disabled';
+    if (schedule.nextFireAt === undefined) return 'not scheduled';
+    const delta = schedule.nextFireAt - Date.now();
+    if (delta <= 0) return 'due now';
+    return `in ${formatDuration(delta)} (${new Date(schedule.nextFireAt).toLocaleString()})`;
+  };
+
+  const bindLiveSchedule = (toolCallId: string, ctx: ExtensionContext, schedule: Schedule): void => {
+    if (ctx.mode !== 'tui') return;
+    const key = viewKey(schedule);
+    const view = liveSchedules.get(key) ?? { schedule, status: scheduleStatus(schedule) };
+    liveSchedules.set(key, view);
+    liveCards.bind(toolCallId, ctx, () => {
+      const s = view.schedule;
+      const next = view.status === 'enabled' ? describeNext(s) : 'none';
+      const runs = `${s.runCount}${s.maxRuns === undefined ? '' : `/${s.maxRuns}`}`;
+      const name = s.name ? ` (${s.name})` : '';
+      return {
+        value: `Current ${s.id}${name} [${s.scope}] ${describeTrigger(s.trigger)} | status: ${view.status} | next: ${next} | runs: ${runs}`,
+        active: view.status === 'enabled' && s.nextFireAt !== undefined,
+        // Paused rows stay event-refreshable, but need no countdown interval.
+        watch: view.status === 'paused',
+      };
+    });
+  };
 
   // ── Per-scope persistence (session lives in the slot) ───────────────
 
@@ -214,6 +281,7 @@ export default function scheduledPromptsExtension(pi: ExtensionAPI): void {
       if (s.chance !== undefined && Math.random() >= s.chance) {
         debug(`chance-skip ${s.id}`);
         if (s.trigger.kind === 'once') {
+          retireLiveSchedule({ ...s, nextFireAt: undefined });
           next = removeFromList(next, s.id).list;
         } else {
           next = updateInList(next, s.id, { nextFireAt: computeNextFire(s, new Date(now)) ?? undefined }).list;
@@ -231,6 +299,7 @@ export default function scheduledPromptsExtension(pi: ExtensionAPI): void {
       const ran = recordRun({ ...s, promptCursor: cursor }, now);
       // nextFireAt undefined => spent `once` or retired (hit maxRuns).
       if (ran.nextFireAt === undefined) {
+        retireLiveSchedule(ran);
         next = removeFromList(next, s.id).list;
       } else {
         next = updateInList(next, s.id, ran).list;
@@ -290,7 +359,9 @@ export default function scheduledPromptsExtension(pi: ExtensionAPI): void {
     }
     const now = Date.now();
     let soonest: number | undefined;
-    for (const original of collectAll()) {
+    const schedules = collectAll();
+    refreshLiveSchedules(schedules);
+    for (const original of schedules) {
       const s = reconcileSchedule(original, now);
       if (!s.enabled || s.nextFireAt === undefined) continue;
       if (soonest === undefined || s.nextFireAt < soonest) soonest = s.nextFireAt;
@@ -358,17 +429,11 @@ export default function scheduledPromptsExtension(pi: ExtensionAPI): void {
     return count;
   };
 
-  const describeNext = (schedule: Schedule): string => {
-    if (!schedule.enabled) return 'disabled';
-    if (schedule.nextFireAt === undefined) return 'not scheduled';
-    const delta = schedule.nextFireAt - Date.now();
-    if (delta <= 0) return 'due now';
-    return `in ${formatDuration(delta)} (${new Date(schedule.nextFireAt).toLocaleString()})`;
-  };
-
   // ── Lifecycle ─────────────────────────────────────────────────────────
 
   pi.on('session_start', (_event, ctx) => {
+    liveCards.reset(ctx.mode === 'tui');
+    liveSchedules.clear();
     currentCtx = ctx;
     cwd = ctx.cwd;
     const now = Date.now();
@@ -378,7 +443,15 @@ export default function scheduledPromptsExtension(pi: ExtensionAPI): void {
     rearm();
   });
 
+  pi.on('session_tree', (_event, ctx) => {
+    liveCards.reset(ctx.mode === 'tui');
+    liveSchedules.clear();
+  });
+
   pi.on('session_shutdown', (event) => {
+    liveCards.reset(false);
+    liveSchedules.clear();
+    currentCtx = undefined;
     const slot = getSlot();
     if (slot.timer) {
       clearTimeout(slot.timer);
@@ -575,7 +648,10 @@ export default function scheduledPromptsExtension(pi: ExtensionAPI): void {
     enabled?: boolean;
   }
 
-  const toolCreate = (params: ScheduleToolParamsT): { content: string; isError?: boolean } => {
+  const toolCreate = (
+    params: ScheduleToolParamsT,
+    onCreated: (schedule: Schedule) => void,
+  ): { content: string; isError?: boolean } => {
     const pool = (params.prompts ?? []).map((p) => p.trim()).filter((p) => p.length > 0);
     const primary = pool[0] ?? params.prompt?.trim() ?? '';
     if (primary.length === 0) {
@@ -612,12 +688,16 @@ export default function scheduledPromptsExtension(pi: ExtensionAPI): void {
     );
     addSchedule(schedule);
     rearm();
+    onCreated(schedule);
     return {
       content: `Created ${schedule.id} [${schedule.scope}] ${describeTrigger(schedule.trigger)} - next ${describeNext(schedule)}`,
     };
   };
 
-  const toolUpdate = (params: ScheduleToolParamsT): { content: string; isError?: boolean } => {
+  const toolUpdate = (
+    params: ScheduleToolParamsT,
+    onUpdated: (schedule: Schedule) => void,
+  ): { content: string; isError?: boolean } => {
     if (!params.id) return { content: 'Error: `id` is required for update.', isError: true };
     const existing = findById(collectAll(), params.id);
     if (!existing) return { content: `Error: no schedule with id "${params.id}".`, isError: true };
@@ -665,6 +745,7 @@ export default function scheduledPromptsExtension(pi: ExtensionAPI): void {
     const updated = updateById(params.id, patch);
     rearm();
     if (!updated) return { content: `Error: no schedule with id "${params.id}".`, isError: true };
+    onUpdated(updated);
     return { content: `Updated ${updated.id} - next ${describeNext(updated)}` };
   };
 
@@ -683,7 +764,7 @@ export default function scheduledPromptsExtension(pi: ExtensionAPI): void {
     ],
     parameters: ScheduleToolParams,
 
-    async execute(_toolCallId, params: ScheduleToolParamsT, _signal, _onUpdate, ctx) {
+    async execute(toolCallId, params: ScheduleToolParamsT, _signal, _onUpdate, ctx) {
       if (ctx?.cwd && ctx.cwd !== cwd) cwd = ctx.cwd;
       if (ctx) currentCtx = ctx;
       let out: { content: string; isError?: boolean };
@@ -695,10 +776,10 @@ export default function scheduledPromptsExtension(pi: ExtensionAPI): void {
           break;
         }
         case 'create':
-          out = toolCreate(params);
+          out = toolCreate(params, (schedule) => bindLiveSchedule(toolCallId, ctx, schedule));
           break;
         case 'update':
-          out = toolUpdate(params);
+          out = toolUpdate(params, (schedule) => bindLiveSchedule(toolCallId, ctx, schedule));
           break;
         case 'delete': {
           if (!params.id) {
@@ -720,13 +801,23 @@ export default function scheduledPromptsExtension(pi: ExtensionAPI): void {
       };
     },
 
-    renderCall(args, theme) {
+    renderCall(args, theme, context) {
+      if (args.action === 'create' || args.action === 'update') liveCards.capture(context);
       const a = args;
       let text = theme.fg('toolTitle', theme.bold('schedule ')) + theme.fg('muted', a.action);
       if (a.id) text += ` ${theme.fg('accent', a.id)}`;
       const trig = a.cron ?? a.every ?? a.in ?? a.at ?? a.after;
       if (trig) text += ` ${theme.fg('dim', trig)}`;
       return new Text(text, 0, 0);
+    },
+
+    renderResult(result, _options, theme, context) {
+      const receipt = result.content
+        .filter((part) => part.type === 'text')
+        .map((part) => part.text)
+        .join('\n');
+      const live = liveCards.read(context);
+      return new Text(live === undefined ? receipt : `${receipt}\n${theme.fg('muted', live)}`, 0, 0);
     },
   });
 }

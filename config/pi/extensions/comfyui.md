@@ -303,6 +303,25 @@ the seed (the seed is recorded on the job once the submit lands).
 To make every generation background by default (e.g. a project of slow renders), set `"background": true` in a
 `comfyui.json` layer; the per-call `background` arg still overrides it, so an individual foreground render is `false`.
 
+### Live original tool card (TUI only)
+
+The original executing `generate_image` card keeps updating after the tool returns: `queued` while preparing/submitting,
+`running` after submission (including time waiting in ComfyUI's queue), then `done`, `error`, or `cancelled`. It shows
+elapsed time and available preparation/upload/refinement progress, plus a checking/downloading indicator during
+collection. Plain background jobs use the existing history poll, not a new step-progress websocket; the UI does not
+guess sampling percentages or distinguish server queue time from execution. With auto-download off, plain jobs remain
+running until `image_jobs collect` checks them. Managed auto-refine jobs still finish through their detached loop.
+
+On completion the compact card shows media counts and the first saved path. Expand the card to see workflow/file,
+ComfyUI prompt id, rendered positive/negative prompts when known, refinement summary, and all saved paths. Errors and
+cancellation stay visible. A single demand-driven 500ms UI timer refreshes active cards; terminal views freeze and stop
+refreshing. Session start, tree navigation, and shutdown discard live ownership and timers.
+
+These are human-only text projections on the exact row that executed the call, never changes to returned content or
+`details`. They add no images, video, audio, messages, or model context when work finishes. HTML exports,
+replayed/history rows, non-TUI modes, and the roleplay generation facade keep their ordinary snapshot rendering, even if
+an id matches a live job. Foreground progress and explicit `image_jobs collect` behavior are unchanged.
+
 ### Auto-download
 
 When `autoDownload` is on (the default), the extension runs an off-turn timer that polls `/history` for every running

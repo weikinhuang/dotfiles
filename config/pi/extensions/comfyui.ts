@@ -190,8 +190,8 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
   // the persisted overlays from the new branch.
   pi.on('session_tree', (_event, ctx) => rt.onSessionTree(ctx));
   pi.on('session_shutdown', (_event, ctx) => {
-    uninstallGenerator();
     rt.onShutdown(ctx);
+    uninstallGenerator();
   });
   pi.on('before_agent_start', (event, ctx) => {
     rt.beforeAgentStart(ctx);
@@ -244,10 +244,14 @@ export default function comfyuiExtension(pi: ExtensionAPI): void {
     parameters: GenerateParams,
 
     execute: (toolCallId, params, signal, onUpdate, ctx) =>
-      executeGenerate(rt, enhancerAccess, refinerAccess, toolCallId, params, signal, onUpdate, ctx),
+      executeGenerate(rt, enhancerAccess, refinerAccess, toolCallId, params, signal, onUpdate, ctx, { liveCard: true }),
 
-    renderCall: (args, theme) => renderGenerateCall(args, theme),
-    renderResult: (result, options, theme, context) => renderGenerateResult(result, options, theme, context),
+    renderCall: (args, theme, context) => {
+      rt.liveCards.capture(context);
+      return renderGenerateCall(args, theme);
+    },
+    renderResult: (result, options, theme, context) =>
+      renderGenerateResult(result, options, theme, context, rt.liveCards.read(context)),
   });
 
   // ── image_jobs: manage background generations ──────────────────────

@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent';
+import type { ExtensionAPI, ExtensionContext, Theme } from '@earendil-works/pi-coding-agent';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { DEFAULT_CONFIG } from '../../../../../../lib/node/pi/comfyui/config.ts';
@@ -11,7 +11,9 @@ import { formatGenerationDetail, reduceGenerations } from '../../../../../../lib
 import type { ComfyuiConfig, ComfyWorkflow } from '../../../../../../lib/node/pi/comfyui/types.ts';
 import { executeGenerate } from '../../../../../../lib/node/pi/ext/comfyui/generate.ts';
 import type { EnhancerAccess } from '../../../../../../lib/node/pi/ext/comfyui/enhancer.ts';
-import { actCollect } from '../../../../../../lib/node/pi/ext/comfyui/jobs.ts';
+import { actCancel, actCollect } from '../../../../../../lib/node/pi/ext/comfyui/jobs.ts';
+import type { RefinerAccess } from '../../../../../../lib/node/pi/ext/comfyui/refiner.ts';
+import { renderGenerateResult } from '../../../../../../lib/node/pi/ext/comfyui/render.ts';
 import type { GenerateParams } from '../../../../../../lib/node/pi/ext/comfyui/params.ts';
 import { runRefineCommand } from '../../../../../../lib/node/pi/ext/comfyui/refine-command.ts';
 import { ComfyuiRuntime, GENERATIONS_CUSTOM_TYPE } from '../../../../../../lib/node/pi/ext/comfyui/runtime.ts';
@@ -115,7 +117,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  rt.liveCards.reset(false);
   rt.stopPollTimer();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
   rmSync(cwd, { recursive: true, force: true });
@@ -319,6 +323,252 @@ describe('required prompt writing for alternate interfaces', () => {
     expect(result.details.ephemeral).toBe(true);
     expect(rt.generations.generations[0].prompt).toBe('An illustration of Mira with silver hair.');
     expect(JSON.stringify(rt.ephemeral)).toContain('rp-call');
+  });
+});
+
+describe('original background TUI cards', () => {
+  const theme = { fg: (_token: string, text: string) => text, bold: (text: string) => text } as unknown as Theme;
+  function row(): {
+    toolCallId: string;
+    state: object;
+    executionStarted: boolean;
+    isPartial: boolean;
+    invalidate: ReturnType<typeof vi.fn<() => void>>;
+  } {
+    return { toolCallId: 'call1', state: {}, executionStarted: false, isPartial: false, invalidate: vi.fn() };
+  }
+  function start(): ReturnType<typeof row> {
+    ctx = {
+      ...ctx,
+      mode: 'tui',
+      sessionManager: { getBranch: () => [] },
+      ui: { notify, setStatus: vi.fn() },
+    } as unknown as ExtensionContext;
+    rt.onSessionStart(ctx);
+    const context = row();
+    rt.liveCards.capture(context);
+    return context;
+  }
+  function liveGenerate(params: GenerateParams, access: RefinerAccess = refiner): ReturnType<typeof executeGenerate> {
+    return executeGenerate(rt, enhancer, access, 'call1', params, undefined, undefined, ctx, { liveCard: true });
+  }
+  function visible(
+    result: Awaited<ReturnType<typeof generate>>,
+    context: ReturnType<typeof row>,
+    expanded = false,
+  ): string {
+    return renderGenerateResult(result, { expanded }, theme, context, rt.liveCards.read(context))
+      .render(500)
+      .join('\n');
+  }
+
+  test('updates after return, downloads all media, freezes terminal paths without altering the result', async () => {
+    const context = start();
+    config.autoDownload = true;
+    extraMedia = true;
+    const result = await liveGenerate({ workflowFile: file, background: true });
+    const original = JSON.stringify(result);
+    expect(visible(result, context)).toContain('background [1]');
+    await vi.waitFor(() => expect(rt.registry.jobs[0].promptId).toBe('p1'));
+    rt.stopPollTimer();
+    expect(visible(result, context)).toContain('running');
+    const poll = globalThis.fetch;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.stubGlobal('fetch', async (url: string | URL, init?: RequestInit) => {
+      if (new URL(String(url)).pathname === '/view') await gate;
+      return poll(url, init);
+    });
+    const downloading = rt.autoDownloadTick();
+    expect(visible(result, context)).toContain('checking / downloading');
+    release();
+    await downloading;
+    expect(context.invalidate).toHaveBeenCalled();
+    expect(visible(result, context)).toContain('done');
+    expect(visible(result, context)).toContain('1 image and 1 video and 1 audio file');
+    const final = visible(result, context, true);
+    expect(final).toContain('saved:');
+    expect(final).toContain(rt.registry.jobs[0].savedPaths[0]);
+    expect(JSON.stringify(result)).toBe(original);
+    expect(result.content.every((part) => part.type === 'text')).toBe(true);
+    expect(result.details.savedPaths).toEqual([]);
+    // The terminal projection survives disposal, but an export with the same id does not acquire it.
+    rt.registry.jobs = [];
+    expect(visible(result, context, true)).toBe(final);
+    expect(visible(result, row())).toContain('▶ background [1]');
+    expect(rt.liveCards.read(row())).toBeUndefined();
+  });
+
+  test('preparation and cancellation are live while returned details remain unchanged', async () => {
+    const context = start();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const access: EnhancerAccess = {
+      isAgentInstalled: () => true,
+      getEnhancer: () => ({
+        isEnabled: () => true,
+        enhance: async () => {
+          await gate;
+          return null;
+        },
+      }),
+    };
+    config.defaults = undefined;
+    const result = await executeGenerate(
+      rt,
+      access,
+      refiner,
+      'call1',
+      { workflow: 'named', prompt: 'a cat', background: true },
+      undefined,
+      undefined,
+      ctx,
+      { liveCard: true },
+    );
+    const original = JSON.stringify(result);
+    expect(visible(result, context)).toContain('queued');
+    expect(visible(result, context)).toContain('enhancing prompt');
+    await actCancel(rt, result.details.jobId, ctx, undefined);
+    expect(visible(result, context)).toContain('cancelled');
+    release();
+    // Allow the cancelled submit's best-effort cancellation to drain against stubs.
+    await vi.waitFor(() => expect(submitted).toHaveLength(1));
+    expect(JSON.stringify(result)).toBe(original);
+    expect(rt.registry.jobs[0].status).toBe('cancelled');
+  });
+
+  test('submission errors flush and freeze the original card', async () => {
+    const context = start();
+    submitError = 'unknown node type';
+    const result = await liveGenerate({ workflowFile: file, background: true });
+    const original = JSON.stringify(result);
+    visible(result, context);
+    await vi.waitFor(() => expect(rt.registry.jobs[0].status).toBe('error'));
+    expect(visible(result, context)).toContain('error');
+    expect(visible(result, context)).toContain('unknown node type');
+    expect(JSON.stringify(result)).toBe(original);
+  });
+
+  test('managed refinement reports rounds and freezes the final best saved path', async () => {
+    const context = start();
+    config.defaults = undefined;
+    config.enhance = false;
+    config.workflows.named.inputs.batch = { node: '2', key: 'batch_size' };
+    let critiques = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const access: RefinerAccess = {
+      isAgentInstalled: () => true,
+      getRefiner: () => ({
+        isEnabled: () => true,
+        critique: async () => {
+          critiques++;
+          if (critiques === 1)
+            return { verdict: 'revise', score: 4, assessment: '', issues: [], action: { type: 'reroll' } };
+          await gate;
+          return { verdict: 'accept', score: 9, assessment: '', issues: [] };
+        },
+      }),
+    };
+    const result = await liveGenerate({ workflow: 'named', prompt: 'a cat', background: true }, access);
+    const original = JSON.stringify(result);
+    visible(result, context);
+    await vi.waitFor(() => expect(critiques).toBe(2));
+    expect(visible(result, context)).toContain('refining 1/');
+    release();
+    await vi.waitFor(() => expect(rt.registry.jobs[0].status).toBe('done'));
+    expect(visible(result, context, true)).toContain('refine:');
+    expect(visible(result, context, true)).toContain(rt.registry.jobs[0].savedPaths[0]);
+    expect(JSON.stringify(result)).toBe(original);
+  });
+
+  test('manual collection updates a pull-only original card without changing its submission snapshot', async () => {
+    const context = start();
+    const result = await liveGenerate({ workflowFile: file, background: true });
+    const original = JSON.stringify(result);
+    await vi.waitFor(() => expect(rt.registry.jobs[0].promptId).toBe('p1'));
+    expect(visible(result, context)).toContain('waiting for collect');
+    await actCollect(rt, result.details.jobId, ctx, undefined);
+    expect(visible(result, context)).toContain('done');
+    expect(JSON.stringify(result)).toBe(original);
+  });
+
+  test('one UI timer refreshes elapsed time; tree/start/shutdown discard ownership', async () => {
+    const context = start();
+    const result = await liveGenerate({ workflowFile: file, background: true });
+    const second = { ...row(), toolCallId: 'call2' };
+    rt.liveCards.capture(second);
+    const result2 = await executeGenerate(
+      rt,
+      enhancer,
+      refiner,
+      'call2',
+      { workflowFile: file, background: true },
+      undefined,
+      undefined,
+      ctx,
+      { liveCard: true },
+    );
+    await vi.waitFor(() => expect(rt.registry.jobs[1].promptId).toBe('p2'));
+    vi.useFakeTimers();
+    expect(visible(result, context)).toContain('running');
+    expect(visible(result2, second)).toContain('running');
+    expect(vi.getTimerCount()).toBe(1);
+    vi.advanceTimersByTime(1500);
+    expect(context.invalidate).toHaveBeenCalledTimes(3);
+    expect(second.invalidate).toHaveBeenCalledTimes(3);
+    rt.onSessionTree(ctx);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(rt.liveCards.read(context)).toBeUndefined();
+    rt.onSessionStart(ctx);
+    expect(rt.liveCards.read(context)).toBeUndefined();
+    rt.onShutdown(ctx);
+    rt.onShutdown(ctx);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(rt.registry.jobs).toEqual([]);
+  });
+
+  test('shutdown stops an active card before releasing UI resources', async () => {
+    const context = start();
+    const result = await liveGenerate({ workflowFile: file, background: true });
+    await vi.waitFor(() => expect(rt.registry.jobs[0].promptId).toBe('p1'));
+    vi.useFakeTimers();
+    visible(result, context);
+    expect(vi.getTimerCount()).toBe(1);
+    const setStatus = vi.fn(() => {
+      expect(vi.getTimerCount()).toBe(0);
+      expect(rt.liveCards.read(context)).toBeUndefined();
+    });
+    ctx.ui.setStatus = setStatus;
+    rt.onShutdown({ ...ctx, hasUI: true });
+    expect(setStatus).toHaveBeenCalledWith('comfyui', undefined);
+    vi.advanceTimersByTime(1000);
+    expect(context.invalidate).not.toHaveBeenCalled();
+    expect(rt.liveCards.read(context)).toBeUndefined();
+  });
+
+  test.each(['rpc', 'print', 'json'] as const)('does not attach %s executions', async (mode) => {
+    const context = start();
+    ctx = { ...ctx, mode };
+    rt.onSessionStart(ctx);
+    rt.liveCards.capture(context);
+    await liveGenerate({ workflowFile: file, background: true });
+    await vi.waitFor(() => expect(rt.registry.jobs[0].promptId).toBe('p1'));
+    expect(rt.liveCards.read(context)).toBeUndefined();
+  });
+
+  test('a facade using the same id cannot bind a captured generate_image row', async () => {
+    const context = start();
+    const result = await generate({ workflowFile: file, background: true });
+    await vi.waitFor(() => expect(rt.registry.jobs[0].promptId).toBe('p1'));
+    expect(rt.liveCards.read(context)).toBeUndefined();
+    expect(visible(result, context)).toContain('▶ background [1]');
   });
 });
 

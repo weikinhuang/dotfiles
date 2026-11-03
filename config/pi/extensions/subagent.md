@@ -29,8 +29,8 @@ Registers `subagent` and `subagent_send` with `executionMode: "parallel"`, plus 
   extensions re-read them on every tool call. The **session allowlist** (in-memory approvals) does NOT cross the
   boundary - fresh child, fresh approvals.
 - **Parent never sees intermediate tool output.** The child's own session file records every call; the parent's
-  `tool_result` carries only the final answer text. A collapsible `subagent-run` message in the parent transcript
-  renders the one-liner status with an expand-to-markdown view of the answer.
+  `tool_result` carries only the final answer text (or the handle for a background spawn). The original background tool
+  card updates for the user independently of that immutable result.
 
 ## Execution lifecycle
 
@@ -47,6 +47,19 @@ late completions cannot update a replacement session's status, audit entries, or
 One model response plus its requested tools consumes one `maxTurns` step. Multiple tools in that response share the
 step; processing their results in another model response consumes another. A final answer on the last allowed step is
 successful completion. Pending continuation at the cap returns `max_turns`; no extra summary call is added.
+
+### Live background cards
+
+In the TUI, the original background `subagent` card refreshes every 500 ms with current status, elapsed time, usage,
+per-tool counts, and the latest activity line. Expand the card to see up to eight recent activity lines. On completion
+it shows the final scorecard and answer preview; expansion shows the full answer. Completion freezes the card and
+releases its refresh callback, independently of the footer's linger timeout and background-registry pruning.
+
+This is a user-only projection through [`LiveToolCards`](../../../lib/node/pi/ext/live-tool-cards.ts). It never changes
+returned `content` or `details`, appends progress entries, or sends messages. The agent still retrieves a background
+answer through `subagent_send`; status/wait receipts remain historical snapshots. HTML exports and reconstructed history
+also use stored results, not current runtime state. Refresh ownership is cleared before shutdown/reload drains and on
+tree navigation, so old cards cannot attach to replacement children or keep stale UI callbacks alive.
 
 ### Early-stop results
 

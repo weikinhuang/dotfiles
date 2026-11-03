@@ -120,6 +120,24 @@ The `schedule` tool lets the agent manage its own schedules (e.g. a roleplay cha
 Tool-created schedules default to `session` scope. A roleplay agent can keep itself alive with
 `create { after: "30s-5m", prompts: ["...", "..."] }`.
 
+## Live TUI cards
+
+In the interactive terminal, the original successful `create` and `update` tool rows keep their operation receipt and
+add a **Current** annotation for that schedule: status (`enabled`, `paused`, `deleted`, or `exhausted`), next-fire
+countdown, and run count (including the run limit when set). Later updates to the same schedule refresh all its original
+live rows. Fires, activity re-anchoring, pause/re-enable, cancellation, and clearing also refresh the annotation.
+One-shots and schedules reaching their run limit freeze with their final run count; a chance-skipped one-shot retires
+without incrementing it.
+
+This is a human-only projection. Tool-return content and `{ action }` details remain unchanged, and UI refreshes never
+send messages, append session entries, persist schedule state, or fire prompts. A single shared 500ms UI interval runs
+only while live countdowns need refreshing. Paused rows stop polling but still respond to explicit schedule changes;
+deleted/exhausted rows stop updating. The scheduler's existing delivery timer remains separate and unchanged.
+
+Lists and delete receipts are static. Exported, restored, and replayed rows use the original receipt, not current
+runtime state. Tree navigation, reload, and session replacement detach live-row ownership; a new successful tool call
+can own a new live row. Reload still preserves session schedules, but does not restore old cards' live annotations.
+
 ## Scheduler internals
 
 Each schedule caches its next fire instant in `nextFireAt`, computed once at creation, on enable, and after each fire,

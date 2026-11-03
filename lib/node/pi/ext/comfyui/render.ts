@@ -8,9 +8,9 @@
 import type { Theme } from '@earendil-works/pi-coding-agent';
 import { Text } from '@earendil-works/pi-tui';
 
-import { formatJobLine } from '../../comfyui/jobs.ts';
+import { formatDuration, formatJobLine } from '../../comfyui/jobs.ts';
 import { mediaCountNote } from '../../comfyui/summary.ts';
-import type { GenerateDetails, JobsDetails } from './details.ts';
+import type { GenerateDetails, GenerateLiveCard, JobsDetails } from './details.ts';
 
 /** Render options (`expanded`, partial flags) - structural subset we use. */
 interface RenderOptions {
@@ -36,12 +36,44 @@ export function renderGenerateCall(args: unknown, theme: Theme): Text {
   return new Text(`${head}${theme.fg('dim', preview)}`, 0, 0);
 }
 
+/** Render only text, never an unsolicited image/video/audio attachment. */
+function renderGenerateLiveCard(live: GenerateLiveCard, options: RenderOptions, theme: Theme): Text {
+  const { job } = live;
+  const status = job.status === 'running' && !job.promptId ? 'queued' : job.status;
+  const glyph = status === 'done' ? '✓' : status === 'error' ? '✗' : status === 'cancelled' ? '◌' : '⟳';
+  const color = status === 'done' ? 'success' : status === 'error' ? 'error' : 'accent';
+  const seed = job.seed !== undefined ? ` · seed ${job.seed}` : '';
+  const elapsed = formatDuration(0, live.elapsedMs);
+  const note =
+    status === 'done'
+      ? `${mediaCountNote(job.savedPaths)}${job.savedPaths[0] ? ` · ${job.savedPaths[0]}` : ''}`
+      : status === 'error'
+        ? job.error
+        : status === 'cancelled'
+          ? undefined
+          : live.progress;
+  const summary =
+    theme.fg(color, `${glyph} background [${job.id}] ${status}`) +
+    theme.fg('dim', ` · ${elapsed}${seed}${note ? ` · ${note}` : ''}`);
+  if (!options.expanded) return new Text(summary, 0, 0);
+  const label = (text: string): string => theme.fg('dim', text);
+  const lines = [summary, `${label('workflow: ')}${job.workflowFile ?? job.workflow}`];
+  if (job.promptId) lines.push(`${label('prompt id: ')}${job.promptId}`);
+  if (job.prompt) lines.push(`${label('prompt:   ')}${job.prompt}`);
+  if (!job.workflowFile) lines.push(`${label('negative: ')}${job.negative ?? '(workflow default)'}`);
+  if (job.status === 'done' && live.progress && job.managed) lines.push(`${label('refine:   ')}${live.progress}`);
+  for (const path of job.savedPaths) lines.push(`${label('saved:    ')}${path}`);
+  return new Text(lines.join('\n'), 0, 0);
+}
+
 export function renderGenerateResult(
   result: ToolResultLike,
   options: RenderOptions,
   theme: Theme,
   context: RenderContext,
+  live?: GenerateLiveCard,
 ): Text {
+  if (live) return renderGenerateLiveCard(live, options, theme);
   const details = (result.details ?? {}) as Partial<GenerateDetails>;
   if (details.error) return new Text(theme.fg('error', `✗ ${details.error}`), 0, 0);
 

@@ -76,6 +76,7 @@ import { Type } from 'typebox';
 
 import { requestBashApproval } from '../../../lib/node/pi/bash/gate.ts';
 import { showModal } from '../../../lib/node/pi/ext/show-modal.ts';
+import { LiveToolCards } from '../../../lib/node/pi/ext/live-tool-cards.ts';
 import { BgBashOverlay, glyphColor } from '../../../lib/node/pi/ext/bg-bash-overlay.ts';
 import {
   type BgBashConfig,
@@ -419,6 +420,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
   // hydrated so the LLM can still inspect the job metadata.
   let state: BgBashState = emptyState();
   const live = new Map<string, LiveJob>();
+  const startCards = new LiveToolCards<JobSummary>();
 
   let logDir: string | undefined;
 
@@ -803,6 +805,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
         setExited();
         persist();
         updateStatusline();
+        startCards.refresh();
         if (cur) enqueueNudge(cur.summary);
       },
       onClose: () => {
@@ -821,6 +824,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
           state = upsertJob(state, cur.summary);
           persist();
         }
+        startCards.refresh();
       },
     });
 
@@ -1137,8 +1141,10 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
     if (!id) return errorReturn('remove', 'remove requires `id`');
     const result = removeJob(state, id);
     if (!result.ok) return errorReturn('remove', result.error);
+    startCards.refresh();
     state = result.state;
     live.delete(id);
+    startCards.refresh();
     persist();
     updateStatusline();
     const details: BgBashDetails = { ...cloneState(state), action: 'remove' };
@@ -1148,16 +1154,19 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
   // ── Lifecycle handlers ─────────────────────────────────────────────
 
   pi.on('session_start', (_event, ctx) => {
+    startCards.reset(ctx.mode === 'tui');
     rebuildFromSession(ctx);
   });
 
   pi.on('session_tree', (_event, ctx) => {
+    startCards.reset(ctx.mode === 'tui');
     // After /tree or /fork, state may have moved to a different point
     // in history - rehydrate.
     rebuildFromSession(ctx);
   });
 
   pi.on('session_shutdown', async () => {
+    startCards.reset(false);
     unsubscribeSnapshots();
     surfacedTerminalIds.clear();
     // Suppress completion nudges: the exits we're about to force are
@@ -1286,12 +1295,28 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
     ],
     parameters: BgBashParams,
 
-    async execute(_toolCallId, rawParams, sig, _onUpdate, ctx) {
+    async execute(toolCallId, rawParams, sig, _onUpdate, ctx) {
       const params = rawParams;
 
       switch (params.action) {
-        case 'start':
-          return await actStart(params, ctx);
+        case 'start': {
+          const result = await actStart(params, ctx);
+          const job = result.details.job && live.get(result.details.job.id);
+          if (!result.isError && job) {
+            startCards.bind(toolCallId, ctx, () => {
+              if (live.get(job.summary.id) !== job) return undefined;
+              const value = cloneSummary(job.summary);
+              return {
+                value,
+                active:
+                  value.status === 'running' ||
+                  (value.status === 'signaled' && value.endedAt === undefined) ||
+                  value.outputOpen === true,
+              };
+            });
+          }
+          return result;
+        }
         case 'list':
           return actList(params.action);
         // A `wait` on the same job earlier in this parallel tool batch is
@@ -1314,7 +1339,8 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
       }
     },
 
-    renderCall(args, theme, _context) {
+    renderCall(args, theme, context) {
+      if (args.action === 'start') startCards.capture(context);
       let text = theme.fg('toolTitle', theme.bold('bg_bash ')) + theme.fg('muted', args.action);
       if (args.id) text += ` ${theme.fg('accent', `[${args.id}]`)}`;
       if (args.action === 'start' && args.command) {
@@ -1327,8 +1353,23 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
       return new Text(text, 0, 0);
     },
 
-    renderResult(result, { expanded }, theme, _context) {
+    renderResult(result, { expanded }, theme, context) {
       const details = (result.details ?? {}) as Partial<BgBashDetails>;
+      const current = details.action === 'start' ? startCards.read(context) : undefined;
+      if (current) {
+        const parts = [renderJobHeader(current, theme)];
+        if (current.outputOpen) parts.push(theme.fg('dim', '   output pipe still open'));
+        if (expanded) {
+          parts.push(theme.fg('dim', `   pid ${current.pid ?? '?'}  cwd ${current.cwd.replace(homedir(), '~')}`));
+        }
+        for (const [stream, tail] of [
+          ['stdout', current.stdoutTail],
+          ['stderr', current.stderrTail],
+        ] as const) {
+          if (tail) parts.push(theme.fg('toolOutput', `${stream}: ${tailN(tail, expanded ? 8 : 3).trimEnd()}`));
+        }
+        return new Text(parts.join('\n'), 0, 0);
+      }
       if (details.error) return new Text(theme.fg('error', `✗ ${details.error}`), 0, 0);
 
       const jobs = details.jobs ?? [];
@@ -1414,6 +1455,7 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
    * the overlay's `c` keybinding so both surfaces stay consistent.
    */
   const clearTerminalJobs = (): number => {
+    startCards.refresh();
     const before = state.jobs.length;
     state = {
       ...state,
