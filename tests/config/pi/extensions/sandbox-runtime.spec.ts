@@ -1,5 +1,5 @@
 /** Exercise the real sandbox factories, not a copied hook implementation. */
-import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -37,7 +37,12 @@ type BashCall = Extract<ToolCallEvent, { toolName: 'bash' }>;
 type Handler = (event: unknown, ctx: ExtensionContext) => unknown;
 interface RuntimeConfig {
   filesystem: { allowWrite: unknown[] };
-  network: { allowedDomains?: string[] };
+  network: {
+    allowedDomains?: string[];
+    deniedDomains?: string[];
+    allowAllUnixSockets?: boolean;
+    allowUnixSockets?: string[];
+  };
 }
 
 let root: string;
@@ -291,15 +296,19 @@ describe('real sandbox hook pipeline', () => {
     expect(notifyMock).toHaveBeenCalledWith(expect.stringContaining('dry-run wrap'), 'info');
   });
 
-  test.each(['sandbox-enable', 'sandbox-network', 'sandbox-reset', 'sandbox-explain', 'sandbox-test'])(
-    '%s --help is side-effect-free on the actual command',
-    async (name) => {
-      await invoke(name, '--help');
-      expect(notifyMock).toHaveBeenLastCalledWith(expect.stringContaining(`Usage: /${name}`), 'info');
-      expect(initializeMock).not.toHaveBeenCalled();
-      expect(selfTestMock).not.toHaveBeenCalled();
-    },
-  );
+  test.each([
+    'sandbox-enable',
+    'sandbox-network',
+    'sandbox-sockets',
+    'sandbox-reset',
+    'sandbox-explain',
+    'sandbox-test',
+  ])('%s --help is side-effect-free on the actual command', async (name) => {
+    await invoke(name, '--help');
+    expect(notifyMock).toHaveBeenLastCalledWith(expect.stringContaining(`Usage: /${name}`), 'info');
+    expect(initializeMock).not.toHaveBeenCalled();
+    expect(selfTestMock).not.toHaveBeenCalled();
+  });
 
   test('network-only disable/enable preserves filesystem protection and never writes config', async () => {
     await invoke('sandbox-network', 'disable');
@@ -314,6 +323,146 @@ describe('real sandbox hook pipeline', () => {
     expect(applied.filesystem).toEqual(filesystem);
     expect(existsSync(join(cwdA, '.pi', 'sandbox.json'))).toBe(false);
     expect(existsSync(join(root, 'agent', 'sandbox.json'))).toBe(false);
+  });
+
+  test('socket-only disable/enable preserves wrapping, filesystem and domain filtering without config writes', async () => {
+    await invoke('sandbox-enable');
+    const before = structuredClone(applied);
+    await invoke('sandbox-sockets', 'disable');
+    expect(applied).toEqual({ ...before, network: { ...before.network, allowAllUnixSockets: true } });
+    expect(notifyMock).toHaveBeenLastCalledWith(expect.stringContaining('Unix-socket sandbox: DISABLED'), 'warning');
+    const active = await requestWrap('tmux-client', { cwd: cwdA, hasUI: false });
+    expect(active.wrapped).toBe(true);
+    expect(wrapped.at(-1)?.config.network.allowAllUnixSockets).toBe(true);
+    releaseWrap(active);
+    await invoke('sandbox');
+    expect(notifyMock).toHaveBeenLastCalledWith(expect.stringContaining('Socket session override: disabled'), 'info');
+    await invoke('sandbox-sockets', 'enable');
+    expect(applied).toEqual(before);
+    expect(notifyMock).toHaveBeenLastCalledWith(expect.stringContaining('Unix-socket sandbox: ENABLED'), 'info');
+    expect(existsSync(join(cwdA, '.pi', 'sandbox.json'))).toBe(false);
+    expect(existsSync(join(root, 'agent', 'sandbox.json'))).toBe(false);
+  });
+
+  test('socket enable overrides file allowAll, retains macOS path allowances, and reset restores file policy', async () => {
+    const file = join(cwdA, '.pi', 'sandbox.json');
+    const config = JSON.stringify({ unixSockets: { allowAll: true, allow: ['/tmp/tmux.sock'] } });
+    writeFileSync(file, config);
+    await invoke('sandbox-sockets', 'enable');
+    expect(applied.network.allowAllUnixSockets).toBeUndefined();
+    expect(applied.network.allowUnixSockets).toEqual(['/tmp/tmux.sock']);
+    await invoke('sandbox-reset');
+    expect(applied.network.allowAllUnixSockets).toBe(true);
+    await invoke('sandbox-sockets');
+    expect(notifyMock).toHaveBeenLastCalledWith(
+      expect.stringContaining('Socket session override: (none; configured policy)'),
+      'info',
+    );
+    expect(readFileSync(file, 'utf8')).toBe(config);
+  });
+
+  test('active jobs refuse socket changes and reset without partially clearing session overrides', async () => {
+    const restricted = await requestWrap('restricted-job', { cwd: cwdA, hasUI: false });
+    await invoke('sandbox-sockets', 'disable');
+    expect(applied.network.allowAllUnixSockets).toBeUndefined();
+    expect(notifyMock).toHaveBeenLastCalledWith(expect.stringContaining('controls unchanged'), 'warning');
+    releaseWrap(restricted);
+    await invoke('sandbox-sockets', 'status');
+    expect(notifyMock).toHaveBeenLastCalledWith(
+      expect.stringContaining('Socket session override: (none; configured policy)'),
+      'info',
+    );
+    await invoke('sandbox-network', 'enable');
+    await invoke('sandbox-sockets', 'disable');
+    const active = await requestWrap('docker-client', { cwd: cwdA, hasUI: false });
+    await invoke('sandbox-sockets', 'enable');
+    expect(notifyMock).toHaveBeenLastCalledWith(expect.stringContaining('Unix-socket policy/isolation'), 'warning');
+    await invoke('sandbox-reset');
+    expect(notifyMock).toHaveBeenLastCalledWith(expect.stringContaining('controls unchanged'), 'warning');
+    expect(applied.network.allowAllUnixSockets).toBe(true);
+    await invoke('sandbox-network');
+    expect(notifyMock).toHaveBeenLastCalledWith(expect.stringContaining('Session override: enabled'), 'info');
+    await invoke('sandbox-sockets');
+    expect(notifyMock).toHaveBeenLastCalledWith(expect.stringContaining('Socket session override: disabled'), 'info');
+    releaseWrap(active);
+    await invoke('sandbox-reset');
+    expect(applied.network.allowAllUnixSockets).toBeUndefined();
+  });
+
+  test('socket update failure preserves the previous snapshot and rolls back only the requested change', async () => {
+    await invoke('sandbox-network', 'enable');
+    const { getActiveSandbox } = await import('../../../../lib/node/pi/sandbox/active.ts');
+    const before = getActiveSandbox();
+    updateMock.mockImplementationOnce(() => {
+      throw new Error('test socket policy rejected');
+    });
+    await invoke('sandbox-sockets', 'disable');
+    expect(applied.network.allowAllUnixSockets).toBeUndefined();
+    expect(getActiveSandbox()).toBe(before);
+    await invoke('sandbox-sockets');
+    expect(notifyMock).toHaveBeenLastCalledWith(
+      expect.stringContaining('Socket session override: (none; configured policy)'),
+      'info',
+    );
+    await invoke('sandbox-network');
+    expect(notifyMock).toHaveBeenLastCalledWith(expect.stringContaining('Session override: enabled'), 'info');
+    await invoke('sandbox-sockets', 'disable');
+    expect(applied.network.allowAllUnixSockets).toBe(true);
+  });
+
+  test('full bypass takes priority; sandbox-enable retains independent network and socket overrides', async () => {
+    await invoke('sandbox-disable');
+    await invoke('sandbox-sockets', 'disable');
+    expect(notifyMock).toHaveBeenLastCalledWith(expect.stringContaining('NOT ENFORCED (bypassed'), 'warning');
+    const bypass = await requestWrap('bypass-sockets', { cwd: cwdA, hasUI: false });
+    expect(bypass.wrapped).toBe(false);
+    await invoke('sandbox-network', 'disable');
+    await invoke('sandbox-sockets', 'enable');
+    expect(applied.network.allowedDomains).toBeUndefined();
+    expect(applied.network.allowAllUnixSockets).toBeUndefined();
+    await invoke('sandbox-enable');
+    await invoke('sandbox-sockets');
+    expect(notifyMock).toHaveBeenLastCalledWith(expect.stringContaining('NOT ENFORCED (macOS unrestricted'), 'info');
+    await invoke('sandbox-sockets', 'disable');
+    await invoke('sandbox-network', 'enable');
+    expect(applied.network.allowAllUnixSockets).toBe(true);
+    expect(applied.network.allowedDomains).toEqual([]);
+    const wrappedJob = await requestWrap('wrapped-sockets', { cwd: cwdA, hasUI: false });
+    expect(wrappedJob.wrapped).toBe(true);
+    releaseWrap(wrappedJob);
+  });
+
+  test('socket status/help/invalid arguments have no side effects and completions cover all verbs', async () => {
+    await Promise.all(
+      ['', 'status', 'enable extra', 'disable extra', 'reset', '--help', 'help', '-h', '?'].map((arg) =>
+        invoke('sandbox-sockets', arg),
+      ),
+    );
+    expect(initializeMock).not.toHaveBeenCalled();
+    expect(updateMock).not.toHaveBeenCalled();
+    const complete = commands.get('sandbox-sockets')?.getArgumentCompletions;
+    expect(complete?.('')).toMatchObject([{ value: 'enable' }, { value: 'disable' }, { value: 'status' }]);
+    expect(complete?.('d')).toMatchObject([{ value: 'disable' }]);
+    expect(complete?.('disable ')).toBeNull();
+  });
+
+  test('shutdown/reload clears the socket override before replacement runtime starts', async () => {
+    await invoke('sandbox-sockets', 'disable');
+    await handlers.get('session_shutdown')?.({ reason: 'reload' }, ctx);
+    const factory = await import('../../../../config/pi/extensions/sandbox.ts');
+    handlers = new Map();
+    commands = new Map();
+    factory.default(api());
+    await handlers.get('session_start')?.({ reason: 'reload' }, ctx);
+    await invoke('sandbox-sockets');
+    expect(notifyMock).toHaveBeenLastCalledWith(
+      expect.stringContaining('Socket session override: (none; configured policy)'),
+      'info',
+    );
+    const active = await requestWrap('after-reload', { cwd: cwdA, hasUI: false });
+    expect(active.wrapped).toBe(true);
+    expect(applied.network.allowAllUnixSockets).toBeUndefined();
+    releaseWrap(active);
   });
 
   test('network enable overrides env/file unrestricted policy until reset', async () => {

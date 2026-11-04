@@ -56,7 +56,7 @@ export const SANDBOX_ENABLE_USAGE = [
   'Usage: /sandbox-enable',
   '',
   'Clear the full-session bypass and initialize protection for new commands.',
-  'Keeps network-only overrides and session grants; existing processes are unchanged.',
+  'Keeps network/socket overrides and session grants; existing processes are unchanged.',
 ].join('\n');
 
 export const SANDBOX_NETWORK_USAGE = [
@@ -71,8 +71,19 @@ export const SANDBOX_NETWORK_USAGE = [
 export const SANDBOX_RESET_USAGE = [
   'Usage: /sandbox-reset',
   '',
-  'Clear session network/write grants, network mode override, and full sandbox bypass.',
+  'Clear session network/write grants, network/socket mode overrides, and full sandbox bypass.',
   'Reload configured policies without changing files or terminating existing processes.',
+].join('\n');
+
+export const SANDBOX_SOCKETS_USAGE = [
+  'Usage: /sandbox-sockets [enable|disable|status]',
+  '',
+  'Show status by default. Change only Unix-socket restrictions for this session.',
+  'disable allows ALL Unix sockets, retaining configured filesystem and direct network rules.',
+  'enable forces allowAll off above config; configured macOS socket-path allowances remain.',
+  'Neither clears a full bypass. macOS unrestricted networking overrides socket restrictions.',
+  'Privileged sockets (Docker) can bypass other protections; Linux loses helper-backed monitoring/hardening.',
+  'Stop active wrapped jobs before switching; existing processes and open sockets are not revoked.',
 ].join('\n');
 
 export const SANDBOX_EXPLAIN_USAGE = [

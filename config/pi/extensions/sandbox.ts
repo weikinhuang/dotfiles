@@ -72,6 +72,7 @@
  *   /sandbox-disable          session-only full bypass; badge hidden.
  *   /sandbox-enable           clear full bypass for new commands.
  *   /sandbox-network <verb>   enable/disable/status for network only.
+ *   /sandbox-sockets <verb>   enable/disable/status for Unix sockets only.
  *   /sandbox-reset            clear sandbox session grants and overrides.
  *   /sandbox-explain <kind>   explain path or host policy without probing.
  *   /sandbox-test             native synthetic filesystem self-test.
@@ -113,6 +114,7 @@ import {
   SANDBOX_DISABLE_USAGE,
   SANDBOX_ENABLE_USAGE,
   SANDBOX_NETWORK_USAGE,
+  SANDBOX_SOCKETS_USAGE,
   SANDBOX_RESET_USAGE,
   SANDBOX_EXPLAIN_USAGE,
   SANDBOX_TEST_USAGE,
@@ -129,8 +131,11 @@ import { annotateBashResult, prependBashHint } from '../../../lib/node/pi/sandbo
 import { buildSandboxStatusReport } from '../../../lib/node/pi/sandbox/status-report.ts';
 import {
   applyNetworkSandboxOverride,
+  applySocketSandboxOverride,
   buildNetworkControlStatus,
+  buildSocketControlStatus,
   type NetworkSandboxOverride,
+  type SocketSandboxOverride,
 } from '../../../lib/node/pi/sandbox/session-controls.ts';
 import { buildSandboxExplanation } from '../../../lib/node/pi/sandbox/explain.ts';
 import { runSandboxSelfTest } from '../../../lib/node/pi/sandbox/self-test.ts';
@@ -311,6 +316,7 @@ function resolveAll(
   platform: SandboxPlatformInfo,
   sessionWriteAllowPaths: readonly string[] = [],
   networkOverride?: NetworkSandboxOverride,
+  socketOverride?: SocketSandboxOverride,
 ): ResolvedAll {
   const { fsLayers, sandboxLayers } = buildLayers(cwd);
   const persona = getActivePersona();
@@ -323,6 +329,7 @@ function resolveAll(
   });
   const sandboxResult = loadSandboxConfig(sandboxLayers, sandboxEnvOverlay());
   sandboxResult.config = applyNetworkSandboxOverride(sandboxResult.config, networkOverride);
+  sandboxResult.config = applySocketSandboxOverride(sandboxResult.config, socketOverride);
 
   let compiled: CompiledPolicyReport | undefined;
   if (platform.kind === 'linux') {
@@ -376,6 +383,8 @@ interface RuntimeState {
   bypassed: boolean;
   /** Highest-precedence, session-only network mode; undefined restores files/env. */
   networkOverride?: NetworkSandboxOverride;
+  /** Highest-precedence, session-only Unix-socket mode. */
+  socketOverride?: SocketSandboxOverride;
   /** Reason string surfaced in the statusline tooltip (latest). */
   reason?: string;
   /** Last resolved snapshot - used by `/sandbox` rendering. */
@@ -569,7 +578,13 @@ function publishStatusline(state: RuntimeState): void {
     mode === 'wrapped' && state.lastResolved?.sandboxResult.config.network.unrestricted
       ? 'network sandbox disabled; filesystem protection remains on'
       : undefined;
-  const detail = [reason, networkNote].filter(Boolean).join('; ');
+  const socketNote =
+    mode === 'wrapped' &&
+    (state.lastResolved?.sandboxResult.config.unixSockets.allowAll ||
+      (state.platform.kind === 'darwin' && state.lastResolved?.sandboxResult.config.network.unrestricted))
+      ? 'Unix-socket restrictions disabled; privileged IPC may bypass other protections'
+      : undefined;
+  const detail = [reason, networkNote, socketNote].filter(Boolean).join('; ');
   setSandboxState(detail ? { mode, reason: detail } : { mode });
 }
 
@@ -670,7 +685,13 @@ function checkRuntimeConfig(state: RuntimeState, asrtConfig: unknown, ctx?: Exte
 async function reconfigureUnlocked(state: RuntimeState, cwd: string, ctx?: ExtensionContext): Promise<ResolvedAll> {
   const done = beginActiveReconfigure();
   try {
-    const resolved = resolveAll(cwd, state.platform, Array.from(state.sessionWriteAllow), state.networkOverride);
+    const resolved = resolveAll(
+      cwd,
+      state.platform,
+      Array.from(state.sessionWriteAllow),
+      state.networkOverride,
+      state.socketOverride,
+    );
     // Network namespaces cannot be changed in-place. ASRT also has a
     // shared live proxy, so do not switch it out beneath active wraps.
     if (
@@ -681,6 +702,17 @@ async function reconfigureUnlocked(state: RuntimeState, cwd: string, ctx?: Exten
     ) {
       throw new Error(
         'sandbox: different network policy/isolation requested while wrapped commands are active; stop them first, then retry',
+      );
+    }
+    // Socket filters/profiles and established IPC cannot be revoked in-place either.
+    if (
+      state.ledger.inflight.size > 0 &&
+      state.lastResolved &&
+      (state.lastResolved.sandboxResult.config.unixSockets.allowAll === true) !==
+        (resolved.sandboxResult.config.unixSockets.allowAll === true)
+    ) {
+      throw new Error(
+        'sandbox: different Unix-socket policy/isolation requested while wrapped commands are active; stop them first, then retry',
       );
     }
     // ASRT's proxy reads one live network policy for every command.
@@ -849,6 +881,7 @@ async function ensureManager(state: RuntimeState, cwd: string, ctx: ExtensionCon
 interface SessionControlChange {
   bypassed?: boolean;
   networkOverride?: NetworkSandboxOverride;
+  socketOverride?: SocketSandboxOverride;
   reset?: boolean;
 }
 
@@ -864,6 +897,7 @@ async function changeSessionControls(
     const previous = {
       bypassed: state.bypassed,
       networkOverride: state.networkOverride,
+      socketOverride: state.socketOverride,
       reason: state.reason,
       domains: [...state.sessionAllowedDomains],
       paths: [...state.sessionWriteAllow],
@@ -871,6 +905,7 @@ async function changeSessionControls(
     if (change.reset) {
       state.bypassed = false;
       state.networkOverride = undefined;
+      state.socketOverride = undefined;
       state.sessionAllowedDomains.clear();
       state.sessionWriteAllow.clear();
       state.reason = undefined;
@@ -880,8 +915,14 @@ async function changeSessionControls(
       state.reason = change.bypassed ? '/sandbox-disable' : undefined;
     }
     if (change.networkOverride !== undefined) state.networkOverride = change.networkOverride;
+    if (change.socketOverride !== undefined) state.socketOverride = change.socketOverride;
     try {
-      if (change.bypassed !== true || change.reset || change.networkOverride !== undefined) {
+      if (
+        change.bypassed !== true ||
+        change.reset ||
+        change.networkOverride !== undefined ||
+        change.socketOverride !== undefined
+      ) {
         await reconfigureUnlocked(state, ctx.cwd, ctx);
         if (!state.bypassed) await ensureManager(state, ctx.cwd, ctx);
       }
@@ -890,6 +931,7 @@ async function changeSessionControls(
     } catch (e) {
       state.bypassed = previous.bypassed;
       state.networkOverride = previous.networkOverride;
+      state.socketOverride = previous.socketOverride;
       state.reason = previous.reason;
       state.sessionAllowedDomains.clear();
       for (const host of previous.domains) state.sessionAllowedDomains.add(host);
@@ -905,13 +947,42 @@ async function changeSessionControls(
 function networkControlStatus(state: RuntimeState): string {
   const resolved =
     state.lastResolved ??
-    resolveAll(state.lastCwd ?? process.cwd(), state.platform, [...state.sessionWriteAllow], state.networkOverride);
+    resolveAll(
+      state.lastCwd ?? process.cwd(),
+      state.platform,
+      [...state.sessionWriteAllow],
+      state.networkOverride,
+      state.socketOverride,
+    );
   return buildNetworkControlStatus({
     mode: effectiveMode(state).mode,
     initialized: state.initialized,
     dryRun: envTruthy(process.env.PI_SANDBOX_DRY_RUN),
     unrestricted: resolved.sandboxResult.config.network.unrestricted === true,
     override: state.networkOverride,
+    activeWraps: state.ledger.inflight.size,
+  });
+}
+
+function socketControlStatus(state: RuntimeState): string {
+  const resolved =
+    state.lastResolved ??
+    resolveAll(
+      state.lastCwd ?? process.cwd(),
+      state.platform,
+      [...state.sessionWriteAllow],
+      state.networkOverride,
+      state.socketOverride,
+    );
+  return buildSocketControlStatus({
+    mode: effectiveMode(state).mode,
+    initialized: state.initialized,
+    dryRun: envTruthy(process.env.PI_SANDBOX_DRY_RUN),
+    platform: state.platform.kind,
+    allowAll: resolved.sandboxResult.config.unixSockets.allowAll === true,
+    allow: resolved.sandboxResult.config.unixSockets.allow,
+    networkUnrestricted: resolved.sandboxResult.config.network.unrestricted === true,
+    override: state.socketOverride,
     activeWraps: state.ledger.inflight.size,
   });
 }
@@ -1200,6 +1271,7 @@ export default function sandbox(pi: ExtensionAPI): void {
     state.sessionAllowedDomains.clear();
     state.sessionWriteAllow.clear();
     state.networkOverride = undefined;
+    state.socketOverride = undefined;
     state.bypassed = false;
     cleanupDangerousFileStubs(drainWrapLedger(state.ledger));
     state.wrapCwds.clear();
@@ -1595,7 +1667,7 @@ export default function sandbox(pi: ExtensionAPI): void {
         ],
         recentViolations: readViolations(USER_VIOLATIONS_LOG, { limit: 10 }),
       });
-      ctx.ui.notify(`${report}\n\n${networkControlStatus(state)}`, 'info');
+      ctx.ui.notify(`${report}\n\n${networkControlStatus(state)}\n\n${socketControlStatus(state)}`, 'info');
     },
   });
 
@@ -1785,7 +1857,10 @@ export default function sandbox(pi: ExtensionAPI): void {
         return;
       }
       if (!(await changeSessionControls(state, ctx, { bypassed: false }))) return;
-      ctx.ui.notify(`sandbox: full-session bypass cleared.\n${networkControlStatus(state)}`, 'info');
+      ctx.ui.notify(
+        `sandbox: full-session bypass cleared.\n${networkControlStatus(state)}\n\n${socketControlStatus(state)}`,
+        'info',
+      );
     },
   });
 
@@ -1817,6 +1892,34 @@ export default function sandbox(pi: ExtensionAPI): void {
     },
   });
 
+  pi.registerCommand('sandbox-sockets', {
+    description: 'Session-only Unix-socket sandbox enable/disable/status; privileged IPC can bypass protections',
+    getArgumentCompletions: (prefix) =>
+      completeSubverbs(prefix, {
+        enable: { description: 'Restore Unix-socket restrictions; retain configured macOS path allowances' },
+        disable: { description: 'Allow ALL Unix sockets; privileged IPC can bypass other protections' },
+        status: { description: 'Show effective Unix-socket restrictions and session override' },
+      }),
+    handler: async (args, ctx) => {
+      if (isHelpArg(args)) {
+        ctx.ui.notify(SANDBOX_SOCKETS_USAGE, 'info');
+        return;
+      }
+      const verb = args.trim() || 'status';
+      if (verb === 'status') {
+        ctx.ui.notify(socketControlStatus(state), 'info');
+        return;
+      }
+      if (verb !== 'enable' && verb !== 'disable') {
+        ctx.ui.notify(SANDBOX_SOCKETS_USAGE, 'warning');
+        return;
+      }
+      const override = verb === 'enable' ? 'enabled' : 'disabled';
+      if (!(await changeSessionControls(state, ctx, { socketOverride: override }))) return;
+      ctx.ui.notify(socketControlStatus(state), verb === 'disable' ? 'warning' : 'info');
+    },
+  });
+
   pi.registerCommand('sandbox-reset', {
     description: 'Clear session-only grants and overrides; reload configured policy',
     handler: async (args, ctx) => {
@@ -1826,7 +1929,7 @@ export default function sandbox(pi: ExtensionAPI): void {
       }
       if (!(await changeSessionControls(state, ctx, { reset: true }))) return;
       ctx.ui.notify(
-        `sandbox: session grants, network override, and full bypass cleared; config files unchanged.\n${networkControlStatus(state)}`,
+        `sandbox: session grants, network/socket overrides, and full bypass cleared; config files unchanged.\n${networkControlStatus(state)}\n\n${socketControlStatus(state)}`,
         'info',
       );
     },
@@ -1856,7 +1959,13 @@ export default function sandbox(pi: ExtensionAPI): void {
         return;
       }
       const kind = match[1] as 'path' | 'host';
-      const resolved = resolveAll(ctx.cwd, state.platform, [...state.sessionWriteAllow], state.networkOverride);
+      const resolved = resolveAll(
+        ctx.cwd,
+        state.platform,
+        [...state.sessionWriteAllow],
+        state.networkOverride,
+        state.socketOverride,
+      );
       const layers = buildLayers(ctx.cwd);
       const persona = getActivePersona();
       const report = buildSandboxExplanation({

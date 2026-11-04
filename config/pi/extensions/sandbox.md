@@ -50,8 +50,10 @@ File resolution order, additive within categories:
    `PI_SANDBOX_ALLOW_LOCALHOST`, `PI_SANDBOX_NETWORK_UNRESTRICTED`. Only variables that are set override the files.
 5. Persona overlay: the active persona's resolved `writeRoots` are merged into `filesystem.write.allow.paths` so the
    kernel sandbox sees the same write surface the in-process gate sees.
-6. Sandbox session grants and `/sandbox-network enable|disable` overrides. Network enable forces filtering on even above
-   an unrestricted file/env setting; reset removes the override and restores configured policy.
+6. Sandbox session grants and `/sandbox-network enable|disable` / `/sandbox-sockets enable|disable` overrides. Network
+   enable forces filtering on above an unrestricted file/env setting; socket enable forces `unixSockets.allowAll` off
+   above config while retaining configured macOS path allowances. Reset removes both overrides and restores configured
+   policy.
 
 The extension explicitly does **not** read `~/.srt-settings.json` (the path the standalone `srt` CLI uses). Pi reads its
 own files so a developer running `srt` from a shell prompt keeps a separate policy.
@@ -91,7 +93,11 @@ the unified policy:
   entries are **silently ignored**. `config-translate.ts` still forwards the list to the runtime config (macOS may use
   it) but emits a lossy note on Linux so `/sandbox` shows the entries had no effect. To reach a unix socket on Linux
   (e.g. `/var/run/docker.sock`) set `unixSockets.allowAll: true`, which skips the seccomp filter for the wrapped shell -
-  coarse, since it opens **every** unix socket, not just the allow-listed ones.
+  coarse, since it opens **every** unix socket, not just the allow-listed ones. `/sandbox-sockets disable` applies the
+  same setting for the session without writing config. On Linux this also skips the runtime's helper-backed filesystem
+  violation monitoring. Nested-user-namespace hardening then depends on bubblewrap supporting `--disable-userns` and
+  compatible nesting settings; otherwise a child user namespace can undo filesystem write denies. See
+  [Unix sockets: Docker and tmux](#unix-sockets-docker-and-tmux) for the security implications.
 - **`allowLocalBinding` is macOS-only.** `flags.allowLocalBinding` maps to ASRT's `network.allowLocalBinding`, which on
   macOS adds a seatbelt allow-loopback rule (`(allow network-* (local ip "*:*"))`) so sandboxed bash can reach
   `localhost` / `127.0.0.1` while remote domains stay filtered - the surgical "allow loopback, block the rest" answer
@@ -103,9 +109,11 @@ the unified policy:
   `allowedDomains` / `deniedDomains` from the ASRT config so ASRT's `needsNetworkRestriction` is false and bwrap does
   **not** `--unshare-net`. The wrapped shell then shares the host network, so `localhost` / `127.0.0.1` host services
   (Docker published ports, a dev server, a local DB) are reachable. The cost: **all** domain filtering is off - the
-  `allow` / `deny` lists are inert and every outbound destination is permitted. Filesystem + unix-socket isolation are
-  unaffected. Use it per-project (`<repo>/.pi/sandbox.json`) when a task needs to hit a local service, or per-session
-  via `PI_SANDBOX_NETWORK_UNRESTRICTED=1`. `/sandbox` shows `unrestricted: true` and a lossy note. This exists because
+  `allow` / `deny` lists are inert and every outbound destination is permitted. Filesystem rules remain configured.
+  Linux Unix-socket restrictions remain independent, but on macOS ASRT's unrestricted networking rule also permits Unix
+  sockets regardless of `unixSockets.allowAll` or the socket session override. Use it per-project
+  (`<repo>/.pi/sandbox.json`) when a task needs to hit a local service, or per-session via
+  `PI_SANDBOX_NETWORK_UNRESTRICTED=1`. `/sandbox` shows `unrestricted: true` and a lossy note. This exists because
   Linux's `--unshare-net` is all-or-nothing: ASRT isolates the whole network namespace whenever any allow-list is
   present and hardcodes `NO_PROXY=localhost,127.0.0.1,…`, so there is no per-port host-loopback bridge - reaching a host
   service requires turning network isolation off entirely (or using `docker exec` / starting + curling the service
@@ -154,8 +162,9 @@ falling back to `PI_SANDBOX_DEFAULT`. Shutdown waits for queued setup and runtim
 ASRT's network proxy uses one live policy. If commands from another cwd are still active, selecting a different network
 policy is blocked until those commands finish, regardless of `PI_SANDBOX_DEFAULT`; retry afterward. Calls from different
 cwds with identical network policies can still run concurrently. Trusted same-cwd allow/deny changes remain live and may
-also affect already-running jobs. Switching filtered/unrestricted isolation is refused while **any wrapped command**
-remains active, including in the same cwd. Stop those jobs, retry the toggle, and restart clients afterward.
+also affect already-running jobs. Switching filtered/unrestricted network isolation or Unix-socket `allowAll` mode is
+refused while **any wrapped command** remains active, including in the same cwd. Stop those jobs, retry the toggle, and
+restart clients afterward. Socket restrictions cannot revoke existing processes' access or established connections.
 
 Linux mount-point stubs are reused and deleted only when a process-local ownership record matches their `lstat`
 identity. Unknown pre-existing empty files/directories and symlinks are left alone. There is no persisted ownership
@@ -185,14 +194,20 @@ first Ctrl-C on `pi -p` tear the sandbox down while pi kept running.
 - `/sandbox-disable` - session-only full bypass with a yellow warning; the statusline badge is hidden. Does not write
   config. Cleared by `/sandbox-enable`, `/sandbox-reset`, `/reload`, or session end.
 - `/sandbox-enable` - clear only the full bypass and initialize wrapping for new commands. Keeps session grants and any
-  network-only override; reports pending/degraded enforcement honestly if initialization fails.
+  network/socket override; reports pending/degraded enforcement honestly if initialization fails.
 - `/sandbox-network [enable|disable|status]` - bare command shows status. `disable` shares the host network and permits
-  **all reachable destinations**, while retaining filesystem and unix-socket restrictions. `enable` forces network
-  isolation/domain filtering on above files/env. Neither changes a full sandbox bypass. Session-only, no config writes.
-- `/sandbox-reset` - clear sandbox-owned session host grants, reactive write grants, network override, and full bypass;
-  reload configured policy. Leaves persistent rules, other extensions' approvals, and running processes untouched. If
-  restoring network isolation would conflict with running wrapped jobs, the entire reset is refused without partial
-  changes.
+  **all reachable destinations**, while retaining filesystem rules. Linux socket restrictions remain independent; macOS
+  unrestricted networking also permits Unix sockets. `enable` forces network isolation/domain filtering on above
+  files/env. Neither changes a full sandbox bypass. Session-only, no config writes.
+- `/sandbox-sockets [enable|disable|status]` - bare command shows status. `disable` permits **all Unix sockets**, while
+  retaining configured filesystem and direct network rules. `enable` forces `unixSockets.allowAll: false` above config,
+  preserving configured macOS socket-path allowances. Does not change network mode or clear a full bypass. On macOS,
+  socket restrictions require filtered networking; status reports this explicitly. Session-only, no config writes;
+  cleared by `/sandbox-reset`, `/reload`, or session end.
+- `/sandbox-reset` - clear sandbox-owned session host grants, reactive write grants, network/socket overrides, and full
+  bypass; reload configured policy. Leaves persistent rules, other extensions' approvals, and running processes
+  untouched. If restoring network or socket isolation would conflict with running wrapped jobs, the entire reset is
+  refused without partial changes.
 - `/sandbox-explain path <path>` or `/sandbox-explain host <host[:port]|URL>` - diagnostic read/write or host decisions,
   matching rules, and contributing sources. No connections, writes, or approval prompts. Host reports include deny
   precedence, port scopes, and session grants, but not DNS/SSRF/transport checks. Filesystem reports describe the
@@ -205,6 +220,38 @@ first Ctrl-C on `pi -p` tear the sandbox down while pi kept running.
 
 Deliberately omitted: `/sandbox-allow-read <path>` to add an `allowRead`-within-deny override. Footgun-shaped; users
 edit `~/.pi/agent/filesystem.json` by hand for that.
+
+### Unix sockets: Docker and tmux
+
+Stop active wrapped jobs, then allow Unix-domain sockets without switching bash to unwrapped execution:
+
+```text
+/sandbox-sockets status
+/sandbox-sockets disable
+```
+
+Retry the Docker or tmux client. Filesystem permissions and write rules still apply to socket paths and parent
+directories, so this does not fix a missing socket, OS-level permission errors, or a denied socket-directory write.
+Direct TCP/domain policy is unchanged. For remote Docker over TCP or SSH, this socket-only toggle may not address the
+transport restriction.
+
+Stop the clients before restoring socket restrictions for newly wrapped commands:
+
+```text
+/sandbox-sockets enable
+```
+
+This forces `allowAll` off rather than restoring a configured `true`; `/sandbox-reset` restores configured policy, but
+also clears other sandbox session grants and overrides. Existing processes and open connections are not revoked. Linux
+cannot allow just Docker or tmux by socket path: disabling socket restrictions opens every Unix socket accessible
+through the remaining filesystem and OS permissions. macOS retains its configured path allowances when restrictions are
+re-enabled; if `/sandbox-network disable` is active, use `/sandbox-network enable` to make socket restrictions
+effective.
+
+**Privileged IPC is a security escape hatch.** Docker daemon access can run containers or mount host paths, effectively
+bypassing filesystem and network protections. A tmux socket can also control an unsandboxed server's processes. Keeping
+filesystem rules configured does not make these services safe. Linux additionally loses helper-backed monitoring and may
+lose nested-user-namespace hardening as described above.
 
 ### WSL2 and Windows Chrome CDP
 

@@ -418,8 +418,9 @@ export function translateToASRT(options: TranslateToASRTOptions): TranslateToASR
       // `network?.allowedDomains !== undefined`). With them absent, bwrap
       // does NOT `--unshare-net`, so sandboxed bash shares the host network
       // and `localhost` host services (Docker published ports, dev servers)
-      // are reachable. The unix-socket / local-binding sub-keys still flow
-      // through (ASRT reads them off `config.network` regardless). The cast
+      // are reachable. Socket/local-binding sub-keys still flow through;
+      // Linux honors the socket flag independently, but macOS's broad
+      // `(allow network*)` rule supersedes socket restrictions. The cast
       // is deliberate: the runtime contract reads these fields with optional
       // chaining, but the published type marks them required, so we assert
       // the intentionally-partial shape rather than fabricate empty arrays

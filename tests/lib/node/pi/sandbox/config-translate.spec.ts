@@ -24,6 +24,7 @@ import {
   type FilesystemPolicy,
 } from '../../../../../lib/node/pi/filesystem-policy/schema.ts';
 import type { CompiledPolicyReport } from '../../../../../lib/node/pi/sandbox/linux-rules-compile.ts';
+import { applySocketSandboxOverride } from '../../../../../lib/node/pi/sandbox/session-controls.ts';
 
 let cwd: string;
 const HOME = '/home/tester';
@@ -43,6 +44,28 @@ const basePolicy = (): FilesystemPolicy => emptyPolicy();
 /** Flags / credentials added after these fixtures were written. */
 const LATER_FLAGS = { allowNestedUserNamespaces: false, protectSandboxRuntime: true } as const;
 const NO_CREDENTIALS = (): SandboxConfig['credentials'] => ({ denyEnv: [] });
+
+describe('translateToASRT - socket-only session bypass', () => {
+  test.each(['darwin', 'linux'] as const)(
+    '%s: preserves filesystem, credentials, flags, and domain filtering',
+    (mode) => {
+      const sandbox = baseSandbox();
+      sandbox.network = { allow: ['example.com'], deny: ['blocked.example.com'] };
+      sandbox.unixSockets.allow = ['/tmp/tmux.sock'];
+      const compiled: CompiledPolicyReport = {
+        read: { paths: [], inertBasenames: [], inertSegments: [], inertPaths: [] },
+        write: { paths: [], inertBasenames: [], inertSegments: [], inertPaths: [] },
+      };
+      const options = { policy: basePolicy(), sandbox, cwd, homeDir: HOME, mode, compiled };
+      const before = translateToASRT(options).config;
+      const after = translateToASRT({ ...options, sandbox: applySocketSandboxOverride(sandbox, 'disabled') }).config;
+      expect(after.network).toEqual({ ...before.network, allowAllUnixSockets: true });
+      expect(after.network.allowedDomains).toEqual(['example.com']);
+      expect(after.network.deniedDomains).toEqual(['blocked.example.com']);
+      expect(after).toEqual({ ...before, network: after.network });
+    },
+  );
+});
 
 describe('translateToASRT - security policy protection', () => {
   const compiled = (paths: string[] = []): CompiledPolicyReport => ({
