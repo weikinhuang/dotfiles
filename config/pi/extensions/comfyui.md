@@ -314,8 +314,10 @@ running until `image_jobs collect` checks them. Managed auto-refine jobs still f
 
 On completion the compact card shows media counts and the first saved path. Expand the card to see workflow/file,
 ComfyUI prompt id, rendered positive/negative prompts when known, refinement summary, and all saved paths. Errors and
-cancellation stay visible. A single demand-driven 500ms UI timer refreshes active cards; terminal views freeze and stop
-refreshing. Session start, tree navigation, and shutdown discard live ownership and timers.
+cancellation stay visible. Expanded cards remain text-only: no terminal media preview or collect/cancel controls are
+added, and clicking only toggles expansion. The collapsed layout is unchanged. A single demand-driven 500ms UI timer
+refreshes active cards; terminal views freeze and stop refreshing. Session start, tree navigation, and shutdown discard
+live ownership and timers.
 
 These are human-only text projections on the exact row that executed the call, never changes to returned content or
 `details`. They add no images, video, audio, messages, or model context when work finishes. HTML exports,

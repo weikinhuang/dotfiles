@@ -294,7 +294,8 @@ describe('subagent actual SDK runtime (provider-free)', () => {
       await release.promise;
       finish(session, 'live card final answer');
     };
-    const args = { agent: 'review', task: 'live progress', run_in_background: true };
+    const task = `live progress ${'context '.repeat(20)}\nExpanded task ending`;
+    const args = { agent: 'review', task, run_in_background: true };
     const definition = parent.extensionRunner.getToolDefinition('subagent')!;
     const invalidated = vi.fn();
     const context: ToolRenderContext = {
@@ -315,7 +316,7 @@ describe('subagent actual SDK runtime (provider-free)', () => {
     };
     definition.renderCall!(args, theme, context);
     context.executionStarted = true;
-    const spawned = await spawn('live progress', { run_in_background: true });
+    const spawned = await spawn(task, { run_in_background: true });
     await started.promise;
     const original = JSON.stringify(spawned);
     context.isPartial = false;
@@ -329,6 +330,13 @@ describe('subagent actual SDK runtime (provider-free)', () => {
         ),
       );
     expect(render()).toContain('Live · /agents');
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now());
+    const collapsed = render();
+    expect(render(context, true)).toContain('Expanded task ending');
+    expect(render(context, true)).toContain('activity · live');
+    expect(render(context, true)).toContain('(no activity yet)');
+    expect(render()).toBe(collapsed);
+    clock.mockRestore();
     const child = [...children][0];
     emit(child, {
       type: 'tool_execution_start',
@@ -341,6 +349,47 @@ describe('subagent actual SDK runtime (provider-free)', () => {
     expect(invalidated).toHaveBeenCalledTimes(3);
     expect(render()).toContain('live-file.ts');
     expect(render()).toContain('read');
+    expect(parent.sessionManager.getEntries()).toHaveLength(entriesBeforeTick);
+    for (let i = 0; i < 10; i++) {
+      emit(child, {
+        type: 'tool_execution_start',
+        toolCallId: `activity-${i}`,
+        toolName: 'read',
+        args: { path: `activity-file-${i}` },
+      });
+    }
+    const streaming: AssistantMessage = {
+      role: 'assistant',
+      content: [],
+      api: model.api as AssistantMessage['api'],
+      provider: model.provider,
+      model: model.id,
+      stopReason: 'stop',
+      timestamp: 0,
+      usage: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 0,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      },
+    };
+    emit(child, {
+      type: 'message_update',
+      message: streaming,
+      assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: 'streamed-one ', partial: streaming },
+    });
+    expect(render(context, true)).toContain('▌ streamed-one');
+    emit(child, {
+      type: 'message_update',
+      message: streaming,
+      assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: 'streamed-two', partial: streaming },
+    });
+    await vi.advanceTimersByTimeAsync(500);
+    expect(render(context, true)).toContain('▌ streamed-one streamed-two');
+    expect(render(context, true)).toContain('activity-file-9');
+    expect(render(context, true)).not.toContain('activity-file-0');
     expect(parent.sessionManager.getEntries()).toHaveLength(entriesBeforeTick);
 
     const exported: ToolRenderContext = { ...context, state: {}, invalidate: vi.fn() };
@@ -359,6 +408,8 @@ describe('subagent actual SDK runtime (provider-free)', () => {
     expect(invalidated).toHaveBeenCalledTimes(calls);
     expect(exported.invalidate).not.toHaveBeenCalled();
     expect(render(context, true)).toContain('live card final answer');
+    expect(render(context, true)).toContain('activity · final');
+    expect(render(context, true)).toContain('Expanded task ending');
     expect(vi.getTimerCount()).toBe(0);
   });
 

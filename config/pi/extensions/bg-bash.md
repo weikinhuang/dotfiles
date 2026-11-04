@@ -42,8 +42,11 @@ serialized through a promise-chain mutex so concurrent `start` calls don't stack
 
 The original `start` result card follows its exact runtime job after the tool returns: a compact status line shows
 elapsed time, bytes and exit status, with recent stdout/stderr underneath. Each stream uses the existing 200-byte
-summary tail (at most three lines collapsed or eight expanded); expansion also shows pid and cwd. Signaled jobs keep
-refreshing until an end time is recorded, and `outputOpen` jobs keep following late output until the pipes close.
+summary tail (at most three lines collapsed or eight expanded); expansion also shows pid, cwd, and the original command
+with its line breaks and indentation. Commands fitting within eight wrapped terminal rows are shown in full; longer
+commands show their first eight rows and an omitted-line notice. This also applies to historical start cards. Signaled
+jobs keep refreshing until an end time is recorded, and `outputOpen` jobs keep following late output until the pipes
+close. Clicking a card in fullscreen mode only toggles expansion; it never runs or stops a command.
 
 This is a display-only projection via [`LiveToolCards`](../../../lib/node/pi/ext/live-tool-cards.ts), with one
 demand-driven 500 ms refresh timer. It never rewrites returned `content` / `details`, appends session entries, sends

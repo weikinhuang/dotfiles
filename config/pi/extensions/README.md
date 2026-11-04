@@ -15,7 +15,9 @@ the shared window assembler reduces decorative chrome on very short terminals ra
 Original `bg_bash` start, background `subagent` and `generate_image`, and `schedule` create/update cards use
 [`LiveToolCards`](../../../lib/node/pi/ext/live-tool-cards.ts) for user-only runtime updates. Stored tool results, model
 context, historical receipts, and HTML exports remain snapshots. Each extension uses one demand-driven refresh timer and
-releases live ownership on shutdown/reload or tree navigation.
+releases live ownership on shutdown/reload or tree navigation. In fullscreen mode, clicking a card only toggles its
+read-only expanded view: bounded commands and activity tails, text-only media metadata, or schedule details. Collapsed
+layouts stay unchanged.
 
 ## Index
 

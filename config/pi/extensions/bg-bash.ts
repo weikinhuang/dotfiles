@@ -72,12 +72,13 @@ import { join } from 'node:path';
 
 import { StringEnum } from '@earendil-works/pi-ai';
 import { type ExtensionAPI, type ExtensionContext, type Theme } from '@earendil-works/pi-coding-agent';
-import { Text } from '@earendil-works/pi-tui';
+import { Container, Text } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 
 import { requestBashApproval } from '../../../lib/node/pi/bash/gate.ts';
 import { showModal } from '../../../lib/node/pi/ext/show-modal.ts';
 import { LiveToolCards } from '../../../lib/node/pi/ext/live-tool-cards.ts';
+import { toolCardSection } from '../../../lib/node/pi/ext/tool-card-text.ts';
 import { BgBashOverlay, glyphColor } from '../../../lib/node/pi/ext/bg-bash-overlay.ts';
 import {
   type BgBashConfig,
@@ -1509,6 +1510,12 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
         ] as const) {
           if (tail) parts.push(theme.fg('toolOutput', `${stream}: ${tailN(tail, expanded ? 8 : 3).trimEnd()}`));
         }
+        if (expanded) {
+          const card = new Container();
+          card.addChild(new Text(parts.join('\n'), 0, 0));
+          card.addChild(toolCardSection(theme.fg('muted', 'command:'), theme.fg('toolOutput', current.command)));
+          return card;
+        }
         return new Text(parts.join('\n'), 0, 0);
       }
       if (details.error) return new Text(theme.fg('error', `✗ ${details.error}`), 0, 0);
@@ -1584,6 +1591,12 @@ export default function bgBashExtension(pi: ExtensionAPI): void {
         }
       }
 
+      if (expanded && details.action === 'start' && details.job) {
+        const card = new Container();
+        card.addChild(new Text(parts.join('\n'), 0, 0));
+        card.addChild(toolCardSection(theme.fg('muted', 'command:'), theme.fg('toolOutput', details.job.command)));
+        return card;
+      }
       return new Text(parts.join('\n'), 0, 0);
     },
   });

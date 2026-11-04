@@ -51,9 +51,13 @@ successful completion. Pending continuation at the cap returns `max_turns`; no e
 ### Live background cards
 
 In the TUI, the original background `subagent` card refreshes every 500 ms with current status, elapsed time, usage,
-per-tool counts, and the latest activity line. Expand the card to see up to eight recent activity lines. On completion
-it shows the final scorecard and answer preview; expansion shows the full answer. Completion freezes the card and
-releases its refresh callback, independently of the footer's linger timeout and background-registry pruning.
+per-tool counts, and the latest activity line. The collapsed layout is unchanged. Expand the card to see the task (up to
+eight wrapped rows), plus a labelled streaming tail of the latest eight wrapped activity rows from the same ring as
+`/agents`. Assistant deltas replace the current `▌` line rather than appending a row per token. Expansion does not
+freeze the stream. On completion it shows the final scorecard and answer preview; expansion retains the task and final
+activity tail and shows the full answer. Completion freezes the card and releases its refresh callback, independently of
+the footer's linger timeout and background-registry pruning. Clicking only toggles expansion; cards have no steering,
+abort, or result-collection actions.
 
 This is a user-only projection through [`LiveToolCards`](../../../lib/node/pi/ext/live-tool-cards.ts). It never changes
 returned `content` or `details`, appends progress entries, or sends messages. The agent still retrieves a background

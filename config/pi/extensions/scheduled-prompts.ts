@@ -65,13 +65,15 @@
 
 import { StringEnum } from '@earendil-works/pi-ai';
 import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
-import { Text } from '@earendil-works/pi-tui';
+import { Container, Text } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 
 import { completeSubverbs } from '../../../lib/node/pi/commands/complete.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { createGlobalSlot } from '../../../lib/node/pi/global-slot.ts';
 import { LiveToolCards } from '../../../lib/node/pi/ext/live-tool-cards.ts';
+import { ToolCardText } from '../../../lib/node/pi/ext/tool-card-text.ts';
+import { formatScheduleDetails, type ScheduleCardStatus } from '../../../lib/node/pi/scheduled-prompts/details.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 import { formatDuration, parseDuration } from '../../../lib/node/pi/scheduled-prompts/duration.ts';
 import { renderPrompt } from '../../../lib/node/pi/scheduled-prompts/template.ts';
@@ -143,11 +145,11 @@ export default function scheduledPromptsExtension(pi: ExtensionAPI): void {
 
   // Only original executing TUI rows own these projections. Nothing here is
   // persisted or returned to the model, and UI ticks never drive the scheduler.
-  const liveCards = new LiveToolCards<string>();
   interface ScheduleView {
     schedule: Schedule;
-    status: 'enabled' | 'paused' | 'deleted' | 'exhausted';
+    status: ScheduleCardStatus;
   }
+  const liveCards = new LiveToolCards<ScheduleView & { summary: string }>();
   const liveSchedules = new Map<string, ScheduleView>();
   const viewKey = (schedule: Schedule): string => `${schedule.scope}:${schedule.id}`;
   const scheduleStatus = (schedule: Schedule): ScheduleView['status'] =>
@@ -199,7 +201,11 @@ export default function scheduledPromptsExtension(pi: ExtensionAPI): void {
       const runs = `${s.runCount}${s.maxRuns === undefined ? '' : `/${s.maxRuns}`}`;
       const name = s.name ? ` (${s.name})` : '';
       return {
-        value: `Current ${s.id}${name} [${s.scope}] ${describeTrigger(s.trigger)} | status: ${view.status} | next: ${next} | runs: ${runs}`,
+        value: {
+          summary: `Current ${s.id}${name} [${s.scope}] ${describeTrigger(s.trigger)} | status: ${view.status} | next: ${next} | runs: ${runs}`,
+          schedule: structuredClone(s),
+          status: view.status,
+        },
         active: view.status === 'enabled' && s.nextFireAt !== undefined,
         // Paused rows stay event-refreshable, but need no countdown interval.
         watch: view.status === 'paused',
@@ -811,13 +817,21 @@ export default function scheduledPromptsExtension(pi: ExtensionAPI): void {
       return new Text(text, 0, 0);
     },
 
-    renderResult(result, _options, theme, context) {
+    renderResult(result, { expanded }, theme, context) {
       const receipt = result.content
         .filter((part) => part.type === 'text')
         .map((part) => part.text)
         .join('\n');
       const live = liveCards.read(context);
-      return new Text(live === undefined ? receipt : `${receipt}\n${theme.fg('muted', live)}`, 0, 0);
+      const summary = new Text(live === undefined ? receipt : `${receipt}\n${theme.fg('muted', live.summary)}`, 0, 0);
+      if (!expanded || live === undefined) return summary;
+      const details = formatScheduleDetails(live.schedule, live.status);
+      const body = new Container();
+      body.addChild(summary);
+      body.addChild(new Text(theme.fg('muted', details.metadata), 0, 0));
+      body.addChild(new Text(theme.bold('Prompt:'), 0, 0));
+      body.addChild(new ToolCardText(details.prompt, 8));
+      return body;
     },
   });
 }

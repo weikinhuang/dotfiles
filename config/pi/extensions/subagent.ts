@@ -81,7 +81,7 @@ import {
   type ExtensionFactory,
   type Theme,
 } from '@earendil-works/pi-coding-agent';
-import { Text } from '@earendil-works/pi-tui';
+import { Container, Text } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 
 import {
@@ -93,6 +93,7 @@ import {
 } from '../../../lib/node/pi/subagent/aggregate.ts';
 import { showModal } from '../../../lib/node/pi/ext/show-modal.ts';
 import { LiveToolCards } from '../../../lib/node/pi/ext/live-tool-cards.ts';
+import { toolCardSection } from '../../../lib/node/pi/ext/tool-card-text.ts';
 import {
   AgentsLoadedOverlay,
   AgentsRunningOverlay,
@@ -1546,6 +1547,39 @@ export default function subagentExtension(pi: ExtensionAPI): void {
       });
       const first = result.content.find((c) => c.type === 'text');
       const body = live?.body ?? (first?.type === 'text' ? first.text : '');
+      if (expanded) {
+        const card = new Container();
+        card.addChild(new Text(lead, 0, 0));
+        if (details.task) card.addChild(toolCardSection(theme.fg('muted', 'task:'), theme.fg('text', details.task)));
+        if (live) {
+          const activity = live.activity.length > 0 ? live.activity.join('\n') : '(no activity yet)';
+          card.addChild(
+            toolCardSection(
+              theme.fg('muted', `activity · ${stopReason === 'running' ? 'live' : 'final'}`),
+              theme.fg('dim', activity),
+              8,
+              true,
+            ),
+          );
+        }
+        if (stopReason !== 'spawned' && stopReason !== 'running' && body.trim()) {
+          card.addChild(new Text(theme.fg('text', body), 0, 0));
+        } else {
+          card.addChild(
+            new Text(
+              theme.fg(
+                'muted',
+                live
+                  ? '   Live · /agents for details'
+                  : '   Use `subagent_send` to check status, steer, or retrieve the result.',
+              ),
+              0,
+              0,
+            ),
+          );
+        }
+        return card;
+      }
       // Background spawns embed handle + task + hint into `content`; that
       // duplicates the scorecard lead, so we lean on the scorecard for
       // the visible card and only show the body when there is something
@@ -1562,9 +1596,6 @@ export default function subagentExtension(pi: ExtensionAPI): void {
             : '   Use `subagent_send` to check status, steer, or retrieve the result.',
         );
         return new Text([lead, taskLine, ...activity, hint].filter(Boolean).join('\n'), 0, 0);
-      }
-      if (expanded && body.trim()) {
-        return new Text(`${lead}\n${theme.fg('text', body)}`, 0, 0);
       }
       const preview = body.length > 240 ? `${body.slice(0, 240)}…` : body;
       return new Text(`${lead}\n${theme.fg('dim', preview)}`, 0, 0);

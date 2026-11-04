@@ -7,7 +7,7 @@
  */
 
 import type { Theme } from '@earendil-works/pi-coding-agent';
-import type { Text } from '@earendil-works/pi-tui';
+import { Text } from '@earendil-works/pi-tui';
 import { describe, expect, test } from 'vitest';
 
 import type { ImageJob } from '../../../../../../lib/node/pi/comfyui/jobs.ts';
@@ -182,6 +182,18 @@ describe('live generate_image projection', () => {
     expect(text).toContain('saved:    /out/b.wav');
     expect(text).not.toContain('original prompt');
   });
+  test('expansion stays text-only and does not alter collapsed output or job data', () => {
+    const live = card({ status: 'done', savedPaths: ['/out/a.png'] });
+    const original = JSON.stringify(live);
+    const result = gen({ background: true, jobId: '1' });
+    const collapsed = out(renderGenerateResult(result, {}, theme, {}, live));
+    const expanded = renderGenerateResult(result, { expanded: true }, theme, {}, live);
+    expect(expanded).toBeInstanceOf(Text);
+    expect(out(expanded)).toContain('saved:    /out/a.png');
+    expect(out(renderGenerateResult(result, {}, theme, {}, live))).toBe(collapsed);
+    expect(JSON.stringify(live)).toBe(original);
+  });
+
   test('queued raw workflow view names the file without invented prompt metadata', () => {
     const live = card({ promptId: '', prompt: '', workflowFile: '/workflow.api.json' });
     const text = out(renderGenerateResult(gen({ background: true }), { expanded: true }, theme, {}, live));

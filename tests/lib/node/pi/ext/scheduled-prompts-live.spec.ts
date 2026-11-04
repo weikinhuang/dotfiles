@@ -1,5 +1,5 @@
 import type { ExtensionAPI, Theme } from '@earendil-works/pi-coding-agent';
-import type { Component } from '@earendil-works/pi-tui';
+import { Container, Text, type Component } from '@earendil-works/pi-tui';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -42,7 +42,8 @@ interface Runtime {
   ) => Promise<{
     result: Result;
     invalidate: ReturnType<typeof vi.fn>;
-    render: (freshState?: boolean, expanded?: boolean) => string;
+    render: (freshState?: boolean, expanded?: boolean, width?: number) => string;
+    component: (expanded?: boolean) => Component;
   }>;
 }
 
@@ -90,12 +91,15 @@ function load(cwd: string, mode = 'tui'): Runtime {
       return {
         result,
         invalidate,
-        render(freshState = false, expanded = false) {
+        component(expanded = false): Component {
+          return tool.renderResult(result, { expanded }, theme, context);
+        },
+        render(freshState = false, expanded = false, width = 4000): string {
           const row = freshState ? { ...context, state: {} } : context;
           tool.renderCall(params, theme, row);
           return tool
             .renderResult(result, { expanded }, theme, row)
-            .render(4000)
+            .render(width)
             .map((line) => line.trimEnd())
             .join('\n');
         },
@@ -130,6 +134,82 @@ afterEach(() => {
 });
 
 describe('scheduled-prompts original live cards', () => {
+  test('expanded details toggle without changing the exact collapsed snapshot as countdown updates', async () => {
+    const prompt = 'Check the entire workspace\nKeep ${t} and ${d} literal until firing.';
+    const card = await rt.card({ action: 'create', prompt, every: '10s', name: 'review', maxRuns: 3 });
+    const id = idOf(card.result);
+    const receipt = card.result.content[0].text;
+    const bytes = JSON.stringify(card.result);
+    const snapshot = `${receipt}\nCurrent ${id} (review) [session] every 10s | status: enabled | next: in 10s (${new Date(NOW + 10_000).toLocaleString()}) | runs: 0/3`;
+    expect(card.render()).toBe(snapshot);
+    expect(card.render(false, true)).toBe(
+      `${snapshot}\nid: ${id}\nname: review\ntrigger: every 10s\nscope: session | status: enabled\nruns: 0 | maxRuns: 3 | unansweredRuns: 0\nlast fire: none\nnext fire: ${new Date(NOW + 10_000).toLocaleString()}\njitter: 0s | chance: 1\nresetOnActivity: false | whenIdle: false\nPrompt:\n${prompt}`,
+    );
+    expect(card.render()).toBe(snapshot);
+    vi.advanceTimersByTime(1500);
+    const updatedSnapshot = snapshot.replace('next: in 10s', 'next: in 8s');
+    expect(card.render(false, true)).toContain(updatedSnapshot);
+    expect(card.render()).toBe(updatedSnapshot);
+    expect(card.render(true, true)).toBe(receipt);
+    expect(JSON.stringify(card.result)).toBe(bytes);
+    expect(rt.sendMessage).not.toHaveBeenCalled();
+    expect(rt.appendEntry).not.toHaveBeenCalled();
+    expect(rt.notify).not.toHaveBeenCalled();
+  });
+
+  test('prompt is bounded by eight actual wrapped rows and details have no controls or input handlers', async () => {
+    const prompt = 'x'.repeat(200);
+    const card = await rt.card({ action: 'create', prompt, every: '10s' });
+    const component = card.component(true);
+    expect(component).toBeInstanceOf(Container);
+    const children = (component as Container).children;
+    expect(children).toHaveLength(4);
+    expect(children.every((child) => child instanceof Text)).toBe(true);
+    expect(children.map((child) => 'handleInput' in child)).toEqual([false, false, false, false]);
+    expect(children.map((child) => 'handleMouse' in child)).toEqual([false, false, false, false]);
+    const promptRows = card.render(false, true, 20).split('Prompt:\n')[1].split('\n');
+    expect(promptRows).toHaveLength(9);
+    expect(promptRows.slice(0, 8)).toEqual(Array.from({ length: 8 }, () => 'x'.repeat(20)));
+    expect(promptRows[8]).toBe('… (2 more lines)');
+    expect(rt.sendMessage).not.toHaveBeenCalled();
+    expect(rt.appendEntry).not.toHaveBeenCalled();
+  });
+
+  test('original create/update details follow pool changes and freeze through pause, resume, deletion', async () => {
+    const create = await rt.card({ action: 'create', prompt: 'first', after: '10s-10s' });
+    const id = idOf(create.result);
+    create.render(false, true);
+    const update = await rt.card({
+      action: 'update',
+      id,
+      prompts: ['new ${t}', 'alternate ${d}'],
+      roundRobin: true,
+      name: 'pool',
+    });
+    const bytes = [create, update].map((card) => JSON.stringify(card.result));
+    expect(create.render(false, true)).toContain('prompt pool: 2 | pick: roundRobin | cursor: 0');
+    expect(update.render(false, true)).toContain('Prompt:\n1. new ${t}\n2. alternate ${d}');
+    expect(create.render(false, true)).toContain('resetOnActivity: true | whenIdle: true');
+    await rt.command('schedules', `off ${id}`);
+    expect(create.render(false, true)).toContain('scope: session | status: paused');
+    expect(update.render(false, true)).toContain('next fire: none');
+    const paused = create.render(false, true);
+    vi.advanceTimersByTime(1000);
+    expect(create.render(false, true)).toBe(paused);
+    await rt.command('schedules', `on ${id}`);
+    expect(update.render(false, true)).toContain('scope: session | status: enabled');
+    expect(create.render(false, true)).toContain(`next fire: ${new Date(NOW + 11_000).toLocaleString()}`);
+    await rt.card({ action: 'delete', id });
+    expect(create.render(false, true)).toContain('scope: session | status: deleted');
+    expect(update.render(false, true)).toContain('Prompt:\n1. new ${t}\n2. alternate ${d}');
+    const deleted = create.render(false, true);
+    vi.advanceTimersByTime(60_000);
+    expect(create.render(false, true)).toBe(deleted);
+    expect([create, update].map((card) => JSON.stringify(card.result))).toEqual(bytes);
+    expect(rt.sendMessage).not.toHaveBeenCalled();
+    expect(rt.appendEntry).not.toHaveBeenCalled();
+  });
+
   test('create countdown is UI-only, owns only the executing row, and keeps exact tool bytes', async () => {
     const card = await rt.card({ action: 'create', prompt: 'ping', every: '10s' });
     const id = idOf(card.result);
@@ -220,11 +300,17 @@ describe('scheduled-prompts original live cards', () => {
       card.render();
       vi.advanceTimersByTime(10_000);
       expect(current(card.render())).toContain('status: exhausted | next: none | runs: 1');
+      expect(card.render(false, true)).toContain('scope: session | status: exhausted');
+      expect(card.render(false, true)).toContain(`last fire: ${new Date(NOW + 10_000).toLocaleString()}`);
+      expect(card.render(false, true)).toContain('next fire: none');
+      expect(card.render(false, true)).toContain('Prompt:\nonce');
       expect(vi.getTimerCount()).toBe(0);
       const invalidations = card.invalidate.mock.calls.length;
       const final = card.render();
+      const finalDetails = card.render(false, true);
       vi.advanceTimersByTime(100_000);
       expect(card.render()).toBe(final);
+      expect(card.render(false, true)).toBe(finalDetails);
       expect(card.invalidate).toHaveBeenCalledTimes(invalidations);
       expect(rt.sendMessage).toHaveBeenCalledTimes(1);
       expect(rt.notify).toHaveBeenCalledTimes(1);
@@ -272,6 +358,7 @@ describe('scheduled-prompts original live cards', () => {
     card.render();
     vi.advanceTimersByTime(2000);
     expect(current(card.render())).toContain('next: in 8s');
+    expect(card.render(false, true)).toContain('Prompt:\nidle');
     expect(readFileSync(file, 'utf8')).toBe(bytes);
     rt.emit('input', { source: 'extension' });
     expect(current(card.render())).toContain('next: in 8s');
@@ -289,6 +376,7 @@ describe('scheduled-prompts original live cards', () => {
     rt = load(dir, mode);
     const card = await rt.card({ action: 'create', prompt: 'ping', every: '10s' });
     expect(card.render()).toBe(card.result.content[0].text);
+    expect(card.render(false, true)).toBe(card.result.content[0].text);
     vi.advanceTimersByTime(1000);
     expect(vi.getTimerCount()).toBe(1);
     expect(card.invalidate).not.toHaveBeenCalled();
@@ -305,6 +393,7 @@ describe('scheduled-prompts original live cards', () => {
     expect(card.render()).toContain('Current ');
     rt.emit('session_tree');
     expect(card.render()).toBe(card.result.content[0].text);
+    expect(card.render(false, true)).toBe(card.result.content[0].text);
     expect(vi.getTimerCount()).toBe(1);
     const next = await rt.card({ action: 'update', id: idOf(uncaptured.result), name: 'new row' });
     expect(current(next.render())).toContain('(new row)');

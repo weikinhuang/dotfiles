@@ -129,6 +129,14 @@ live rows. Fires, activity re-anchoring, pause/re-enable, cancellation, and clea
 One-shots and schedules reaching their run limit freeze with their final run count; a chance-skipped one-shot retires
 without incrementing it.
 
+Collapsed cards retain exactly the same receipt and Current annotation. Expand an original live card using Pi's native
+expansion control to inspect its read-only details: full literal prompt text (or numbered pool alternatives), trigger,
+scope, status, name/id, run count/limit and unanswered runs, last/next fire times, jitter, chance, resetOnActivity,
+whenIdle, and pool size/pick mode/cursor when present. The prompt section shows at most eight actual wrapped terminal
+rows, with an omitted-line notice when longer; resizing applies the same bound. Variables remain literal until a real
+fire. Expansion adds no images, actions, buttons, or custom click/key handlers. Paused and retired cards retain useful
+detail snapshots, while later explicit updates and resume refresh paused cards.
+
 This is a human-only projection. Tool-return content and `{ action }` details remain unchanged, and UI refreshes never
 send messages, append session entries, persist schedule state, or fire prompts. A single shared 500ms UI interval runs
 only while live countdowns need refreshing. Paused rows stop polling but still respond to explicit schedule changes;

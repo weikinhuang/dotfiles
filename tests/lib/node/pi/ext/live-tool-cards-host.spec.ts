@@ -56,10 +56,15 @@ test('settled host rows redraw in place while HTML exports retain the original r
     },
     renderResult: (
       result: { content: { text: string }[] },
-      _options: unknown,
+      options: { expanded: boolean },
       _theme: unknown,
       context: ToolRenderContext,
-    ): Text => new Text(cards.read(context) ?? result.content[0].text, 0, 0),
+    ): Text =>
+      new Text(
+        `${cards.read(context) ?? result.content[0].text}${options.expanded ? '\nread-only details' : ''}`,
+        0,
+        0,
+      ),
   };
   const ui = { requestRender: vi.fn() };
   const row = new ToolExecutionComponent('probe', 'probe-1', {}, {}, definition, ui, process.cwd());
@@ -81,6 +86,25 @@ test('settled host rows redraw in place while HTML exports retain the original r
     cards.refresh();
     expect(ui.requestRender).toHaveBeenCalled();
     expect(row.render(120).join('\n')).toContain('live completed');
+    const collapsed = row.render(120);
+    const y = collapsed.findIndex((line) => line.includes('background task'));
+    const click = {
+      type: 'click' as const,
+      button: 'left' as const,
+      x: 2,
+      y,
+      screenX: 2,
+      screenY: y,
+      width: 120,
+      height: collapsed.length,
+      shift: false,
+      alt: false,
+      ctrl: false,
+    };
+    expect(row.handleMouse?.(click)?.handled).toBe(true);
+    expect(row.render(120).join('\n')).toContain('read-only details');
+    expect(row.handleMouse?.(click)?.handled).toBe(true);
+    expect(row.render(120)).toEqual(collapsed);
     expect(JSON.stringify(result)).toBe(original);
     expect(JSON.stringify(exporter.renderResult('probe-1', 'probe', result.content, undefined, false))).not.toContain(
       'live completed',

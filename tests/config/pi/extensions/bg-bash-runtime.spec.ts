@@ -272,6 +272,31 @@ describe('bg_bash runtime (real spawn)', () => {
     expect(JSON.stringify(card.result)).toBe(original);
   });
 
+  test('expansion reveals a full short command without changing the collapsed card or tool result', async () => {
+    const command = `# ${'header-preview '.repeat(8).trimEnd()}\n# full-command-detail\nread line`;
+    const card = await rt.card({ action: 'start', command, interactiveStdin: true });
+    const original = JSON.stringify(card.result);
+    const collapsed = card.render();
+    const entries = rt.appendEntry.mock.calls.length;
+    const messages = rt.sendMessage.mock.calls.length;
+    expect(collapsed).not.toContain('full-command-detail');
+    expect(card.render(true)).toContain(`command:\n${command}`);
+    expect(card.render()).toBe(collapsed);
+    expect(card.render(true, true)).toContain(`command:\n${command}`);
+    expect(JSON.stringify(card.result)).toBe(original);
+    expect(rt.appendEntry).toHaveBeenCalledTimes(entries);
+    expect(rt.sendMessage).toHaveBeenCalledTimes(messages);
+  });
+
+  test('expanded command snippets stop after eight rows with an explicit truncation notice', async () => {
+    const command = [...Array.from({ length: 20 }, (_, i) => `# command-line-${i}`), 'read line'].join('\n');
+    const card = await rt.card({ action: 'start', command, interactiveStdin: true });
+    const expanded = card.render(true);
+    expect(expanded).toContain('# command-line-7');
+    expect(expanded).not.toContain('# command-line-19');
+    expect(expanded).toContain('more lines');
+  });
+
   test('terminal START data survives clear, while tree navigation restores historical rendering', async () => {
     const card = await rt.card({ action: 'start', command: 'read line; echo cleared', interactiveStdin: true });
     const id = card.result.details.job!.id;
