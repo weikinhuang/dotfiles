@@ -53,7 +53,7 @@
  *                                       (default 2000)
  */
 
-import { StringEnum } from '@earendil-works/pi-ai';
+import { StringEnum } from '../../../lib/node/pi/ext/string-enum.ts';
 import { type ExtensionAPI, type ExtensionContext, type Theme } from '@earendil-works/pi-coding-agent';
 import { Text } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';

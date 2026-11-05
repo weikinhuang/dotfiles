@@ -70,7 +70,7 @@ import { createWriteStream, mkdirSync, type WriteStream } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { StringEnum } from '@earendil-works/pi-ai';
+import { StringEnum } from '../../../lib/node/pi/ext/string-enum.ts';
 import { type ExtensionAPI, type ExtensionContext, type Theme } from '@earendil-works/pi-coding-agent';
 import { Container, Text } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';

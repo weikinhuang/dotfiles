@@ -63,7 +63,7 @@
  *   PI_SCHEDULED_PROMPTS_DEBUG=1      log scheduler decisions to stderr.
  */
 
-import { StringEnum } from '@earendil-works/pi-ai';
+import { StringEnum } from '../../../lib/node/pi/ext/string-enum.ts';
 import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { Container, Text } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';

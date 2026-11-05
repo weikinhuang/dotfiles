@@ -47,7 +47,8 @@
  * <name>` overrides the cast within an active roleplay persona.
  */
 
-import { StringEnum, type Model } from '@earendil-works/pi-ai';
+import type { Model } from '@earendil-works/pi-ai';
+import { StringEnum } from '../../../lib/node/pi/ext/string-enum.ts';
 import { type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { Text } from '@earendil-works/pi-tui';
 import { existsSync, readFileSync } from 'node:fs';

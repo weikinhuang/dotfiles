@@ -313,6 +313,8 @@ describe('subagent actual SDK runtime (provider-free)', () => {
       isError: false,
       durationMs: undefined,
       outputPad: 1,
+      keyText: () => '',
+      keyHint: (_keybinding, description) => description,
     };
     definition.renderCall!(args, theme, context);
     context.executionStarted = true;
@@ -438,6 +440,8 @@ describe('subagent actual SDK runtime (provider-free)', () => {
       isError: false,
       durationMs: undefined,
       outputPad: 1,
+      keyText: () => '',
+      keyHint: (_keybinding, description) => description,
     };
     definition.renderCall!(args, theme, context);
     const spawned = await spawn('shutdown card', { run_in_background: true });
