@@ -407,8 +407,10 @@ and once coverage lags `recapLagCeiling` or more messages the best candidate is 
 forever. `/roleplay recap` shows the current recap and coverage; `/roleplay recap force` makes the next context pass
 roll regardless of the stride. `/roleplay recap now` immediately processes one bounded uncovered aged span without
 adding a narrative turn, then runs its enabled extraction stages. It requires enabled windowing and a configured
-summarizer; with no aged span it does nothing. The recap runs synchronously on the session model, or asynchronously when
-a distinct `summarizeModel` is configured (override with `recapAsync` / `PI_ROLEPLAY_RECAP_ASYNC`).
+summarizer. Before processing, it performs the same branch-owned memory hydration as a normal context pass, including
+persisting inherited timeline bases and seeding carry-over facts once; with no aged span it adds no recap. The recap
+runs synchronously on the session model, or asynchronously when a distinct `summarizeModel` is configured (override with
+`recapAsync` / `PI_ROLEPLAY_RECAP_ASYNC`).
 
 **Persistence.** Each roll stamps the recap and its exact coverage on the session branch, so resume, fork, and tree
 navigation continue the right recap. Each roll also refreshes the per-cast carry-over `summary/auto.md`. A genuinely new
@@ -436,13 +438,17 @@ which seeds future sessions. Capture creates notes; injection is memory's separa
 roleplay lore. New captures may first appear on the next agent run or memory tool call. Disabling capture stops new
 extraction, not injection of already stored notes.
 
-Committed recap spans schedule branch-local extraction jobs when facts or timeline extraction is enabled. Each stage has
-durable status/attempt snapshots, guarded against stale scene generations. Interruption preserves pending work; restored
-running stages become `interrupted`. `complete` and deliberately `skipped` stages are terminal, including stages skipped
-because their feature was disabled. `pending`, `failed`, and `interrupted` stages are retryable. `/roleplay jobs` is
-metadata-only status. `jobs retry facts|timeline|all` and `jobs drain` explicitly invoke model work for retryable stages
-of already queued jobs only. Neither discovers nor backfills legacy extraction gaps. Failures use fixed reason codes,
-never raw model/provider errors in job metadata.
+Recap spans durably schedule branch-local extraction jobs before accepting coverage when facts or timeline extraction is
+enabled. The acceptance audit links the job; extraction only runs for accepted work. A failed scheduling append leaves
+coverage unchanged, while an unaccepted job can be reused by a later successful recap without extracting prematurely.
+This ordering applies to normal rolls, final token-budget rolls, and immediate recap. Compaction side-writes retain zero
+coverage and do not schedule extraction; carry-over hydration seeds existing memory rather than extracting it. Each
+stage has durable status/attempt snapshots, guarded against stale scene generations. Interruption preserves pending
+work; restored running stages become `interrupted`. `complete` and deliberately `skipped` stages are terminal, including
+stages skipped because their feature was disabled. `pending`, `failed`, and `interrupted` stages are retryable.
+`/roleplay jobs` is metadata-only status. `jobs retry facts|timeline|all` and `jobs drain` explicitly invoke model work
+for retryable stages of already queued jobs only. Neither discovers nor backfills legacy extraction gaps. Failures use
+fixed reason codes, never raw model/provider errors in job metadata.
 
 Mechanics (zones, roll cadence, span cap, collapse guard, wedge breaker, hydration ladder, fact taxonomy) are in
 [roleplay-internals.md](./roleplay-internals.md#rolling-context-window).
@@ -620,7 +626,10 @@ These readouts never trigger a model call or inject diagnostic text into the sce
 The observation is the **sanitized pi projection**, not a promise of the final backend chat template. The provider hook
 observes an attempt, and assistant completion records outcome and associated usage when available; neither proves exact
 final provider bytes. Structural prefix stability is not a measured cache hit. Use provider-reported cache usage for
-cache claims, not unchanged cutoffs or snapshots.
+cache claims, not unchanged cutoffs or snapshots. When windowing has no snapshot, estimated input tokens remain unknown
+rather than reporting zero. Scene/cast resets clear transient request text and invalidate pending provider/response
+association; late hooks cannot append an old scene's report to the new scene. Historical reports remain on their
+original branch.
 
 Text requires an explicit opt-in:
 

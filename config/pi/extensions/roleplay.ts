@@ -173,6 +173,7 @@ import {
   CAST_CHANGE_TYPE,
   CAST_OVERRIDE_TYPE,
   createSceneBoundary,
+  latestSceneBoundary,
   NEW_SCENE_TYPE,
   recordedCast,
   restoreCastOverride,
@@ -578,7 +579,9 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     | ((ctx: ExtensionContext, task: string, signal?: AbortSignal) => Promise<string | null>)
     | null = null;
   let timelineExtractorInit = false;
+  let invalidateDiagnostics: (() => void) | undefined;
   const resetWindowState = (): void => {
+    invalidateDiagnostics?.();
     resetWindowStateFields(win);
     windowCheckpointHydrated = false;
     lastWindowCheckpointSignature = undefined;
@@ -1294,6 +1297,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
 
   const diagnostics = createRoleplayDiagnostics(pi, {
     cast: activeCast,
+    generation: () => win.recapGen,
     scene: originalSceneMessages,
     recap: () => win.recapText,
     timeline: () =>
@@ -1307,6 +1311,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     recapAsync: (ctx) => recapAsyncForced() ?? resolveRecapModelInfo(ctx).distinct,
     config: () => loadRoleplayConfigWithSources(cwd, envCharBudget),
   });
+  invalidateDiagnostics = diagnostics.invalidate;
 
   interface RecapResult {
     next: string | null;
@@ -1409,6 +1414,8 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     mode: 'sync' | 'async' | 'compact' | 'budget';
     forced?: boolean;
     anchor?: string;
+    acceptedRecap?: string;
+    extractionJobId?: string;
   }): void => {
     // A trivial-span skip still advanced coverage; flag it so branch hydration
     // (scanBranchForRecap) treats the boundary as committed.
@@ -1430,16 +1437,19 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         forced: o.forced ?? false,
         ...(trivial ? { trivial: true, emptySpan: true } : {}),
         candidateChars: o.result.next?.length ?? 0,
-        recapChars: win.recapText.length,
+        recapChars: (o.acceptedRecap ?? win.recapText).length,
         // The actual recap text, so drift is inspectable from the audit log
         // itself (its stated purpose) without opening `summary/auto.md`.
         // `candidate` is this roll's raw generation; `recap` is the effective
         // recap now in force (prior one held when a generation is rejected).
         candidate: o.result.next ?? null,
-        recap: win.recapText,
+        recap: o.acceptedRecap ?? win.recapText,
+        ...(o.extractionJobId ? { extractionJobId: o.extractionJobId } : {}),
       });
-    } catch {
-      /* audit write is best-effort */
+    } catch (error) {
+      // Accepted coverage is the commit marker for a durably scheduled job.
+      if (o.acceptedRecap !== undefined) throw error;
+      /* rejected/trivial audit writes remain best-effort */
     }
   };
 
@@ -2020,6 +2030,26 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     isCurrent: () => boolean,
     kinds: readonly ExtractionKind[] = ['facts', 'timeline'],
   ): Promise<void> => {
+    // A scheduled job whose recap append failed is not accepted work. Never
+    // extract it on an explicit retry, even after branch restoration.
+    const entries = getBranchEntries(ctx) ?? [];
+    const boundary = latestSceneBoundary(entries);
+    const accepted = entries.slice(boundary ? entries.indexOf(boundary) + 1 : 0).some((entry) => {
+      if (entry.customType !== 'roleplay-context-recap') return false;
+      const data = entry.data as
+        | { cast?: unknown; extractionJobId?: unknown; anchor?: unknown; applied?: unknown; forced?: unknown }
+        | undefined;
+      return (
+        data?.cast === initial.cast &&
+        (data.extractionJobId === initial.id ||
+          // Older releases scheduled after the acceptance audit and had no job
+          // link. Their accepted anchor still proves this exact span boundary.
+          (data.extractionJobId === undefined &&
+            data.anchor === initial.toAnchor &&
+            (data.applied === true || data.forced === true)))
+      );
+    });
+    if (!accepted) return;
     let job = initial;
     const save = (kind: ExtractionKind, status: ExtractionStatus, reason?: ExtractionReason): void => {
       if (!isCurrent() || signal?.aborted) return;
@@ -2044,19 +2074,16 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     await stage('timeline');
   };
 
-  const captureRecapSpan = async (
+  const scheduleRecapSpan = (
     ctx: ExtensionContext,
     transcript: readonly ReminderMessage[],
     from: number,
     to: number,
-    span: SummarizableMessage[],
-    signal: AbortSignal | undefined,
-    isCurrent: () => boolean,
-  ): Promise<void> => {
-    if (!isCurrent() || (!captureEnabled() && !timelineEnabled())) return;
+  ): ExtractionJob | null => {
+    if (!captureEnabled() && !timelineEnabled()) return null;
     const first = transcript[from];
     const after = transcript[to];
-    if (!first || !after) return;
+    if (!first || !after) throw new Error('Recap extraction boundary unavailable');
     const fromAnchor = reminderMessageAnchor(first);
     const toAnchor = reminderMessageAnchor(after);
     const original = originalSceneMessages(ctx);
@@ -2084,7 +2111,29 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     }).find((job) => job.id === scheduled.id);
     const job = previous ?? scheduled;
     if (!previous) pi.appendEntry(EXTRACTION_JOB_ENTRY, job);
-    await runExtractionJob(ctx, job, span, signal, isCurrent);
+    return job;
+  };
+
+  const commitRecapSpan = async (
+    ctx: ExtensionContext,
+    transcript: readonly ReminderMessage[],
+    span: SummarizableMessage[],
+    recap: string,
+    audit: Parameters<typeof writeRecapAudit>[0],
+    signal: AbortSignal | undefined,
+    isCurrent: () => boolean,
+  ): Promise<void> => {
+    if (!isCurrent() || signal?.aborted) return;
+    // Schedule first, then append the acceptance marker, then expose coverage.
+    // A failed job append cannot hydrate accepted coverage after restoration;
+    // a failed acceptance append leaves an inert, idempotently reusable job.
+    const job = scheduleRecapSpan(ctx, transcript, audit.spanFrom, audit.spanTo);
+    writeRecapAudit({ ...audit, acceptedRecap: recap, extractionJobId: job?.id });
+    win.recapText = recap;
+    win.recapCutoff = audit.spanTo;
+    win.recapAnchor = audit.anchor;
+    writeRecapRecord(recap, currentSessionId(ctx));
+    if (job) await runExtractionJob(ctx, job, span, signal, isCurrent);
   };
 
   const withSceneMemory = (messages: readonly ReminderMessage[], ctx: ExtensionContext): ReminderMessage[] =>
@@ -2114,6 +2163,9 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     return changed ? { messages: scoped as unknown as typeof event.messages } : undefined;
   });
 
+  let hydrateSceneMemory:
+    | ((messages: readonly Record<string, unknown>[], natural: number, ctx: ExtensionContext) => void)
+    | undefined;
   // `remindersEnabled && autoInjectEnabled` covers the `roleplay-scene-fold` producer.
   if (
     contextWindowEnabled ||
@@ -2143,6 +2195,137 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     const hydrateTimelineFromBranch = (c: { sessionManager?: unknown }): string | null => {
       const entries = getBranchEntries(c);
       return entries ? scanBranchForTimeline(entries, state.cast) : null;
+    };
+
+    // Commands and context passes must adopt the same branch-owned seeds,
+    // including the timeline base audit and one-shot carry-over facts.
+    hydrateSceneMemory = (messages, natural, ctx): void => {
+      if (!win.recapHydrated) {
+        win.recapHydrated = true;
+        if (recapMode) {
+          const sid = currentSessionId(ctx);
+          // 1. PRIMARY: recover this branch's recap from the SESSION LOG.
+          //    Every roll appends a `roleplay-context-recap` custom entry
+          //    carrying the recap + exact coverage boundary, and
+          //    `getBranch()` only returns entries on the active root-to-leaf
+          //    path. So this is fork-correct by construction: an edited /
+          //    regenerated / forked branch continues ITS own recap, never a
+          //    stale sibling's, and it carries the exact `coveredTo` instead
+          //    of guessing. A resume (branch continuity) -> NO fact reseed.
+          const branchRecap = hydrateRecapFromBranch(ctx, messages.length);
+          if (branchRecap) {
+            win.recapText = branchRecap.recap;
+            win.recapAnchor = branchRecap.anchor;
+            const anchored = branchRecap.anchor
+              ? messages.findIndex((message) =>
+                  reminderMessageKeys(message as ReminderMessage).includes(branchRecap.anchor ?? ''),
+                )
+              : branchRecap.coveredTo;
+            win.recapCutoff = Math.max(0, anchored);
+            // A compaction after the recap zeroed coverage: anchor the
+            // condense boundary at `natural` (as the live session_compact
+            // path does) so the resume does not immediately re-summarize
+            // the compaction summary + kept messages.
+            win.committedCutoff = branchRecap.compacted ? natural : win.recapCutoff;
+            // Timeline: this branch's cumulative timeline (same active-path
+            // guarantee). The shared carry-over is another session's log:
+            // adopt it only for a legacy branch that never recorded any
+            // timeline state (a seed is now stamped at hydration, below), so
+            // a resume rebuilds the timeline the live session actually had.
+            const branchTimeline = hydrateTimelineFromBranch(ctx);
+            const branchEntries = getBranchEntries(ctx) ?? [];
+            const recordedTimeline = branchEntries.some(
+              (entry) =>
+                entry.type === 'custom' &&
+                entry.customType === 'roleplay-timeline' &&
+                (entry.data as { cast?: unknown } | undefined)?.cast === state.cast,
+            );
+            const priorTimeline =
+              branchTimeline ??
+              (!recordedTimeline && canSeedScene(branchEntries)
+                ? (readEntryBody(state.cast, { id: 'auto', kind: 'timeline', name: '', description: '' }) ?? '')
+                : '');
+            if (priorTimeline.trim()) {
+              win.timelineText = capBeatLog(
+                priorTimeline.trim(),
+                loadRoleplayConfig(cwd, envCharBudget).timelineMemoryMaxChars,
+              );
+              if (branchTimeline === null) win.timelineSeedBase = win.timelineText;
+            }
+          } else if (canSeedScene(getBranchEntries(ctx) ?? [])) {
+            // 2. New tree (genuinely fresh session, or a fork with no recap
+            //    on its path yet): `getBranch()` has nothing to hydrate, so
+            //    seed continuity from the per-cast carry-over. Only the recap
+            //    TEXT is seeded; coverage stays 0 (recapCutoff =
+            //    committedCutoff = 0). The carry-over came from ANOTHER
+            //    session, so it covers none of this session's messages: on a
+            //    resumed long session that never rolled, claiming `natural`
+            //    would drop all aged history and replace it with a foreign
+            //    recap. A genuinely fresh session has natural == 0 anyway,
+            //    and the seed is still injected (injection keys on recapText,
+            //    not coverage). Normal rolls (folding into the seed as prior)
+            //    + the safety floor take over from there. 3. Cold start: no
+            //    carry-over -> recapText stays ''. Either way this load is a
+            //    non-resume, so the one-shot facts seed (B2) may run.
+            const priorEntry = state.entries.find((e) => e.kind === 'summary' && e.id === 'auto');
+            const prior = priorEntry ? (readEntryBody(state.cast, priorEntry) ?? '') : '';
+            if (prior.trim()) {
+              win.recapText = prior.trim();
+              // Stamp the seed on the branch (coverage 0) so a resume rebuilds
+              // this exact text, not whatever another same-cast session has
+              // since written to the shared carry-over.
+              try {
+                pi.appendEntry('roleplay-context-recap', {
+                  ts: Date.now(),
+                  cast: state.cast,
+                  mode: 'seed',
+                  coveredFrom: 0,
+                  coveredTo: 0,
+                  ok: true,
+                  applied: true,
+                  forced: false,
+                  recap: win.recapText,
+                });
+              } catch {
+                /* best-effort: the in-memory seed still applies */
+              }
+            }
+            // Seed the timeline from the per-cast carry-over log (C5). The
+            // first v2 `roleplay-timeline` entry stamps this seed as its
+            // `base`: later entries hold only deltas de-duped against it,
+            // so without the base a resume would lose the seed lines.
+            const priorTimeline =
+              readEntryBody(state.cast, { id: 'auto', kind: 'timeline', name: '', description: '' }) ?? '';
+            if (priorTimeline.trim()) {
+              win.timelineText = capBeatLog(
+                priorTimeline.trim(),
+                loadRoleplayConfig(cwd, envCharBudget).timelineMemoryMaxChars,
+              );
+              win.timelineSeedBase = win.timelineText;
+              // Stamp the seed as a v2 base now (not on the first roll, which
+              // may never come), so a resume rebuilds the same timeline.
+              try {
+                pi.appendEntry('roleplay-timeline', {
+                  ts: Date.now(),
+                  cast: state.cast,
+                  version: 2,
+                  beats: '',
+                  skip: 'seed',
+                  base: win.timelineSeedBase,
+                });
+                win.timelineSeedBase = null;
+              } catch {
+                /* the next v2 entry still stamps the base */
+              }
+            }
+            // B2: seed the per-cast carry-over facts (facts/*.md) into this
+            // session's memory note tier so a fresh session inherits the
+            // pinned specifics alongside the recap seed - not just the
+            // narrative. Gated by capture (the whole facts machinery is).
+            if (sid && captureEnabled()) seedCarryOverFacts(sid);
+          }
+        }
+      }
     };
 
     pi.on('context', async (event, ctx) => {
@@ -2198,132 +2381,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         // Lazily hydrate the recap once per (re)load, so a resume continues
         // the memory instead of rebuilding it (branch first, then the
         // per-cast carry-over seed; see the ladder below).
-        if (!win.recapHydrated) {
-          win.recapHydrated = true;
-          if (recapMode) {
-            const sid = currentSessionId(ctx);
-            // 1. PRIMARY: recover this branch's recap from the SESSION LOG.
-            //    Every roll appends a `roleplay-context-recap` custom entry
-            //    carrying the recap + exact coverage boundary, and
-            //    `getBranch()` only returns entries on the active root-to-leaf
-            //    path. So this is fork-correct by construction: an edited /
-            //    regenerated / forked branch continues ITS own recap, never a
-            //    stale sibling's, and it carries the exact `coveredTo` instead
-            //    of guessing. A resume (branch continuity) -> NO fact reseed.
-            const branchRecap = hydrateRecapFromBranch(ctx, messages.length);
-            if (branchRecap) {
-              win.recapText = branchRecap.recap;
-              win.recapAnchor = branchRecap.anchor;
-              const anchored = branchRecap.anchor
-                ? messages.findIndex((message) =>
-                    reminderMessageKeys(message as ReminderMessage).includes(branchRecap.anchor ?? ''),
-                  )
-                : branchRecap.coveredTo;
-              win.recapCutoff = Math.max(0, anchored);
-              // A compaction after the recap zeroed coverage: anchor the
-              // condense boundary at `natural` (as the live session_compact
-              // path does) so the resume does not immediately re-summarize
-              // the compaction summary + kept messages.
-              win.committedCutoff = branchRecap.compacted ? natural : win.recapCutoff;
-              // Timeline: this branch's cumulative timeline (same active-path
-              // guarantee). The shared carry-over is another session's log:
-              // adopt it only for a legacy branch that never recorded any
-              // timeline state (a seed is now stamped at hydration, below), so
-              // a resume rebuilds the timeline the live session actually had.
-              const branchTimeline = hydrateTimelineFromBranch(ctx);
-              const branchEntries = getBranchEntries(ctx) ?? [];
-              const recordedTimeline = branchEntries.some(
-                (entry) =>
-                  entry.type === 'custom' &&
-                  entry.customType === 'roleplay-timeline' &&
-                  (entry.data as { cast?: unknown } | undefined)?.cast === state.cast,
-              );
-              const priorTimeline =
-                branchTimeline ??
-                (!recordedTimeline && canSeedScene(branchEntries)
-                  ? (readEntryBody(state.cast, { id: 'auto', kind: 'timeline', name: '', description: '' }) ?? '')
-                  : '');
-              if (priorTimeline.trim()) {
-                win.timelineText = capBeatLog(
-                  priorTimeline.trim(),
-                  loadRoleplayConfig(cwd, envCharBudget).timelineMemoryMaxChars,
-                );
-                if (branchTimeline === null) win.timelineSeedBase = win.timelineText;
-              }
-            } else if (canSeedScene(getBranchEntries(ctx) ?? [])) {
-              // 2. New tree (genuinely fresh session, or a fork with no recap
-              //    on its path yet): `getBranch()` has nothing to hydrate, so
-              //    seed continuity from the per-cast carry-over. Only the recap
-              //    TEXT is seeded; coverage stays 0 (recapCutoff =
-              //    committedCutoff = 0). The carry-over came from ANOTHER
-              //    session, so it covers none of this session's messages: on a
-              //    resumed long session that never rolled, claiming `natural`
-              //    would drop all aged history and replace it with a foreign
-              //    recap. A genuinely fresh session has natural == 0 anyway,
-              //    and the seed is still injected (injection keys on recapText,
-              //    not coverage). Normal rolls (folding into the seed as prior)
-              //    + the safety floor take over from there. 3. Cold start: no
-              //    carry-over -> recapText stays ''. Either way this load is a
-              //    non-resume, so the one-shot facts seed (B2) may run.
-              const priorEntry = state.entries.find((e) => e.kind === 'summary' && e.id === 'auto');
-              const prior = priorEntry ? (readEntryBody(state.cast, priorEntry) ?? '') : '';
-              if (prior.trim()) {
-                win.recapText = prior.trim();
-                // Stamp the seed on the branch (coverage 0) so a resume rebuilds
-                // this exact text, not whatever another same-cast session has
-                // since written to the shared carry-over.
-                try {
-                  pi.appendEntry('roleplay-context-recap', {
-                    ts: Date.now(),
-                    cast: state.cast,
-                    mode: 'seed',
-                    coveredFrom: 0,
-                    coveredTo: 0,
-                    ok: true,
-                    applied: true,
-                    forced: false,
-                    recap: win.recapText,
-                  });
-                } catch {
-                  /* best-effort: the in-memory seed still applies */
-                }
-              }
-              // Seed the timeline from the per-cast carry-over log (C5). The
-              // first v2 `roleplay-timeline` entry stamps this seed as its
-              // `base`: later entries hold only deltas de-duped against it,
-              // so without the base a resume would lose the seed lines.
-              const priorTimeline =
-                readEntryBody(state.cast, { id: 'auto', kind: 'timeline', name: '', description: '' }) ?? '';
-              if (priorTimeline.trim()) {
-                win.timelineText = capBeatLog(
-                  priorTimeline.trim(),
-                  loadRoleplayConfig(cwd, envCharBudget).timelineMemoryMaxChars,
-                );
-                win.timelineSeedBase = win.timelineText;
-                // Stamp the seed as a v2 base now (not on the first roll, which
-                // may never come), so a resume rebuilds the same timeline.
-                try {
-                  pi.appendEntry('roleplay-timeline', {
-                    ts: Date.now(),
-                    cast: state.cast,
-                    version: 2,
-                    beats: '',
-                    skip: 'seed',
-                    base: win.timelineSeedBase,
-                  });
-                  win.timelineSeedBase = null;
-                } catch {
-                  /* the next v2 entry still stamps the base */
-                }
-              }
-              // B2: seed the per-cast carry-over facts (facts/*.md) into this
-              // session's memory note tier so a fresh session inherits the
-              // pinned specifics alongside the recap seed - not just the
-              // narrative. Gated by capture (the whole facts machinery is).
-              if (sid && captureEnabled()) seedCarryOverFacts(sid);
-            }
-          }
-        }
+        hydrateSceneMemory?.(messages, natural, ctx);
 
         // Roll only when the frozen boundary has advanced by at least `stride`
         // aged messages. Between rolls the condensed prefix + recap are frozen
@@ -2358,9 +2416,6 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
               await waitForRecap(win.recapPromise, ctx.signal);
               if (generation !== win.recapGen) return undefined;
             }
-            // Snapshot the session id at roll-plan time (decision a): the async
-            // path must not read it inside its `.then` (the manager may be gone).
-            const sid = currentSessionId(ctx);
             const spanFrom = win.recapCutoff;
             const recapTranscript = messages as readonly ReminderMessage[];
             // Cap how far one roll advances coverage so the summarizer only ever
@@ -2429,39 +2484,26 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
                       : clampSummary(result.raw ?? '', rollCfg.summarizeMaxChars);
                     const forced = !result.applied && shouldForceRecap({ candidate: salvaged, lag, lagCeiling });
                     const commit = result.applied ? result.next : forced ? salvaged : null;
+                    const audit = {
+                      result,
+                      model: info.model,
+                      spanFrom,
+                      spanTo,
+                      mode: 'async' as const,
+                      forced,
+                      anchor: recapAnchor,
+                    };
                     if (commit) {
-                      win.recapText = commit;
-                      win.recapCutoff = spanTo;
-                      win.recapAnchor = recapAnchor;
-                      writeRecapRecord(commit, sid);
+                      // Await both extractors under the recap's own abort
+                      // controller, keeping the shared endpoint serial.
+                      await commitRecapSpan(ctx, recapTranscript, span, commit, audit, abort.signal, isCurrent);
                     } else if (result.trivial) {
                       // Backstop: a span too trivial to summarize still
                       // advances coverage, so it can never stall the roll.
                       win.recapCutoff = spanTo;
                       win.recapAnchor = recapAnchor;
                     }
-                    writeRecapAudit({
-                      result,
-                      model: info.model,
-                      spanFrom,
-                      spanTo,
-                      mode: 'async',
-                      forced,
-                      anchor: recapAnchor,
-                    });
-                    if (commit) {
-                      // Capture runs SEQUENTIALLY after the recap, and is
-                      // AWAITED inside the chain so `recapInFlight` stays set
-                      // until it finishes. Both matter: the fact-extractor
-                      // shares the recap endpoint, so awaiting stops the next
-                      // roll from starting a concurrent recap on that single
-                      // instance, and keeps capture from being orphaned as a
-                      // fire-and-forget promise when the turn returns. Both
-                      // extractors run under the recap's own AbortController
-                      // (cancelled by resetWindowState, immune to a turn
-                      // abort) and re-check staleness after every await.
-                      await captureRecapSpan(ctx, recapTranscript, spanFrom, spanTo, span, abort.signal, isCurrent);
-                    }
+                    if (!commit) writeRecapAudit(audit);
                   })
                   .catch(() => {
                     /* keep prior recap + floor; retried on the next roll */
@@ -2491,20 +2533,15 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
                 const forced = !result.applied && shouldForceRecap({ candidate: salvaged, lag, lagCeiling });
                 const commit = result.applied ? result.next : forced ? salvaged : null;
                 if (commit) {
-                  win.recapText = commit;
-                  win.recapCutoff = spanTo;
-                  win.recapAnchor = recapAnchor;
-                  writeRecapRecord(commit, sid);
-                  writeRecapAudit({
-                    result,
-                    model: info.model,
-                    spanFrom,
-                    spanTo,
-                    mode: 'sync',
-                    forced,
-                    anchor: recapAnchor,
-                  });
-                  await captureRecapSpan(ctx, recapTranscript, spanFrom, spanTo, span, ctx.signal, isCurrent);
+                  await commitRecapSpan(
+                    ctx,
+                    recapTranscript,
+                    span,
+                    commit,
+                    { result, model: info.model, spanFrom, spanTo, mode: 'sync', forced, anchor: recapAnchor },
+                    ctx.signal,
+                    isCurrent,
+                  );
                   if (!isCurrent()) return undefined;
                 } else if (result.trivial) {
                   // Backstop: see the async path.
@@ -2830,18 +2867,16 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
             'The safety recap failed or was rejected; request paused instead of discarding uncovered history.',
           );
         }
+        const audit = { result, model: info.model, spanFrom: from, spanTo: to, mode: 'budget' as const, anchor };
         if (result.applied && result.next) {
-          win.recapText = result.next;
-          writeRecapRecord(result.next, currentSessionId(ctx));
-        }
-        win.recapCutoff = to;
-        win.recapAnchor = anchor;
-        win.committedCutoff = Math.max(win.committedCutoff, to);
-        writeRecapAudit({ result, model: info.model, spanFrom: from, spanTo: to, mode: 'budget', anchor });
-        if (result.applied) {
-          await captureRecapSpan(ctx, raw, from, to, span, abort.signal, current);
+          await commitRecapSpan(ctx, raw, span, result.next, audit, abort.signal, current);
           if (!current()) return fail('The scene changed during safety capture; retry the request.');
+        } else {
+          win.recapCutoff = to;
+          win.recapAnchor = anchor;
+          writeRecapAudit(audit);
         }
+        win.committedCutoff = Math.max(win.committedCutoff, to);
       } finally {
         ctx.signal?.removeEventListener('abort', stop);
         if (generation === win.recapGen) {
@@ -3656,6 +3691,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     ctx: ExtensionContext,
     task: (signal: AbortSignal, current: () => boolean) => Promise<void>,
   ): Promise<void> => {
+    resyncIfChanged(ctx);
     const generation = win.recapGen;
     await (ctx as ExtensionContext & { waitForIdle?: () => Promise<void> }).waitForIdle?.();
     if (win.recapPromise) await waitForRecap(win.recapPromise, ctx.signal);
@@ -3688,12 +3724,13 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       ctx.ui.notify('Immediate recap requires enabled windowing and a configured summarizer.', 'warning');
       return;
     }
+    const natural = computeCutoff(transcript, loadRoleplayConfig(cwd, envCharBudget).keepTurns);
+    hydrateSceneMemory?.(transcript, natural, ctx);
     const prior = scanBranchForRecap(getBranchEntries(ctx) ?? [], transcript.length, state.cast);
     const memory = controlMemory(ctx);
     const anchor = win.recapAnchor ?? prior?.anchor;
     const anchored = anchor ? transcript.findIndex((message) => reminderMessageKeys(message).includes(anchor)) : -1;
     const from = anchored >= 0 ? anchored : (prior?.coveredTo ?? 0);
-    const natural = computeCutoff(transcript, loadRoleplayConfig(cwd, envCharBudget).keepTurns);
     if (natural <= from) {
       ctx.ui.notify('No uncovered aged history eligible for recap. Lower keepTurns to age more history.', 'info');
       return;
@@ -3718,15 +3755,24 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       ctx.ui.notify('Recap failed or was rejected; coverage unchanged.', 'warning');
       return;
     }
-    win.recapText = result.next;
-    win.timelineText = memory.timeline;
-    win.recapCutoff = to;
+    await commitRecapSpan(
+      ctx,
+      transcript,
+      span,
+      result.next,
+      {
+        result,
+        model: info.model,
+        spanFrom: from,
+        spanTo: to,
+        mode: 'sync',
+        anchor: reminderMessageAnchor(transcript[to]),
+      },
+      signal,
+      current,
+    );
+    if (!current()) return;
     win.committedCutoff = to;
-    win.recapAnchor = reminderMessageAnchor(transcript[to]);
-    win.recapHydrated = true;
-    writeRecapRecord(result.next, currentSessionId(ctx));
-    writeRecapAudit({ result, model: info.model, spanFrom: from, spanTo: to, mode: 'sync', anchor: win.recapAnchor });
-    await captureRecapSpan(ctx, transcript, from, to, span, signal, current);
     if (current())
       ctx.ui.notify(
         `Recap committed for ${to - from} messages; inspect /roleplay jobs for extraction outcomes. No narrative turn was added.`,

@@ -55,7 +55,10 @@ vi.mock('../../../../../lib/node/pi/roleplay/summarize.ts', async (importOrigina
 
 type Message = ContextEvent['messages'][number];
 type Handler = (event: unknown, ctx: ExtensionContext) => unknown;
-type Stored = { type: 'custom'; customType: string; data: unknown } | { type: 'compaction' };
+type Stored =
+  | { type: 'custom'; customType: string; data: unknown }
+  | { type: 'compaction' }
+  | { type: 'message'; id: string; message: Message };
 
 const dirs: string[] = [];
 const shutdowns: (() => Promise<void>)[] = [];
@@ -178,6 +181,8 @@ interface Harness {
   tool: (params: Record<string, unknown>) => Promise<{ text: string; isError?: boolean }>;
   /** Run `/roleplay <args>` and return the last notification text. */
   command: (args: string) => Promise<string>;
+  seedTranscript: (messages: Message[]) => void;
+  failEntry: (type: string | null) => void;
 }
 
 async function harness(config: Record<string, unknown>): Promise<Harness> {
@@ -186,6 +191,7 @@ async function harness(config: Record<string, unknown>): Promise<Harness> {
   const agentDir = join(dir, 'agent');
   mkdirSync(agentDir);
   vi.stubEnv('PI_CODING_AGENT_DIR', agentDir);
+  vi.stubEnv('PI_MEMORY_ROOT', join(dir, 'memory'));
   writeFileSync(
     join(agentDir, 'roleplay.json'),
     JSON.stringify({
@@ -206,6 +212,7 @@ async function harness(config: Record<string, unknown>): Promise<Harness> {
   });
   const hooks = new Map<string, Handler[]>();
   const stored: Stored[] = [];
+  let failingEntry: string | null = null;
   const bus = new EventEmitter();
   const registerTool = vi.fn();
   const registerCommand = vi.fn();
@@ -218,7 +225,10 @@ async function harness(config: Record<string, unknown>): Promise<Harness> {
     getActiveTools: () => ['read', 'roleplay'],
     getAllTools: () => [{ name: 'read' }, { name: 'roleplay' }],
     setActiveTools: vi.fn(),
-    appendEntry: (customType: string, data: unknown) => stored.push({ type: 'custom', customType, data }),
+    appendEntry: (customType: string, data: unknown) => {
+      if (customType === failingEntry) throw new Error('synthetic append failure');
+      stored.push({ type: 'custom', customType, data });
+    },
     events: {
       on: (name: string, listener: (data: unknown) => void) => {
         bus.on(name, listener);
@@ -248,6 +258,12 @@ async function harness(config: Record<string, unknown>): Promise<Harness> {
   const customs = <T>(type: string): T[] =>
     stored.flatMap((entry) => (entry.type === 'custom' && entry.customType === type ? [entry.data as T] : []));
   return {
+    seedTranscript: (messages) => {
+      stored.push(...messages.map((message, index) => ({ type: 'message' as const, id: `m${index}`, message })));
+    },
+    failEntry: (type) => {
+      failingEntry = type;
+    },
     request: async (messages) => {
       let current = structuredClone(messages);
       for (const handler of hooks.get('context') ?? []) {
@@ -472,6 +488,155 @@ test('immediate recap commits eligible history without another context pass', as
   expect(stub.summarizeDetailed).toHaveBeenCalledTimes(1);
   expect(h.debug()).toHaveLength(debugCount);
   expect(await h.command('summary')).toContain('IMMEDIATE_RECAP');
+});
+
+test.each([false, true])('failed job scheduling cannot commit a normal recap (async=%s)', async (recapAsync) => {
+  const h = await harness({ recapAsync, recapStride: 1, recapMaxAdvance: 4, timeline: true });
+  stub.summarizeDetailed.mockResolvedValue({ recap: 'DURABLE_RECAP', raw: 'DURABLE_RECAP' });
+  h.failEntry('roleplay-extraction-job');
+  const messages = history(4);
+  const failure = await h.request(messages).then(
+    () => null,
+    (error: unknown) => error,
+  );
+  await flush();
+  expect(failure instanceof Error ? failure.message : null).toBe(recapAsync ? null : 'synthetic append failure');
+  expect(h.recaps()).toEqual([]);
+  expect(existsSync(h.carryOver)).toBe(false);
+  expect(child.run).not.toHaveBeenCalled();
+  await h.dispatch('session_tree');
+  stub.summarizeDetailed.mockResolvedValue({ recap: null, raw: null });
+  expect((await h.request(messages)).map(text).join('\n')).toContain('turn 0 prompt');
+  await flush();
+  expect(h.recaps().some((recap) => recap.applied)).toBe(false);
+  h.failEntry(null);
+  await h.dispatch('session_tree');
+  stub.summarizeDetailed.mockResolvedValue({ recap: 'DURABLE_RECAP', raw: 'DURABLE_RECAP' });
+  await h.request(messages);
+  await flush();
+  expect(h.recaps().at(-1)).toMatchObject({ applied: true });
+  expect(h.customs('roleplay-extraction-job').at(-1)).toMatchObject({ timeline: { status: 'failed' } });
+  expect(h.customs('roleplay-context-recap').at(-1)?.extractionJobId).toBeTypeOf('string');
+});
+
+test('immediate recap schedules before accepting coverage and reuses an unaccepted job safely', async () => {
+  const h = await harness({ recapAsync: false, recapStride: 500, timeline: true });
+  h.seedTranscript(history(4));
+  stub.summarizeDetailed.mockResolvedValue({ recap: 'COMMAND_RECAP', raw: 'COMMAND_RECAP' });
+  h.failEntry('roleplay-extraction-job');
+  await h.command('recap now');
+  expect(h.recaps()).toEqual([]);
+  await h.dispatch('session_start');
+  expect(await h.command('summary')).not.toContain('COMMAND_RECAP');
+  h.failEntry('roleplay-context-recap');
+  await h.command('recap now');
+  expect(h.customs('roleplay-extraction-job')).toHaveLength(1);
+  expect(child.run).not.toHaveBeenCalled();
+  await h.dispatch('session_tree');
+  await h.command('jobs retry all');
+  expect(child.run).not.toHaveBeenCalled();
+  h.failEntry(null);
+  await h.command('recap now');
+  expect(h.recaps()).toHaveLength(1);
+  const jobs = h.customs('roleplay-extraction-job');
+  expect(new Set(jobs.map((job) => job.id)).size).toBe(1);
+  expect(child.run).toHaveBeenCalledTimes(1);
+});
+
+test.each([
+  { timeline: true, beats: true },
+  { timeline: true, beats: false },
+  { timeline: false, beats: false },
+])('immediate recap hydrates carry-over before the first context pass: %j', async ({ timeline, beats }) => {
+  const h = await harness({ recapAsync: false, recapStride: 500, capture: true, timeline });
+  for (const [kind, body] of [
+    ['summary', 'INHERITED_SUMMARY'],
+    ['timeline', '- [day 1] INHERITED_BEAT'],
+    ['facts', ''],
+  ]) {
+    mkdirSync(join(h.castDir, kind), { recursive: true });
+    writeFileSync(
+      join(h.castDir, kind, 'auto.md'),
+      serializeEntry({
+        name: kind === 'facts' ? 'Inherited fact' : `Auto ${kind}`,
+        description: 'INHERITED_FACT',
+        kind: kind === 'timeline' ? 'timeline' : 'summary',
+        body,
+      }),
+    );
+  }
+  const messages = history(4);
+  h.seedTranscript(messages);
+  await h.dispatch('session_start');
+  stub.summarizeDetailed.mockImplementation((_ctx, _span, prior) =>
+    Promise.resolve({ recap: `${prior ?? ''} NEW_RECAP`, raw: `${prior ?? ''} NEW_RECAP` }),
+  );
+  child.run.mockImplementation((agent) =>
+    Promise.resolve(
+      agent === 'roleplay-timeline-extractor' ? (beats ? '[{"when":"day 2","summary":"NEW_BEAT"}]' : '[]') : '[]',
+    ),
+  );
+  await h.command('recap now');
+  expect(h.debug()).toEqual([]);
+  expect(await h.command('summary')).toContain('INHERITED_SUMMARY NEW_RECAP');
+  expect(h.customs('roleplay-timeline')[0]).toMatchObject({
+    version: 2,
+    base: '- [day 1] INHERITED_BEAT',
+    skip: 'seed',
+  });
+  expect(h.customs('roleplay-capture').filter((entry) => entry.seeded)).toHaveLength(1);
+  await h.dispatch('session_start');
+  await h.request(messages);
+  expect(await h.command('timeline --all')).toContain('INHERITED_BEAT');
+  expect((await h.command('timeline --all')).includes('NEW_BEAT')).toBe(beats);
+  expect(h.customs('roleplay-capture').filter((entry) => entry.seeded)).toHaveLength(1);
+  expect(await h.command('facts --content')).toContain('INHERITED_FACT');
+  await h.command('newscene');
+  await h.command('recap now');
+  expect(await h.command('timeline --all')).not.toContain('INHERITED_BEAT');
+  expect(await h.command('facts --content')).not.toContain('INHERITED_FACT');
+});
+
+test('legacy accepted jobs without an explicit audit link remain retryable', async () => {
+  const h = await harness({ recapAsync: false, recapStride: 1, recapMaxAdvance: 4, timeline: true });
+  stub.summarizeDetailed.mockResolvedValue({ recap: 'LEGACY_RECAP', raw: 'LEGACY_RECAP' });
+  const messages = history(4);
+  await h.request(messages);
+  delete h.customs('roleplay-context-recap')[0].extractionJobId;
+  const legacyId = h.customs('roleplay-extraction-job')[0].id;
+  await h.dispatch('session_tree');
+  await h.request(messages);
+  child.run.mockResolvedValue('[{"summary":"RETRIED_LEGACY_BEAT"}]');
+  await h.command('jobs retry timeline');
+  expect(h.customs('roleplay-extraction-job').findLast((job) => job.id === legacyId)).toMatchObject({
+    timeline: { status: 'complete' },
+  });
+  expect(h.customs('roleplay-timeline').some((entry) => String(entry.beats).includes('RETRIED_LEGACY_BEAT'))).toBe(
+    true,
+  );
+});
+
+test('immediate recap after a cast switch cannot seed the previous cast before context', async () => {
+  const h = await harness({ capture: true, timeline: false });
+  for (const kind of ['summary', 'timeline', 'facts']) {
+    mkdirSync(join(h.castDir, kind), { recursive: true });
+    writeFileSync(
+      join(h.castDir, kind, 'auto.md'),
+      serializeEntry({
+        name: 'Old cast seed',
+        description: 'OLD_CAST_FACT',
+        kind: kind === 'timeline' ? 'timeline' : 'summary',
+        body: 'OLD_CAST_MEMORY',
+      }),
+    );
+  }
+  h.seedTranscript(history(4));
+  await h.dispatch('session_start');
+  setActivePersona({ name: 'other', cast: 'other', roleplay: true, tools: ['roleplay'], resolvedWriteRoots: [] });
+  await h.command('recap now');
+  expect(await h.command('summary')).not.toContain('OLD_CAST_MEMORY');
+  expect(await h.command('timeline --all')).not.toContain('OLD_CAST_MEMORY');
+  expect(h.customs('roleplay-capture').filter((entry) => entry.seeded)).toEqual([]);
 });
 
 test('an interrupted timeline job survives tree restore and retries only unfinished work', async () => {

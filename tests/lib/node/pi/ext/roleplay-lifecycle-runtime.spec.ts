@@ -380,6 +380,51 @@ test('roleplay: request/debug defaults are content-free and content persistence 
   expect(notifications.mock.calls.at(-1)?.[0]).toContain(marker);
 });
 
+test('roleplay: scene reset cannot resurrect pending diagnostics, but the original branch keeps its reports', async () => {
+  const h = await harness();
+  await h.start('OLD_TRANSIENT_SCENE_TEXT');
+  await h.request([user('OLD_TRANSIENT_SCENE_TEXT', 1)]);
+  const originalBranch = [...h.stored];
+  await h.command('newscene');
+  const afterBoundary = h.stored.length;
+  const lateHooks = async (): Promise<void> => {
+    await h.dispatch('before_provider_request', { payload: { temperature: 0.123 } });
+    await h.dispatch('message_end', { message: history(1, 'OLD_RESPONSE')[1] });
+  };
+  await lateHooks();
+  expect(h.stored).toHaveLength(afterBoundary);
+  for (const command of ['request --snippets', 'debug --json']) {
+    await h.command(command);
+    expect(h.notify.mock.calls.at(-1)?.[0]).toContain('No captured request');
+    expect(h.notify.mock.calls.at(-1)?.[0]).not.toContain('OLD_TRANSIENT_SCENE_TEXT');
+  }
+  await h.start('NEW_SCENE_TEXT');
+  await h.request([user('NEW_SCENE_TEXT', 2)]);
+  await lateHooks();
+  await h.command('request --json');
+  expect(JSON.parse(String(h.notify.mock.calls.at(-1)?.[0]))).toMatchObject({ outcome: 'projected' });
+  await h.command('request --snippets');
+  expect(h.notify.mock.calls.at(-1)?.[0]).not.toContain('OLD_TRANSIENT_SCENE_TEXT');
+  // Navigating back still selects historical metadata, never old transient content.
+  h.stored.splice(0, h.stored.length, ...originalBranch);
+  await h.dispatch('session_tree');
+  await h.command('request --json');
+  expect(JSON.parse(String(h.notify.mock.calls.at(-1)?.[0]))).toMatchObject({ turnOrdinal: 1 });
+  await h.command('request --snippets');
+  expect(h.notify.mock.calls.at(-1)?.[0]).not.toContain('OLD_TRANSIENT_SCENE_TEXT');
+});
+
+test('roleplay: diagnostics without windowing leave the input-token estimate unknown', async () => {
+  vi.stubEnv('PI_ROLEPLAY_DISABLE_CONTEXT_WINDOW', '1');
+  const h = await harness();
+  await h.start('NONEMPTY_PROMPT');
+  await h.request([user('NONEMPTY_PROMPT', 1)]);
+  await h.command('request --json');
+  const report = JSON.parse(String(h.notify.mock.calls.at(-1)?.[0])) as Record<string, unknown>;
+  expect(report).not.toHaveProperty('estimatedInputTokens');
+  expect(report).toMatchObject({ outcome: 'projected' });
+});
+
 test('roleplay: a soft-target scheduling exception preserves hard-safe uncovered history', async () => {
   const h = await harness({ keepTurns: 50, promptTokenTarget: 1500, capture: true });
   h.failEntry('roleplay-extraction-job');
@@ -389,6 +434,16 @@ test('roleplay: a soft-target scheduling exception preserves hard-safe uncovered
   expect(out).toContain('UNCOVERED_ORIGINAL');
   expect(out).toContain('LATEST_ACTION');
   expect(h.abort).not.toHaveBeenCalled();
+  expect(h.stored.filter((entry) => entry.customType === 'roleplay-context-recap')).toEqual([]);
+  expect(existsSync(h.carry('cast-a'))).toBe(false);
+  await h.dispatch('session_start');
+  expect(await h.request(dialogue)).toContain('UNCOVERED_ORIGINAL');
+  h.failEntry(null);
+  await h.request(dialogue);
+  const accepted = h.stored.find((entry) => entry.customType === 'roleplay-context-recap')?.data;
+  expect(accepted).toMatchObject({ applied: true });
+  expect((accepted as Record<string, unknown>).extractionJobId).toBeTypeOf('string');
+  expect(h.stored.some((entry) => entry.customType === 'roleplay-extraction-job')).toBe(true);
 });
 
 test('roleplay: overlapping captures cannot claim a delayed earlier response as latest usage', async () => {

@@ -24,6 +24,7 @@ const CAPTURE_ENTRY = 'roleplay-request-capture';
 
 interface DiagnosticSource {
   cast: () => string | null;
+  generation?: () => number;
   scene: (ctx: ExtensionContext) => readonly ReminderMessage[];
   recap: () => string;
   timeline: () => string;
@@ -63,14 +64,30 @@ export function createRoleplayDiagnostics(
   capture: (messages: readonly ReminderMessage[], ctx: ExtensionContext) => void;
   handle: (verb: string, args: readonly string[], ctx: ExtensionContext) => boolean;
   reset: () => void;
+  invalidate: () => void;
 } {
-  let latest: { cast: string; metadata: RoleplayRequestMetadata; content: RoleplayRequestContent } | null = null;
+  let latest: {
+    cast: string;
+    generation: number | undefined;
+    metadata: RoleplayRequestMetadata;
+    content: RoleplayRequestContent;
+  } | null = null;
   let awaitingUsage = false;
   let ambiguousUsage = false;
   const reset = (): void => {
     latest = null;
     awaitingUsage = false;
     ambiguousUsage = false;
+  };
+  const invalidate = (): void => {
+    // Hooks carry no request identity. A prior scene's pending response can
+    // overlap a new capture, so stay conservative until the agent settles.
+    ambiguousUsage ||= awaitingUsage;
+    latest = null;
+    awaitingUsage = false;
+  };
+  const validate = (): void => {
+    if (latest && (latest.generation !== source.generation?.() || latest.cast !== source.cast())) invalidate();
   };
   const contentEnabled = (ctx: ExtensionContext, cast: string): boolean => {
     const entry = branch(ctx).findLast(
@@ -79,7 +96,8 @@ export function createRoleplayDiagnostics(
     return isRecord(entry?.data) && entry.data.enabled === true;
   };
   const persist = (ctx: ExtensionContext, includeContent = false): void => {
-    if (!latest || source.cast() !== latest.cast) return;
+    validate();
+    if (!latest) return;
     try {
       pi.appendEntry(ROLEPLAY_REQUEST_ENTRY, {
         cast: latest.cast,
@@ -91,6 +109,7 @@ export function createRoleplayDiagnostics(
     }
   };
   const capture = (messages: readonly ReminderMessage[], ctx: ExtensionContext): void => {
+    validate();
     const cast = source.cast();
     if (!cast) return;
     const scene = source.scene(ctx);
@@ -110,7 +129,7 @@ export function createRoleplayDiagnostics(
       outcome: 'projected',
       requestKind: requestOrdinal === 1 ? 'narrative' : 'continuation',
       createdAt: Date.now(),
-      estimatedInputTokens: Math.round(source.window()?.estSentPromptTokens ?? 0),
+      estimatedInputTokens: source.window()?.estSentPromptTokens,
       origin: users.at(-1) ? reminderMessageAnchor(users.at(-1)!) : undefined,
       recap: { text: source.recap(), coveredFrom: 0, coveredTo: source.coverage() },
       timeline: { text: source.timeline() },
@@ -141,11 +160,12 @@ export function createRoleplayDiagnostics(
       },
     });
     if (awaitingUsage) ambiguousUsage = true;
-    latest = { cast, ...captured };
+    latest = { cast, generation: source.generation?.(), ...captured };
     awaitingUsage = true;
     persist(ctx, true);
   };
   pi.on('before_provider_request', (event, ctx) => {
+    validate();
     if (!latest || !awaitingUsage || ambiguousUsage || latest.cast !== source.cast()) return;
     latest.metadata = {
       ...latest.metadata,
@@ -155,6 +175,7 @@ export function createRoleplayDiagnostics(
     persist(ctx);
   });
   pi.on('message_end', (event, ctx) => {
+    validate();
     if (
       !latest ||
       !awaitingUsage ||
@@ -185,6 +206,7 @@ export function createRoleplayDiagnostics(
 
   const handle = (verb: string, args: readonly string[], ctx: ExtensionContext): boolean => {
     if (verb !== 'request' && verb !== 'debug') return false;
+    validate();
     const cast = source.cast();
     if (!cast) {
       ctx.ui.notify('Roleplay diagnostics are dormant: select a roleplay persona first.', 'info');
@@ -362,5 +384,5 @@ export function createRoleplayDiagnostics(
     );
     return true;
   };
-  return { capture, handle, reset };
+  return { capture, handle, reset, invalidate };
 }
