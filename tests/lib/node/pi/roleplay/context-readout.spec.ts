@@ -71,7 +71,7 @@ test('formatContextWindowReadout renders the full snapshot with a drain estimate
       '  binding  : recap coverage sets the drop boundary',
       '  recap    : 2400 chars',
       '  tokens   : sent=18000 (30% of window)  system=1200  full=40000  saved=22000  window=60000  (~3.7 ch/tok)',
-      '  cache    : prefix reused (drop boundary + recap held) -> cache hit',
+      '  cache    : roleplay boundaries unchanged (drop boundary + recap held); actual cache reuse requires provider usage',
       '  drain    : 80 msgs behind; ~5 rolls (~20 turns) to drain  [maxAdvance=24, stride=8]',
     ].join('\n'),
   );
@@ -99,7 +99,7 @@ test('formatContextWindowReadout explains the cache-bust reason', () => {
     maxAdvance: 24,
     windowTokens: 60000,
   });
-  expect(both).toContain('prefix REPROCESSED last turn (drop boundary moved + recap changed)');
+  expect(both).toContain('roleplay prefix CHANGED last turn (drop boundary moved + recap changed)');
 
   const dropOnly = formatContextWindowReadout({
     recapMode: true,
@@ -108,7 +108,7 @@ test('formatContextWindowReadout explains the cache-bust reason', () => {
     maxAdvance: 24,
     windowTokens: 60000,
   });
-  expect(dropOnly).toContain('prefix REPROCESSED last turn (drop boundary moved)');
+  expect(dropOnly).toContain('roleplay prefix CHANGED last turn (drop boundary moved)');
 
   const recapOnly = formatContextWindowReadout({
     recapMode: true,
@@ -117,5 +117,5 @@ test('formatContextWindowReadout explains the cache-bust reason', () => {
     maxAdvance: 24,
     windowTokens: 60000,
   });
-  expect(recapOnly).toContain('prefix REPROCESSED last turn (recap text changed)');
+  expect(recapOnly).toContain('roleplay prefix CHANGED last turn (recap text changed)');
 });

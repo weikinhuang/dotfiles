@@ -58,7 +58,6 @@ import { Type } from 'typebox';
 
 import { cardToRecords, parseCardJson } from '../../../lib/node/pi/card-import/card-to-records.ts';
 import { extractCardJson } from '../../../lib/node/pi/card-import/parse-png-chara.ts';
-import { completeSubverbs } from '../../../lib/node/pi/commands/complete.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
 import { getActivePersona } from '../../../lib/node/pi/persona/active.ts';
@@ -78,6 +77,7 @@ import {
   clampEnvInt,
   DEFAULT_CONFIG,
   loadRoleplayConfig,
+  loadRoleplayConfigWithSources,
   MIN_CHAR_BUDGET,
 } from '../../../lib/node/pi/roleplay/config.ts';
 import {
@@ -138,8 +138,6 @@ import {
   deriveMaxSpanChars,
   effectiveFoldRefreshTurns,
   estimateChars,
-  injectRecap,
-  injectTimeline,
   messageSummaryText,
   shouldForceRecap,
   snapDropToUserBoundary,
@@ -148,6 +146,26 @@ import {
   type WindowOptions,
 } from '../../../lib/node/pi/roleplay/context-window.ts';
 import { applyWindowPass } from '../../../lib/node/pi/roleplay/window-pass.ts';
+import { createRoleplayDiagnostics } from '../../../lib/node/pi/ext/roleplay-diagnostics.ts';
+import { createRoleplayControls } from '../../../lib/node/pi/ext/roleplay-controls.ts';
+import {
+  effectiveRoleplayPolicy,
+  readRoleplayPolicyOverrides,
+  sceneOpenerRange,
+  type EffectiveRoleplayPolicy,
+} from '../../../lib/node/pi/roleplay/retention-policy.ts';
+import { pinnedKeys, projectSceneMemory, restorePinnedHead } from '../../../lib/node/pi/roleplay/pinned-window.ts';
+import {
+  createExtractionJob,
+  EXTRACTION_JOB_ENTRY,
+  extractionAuditOutcome,
+  scanExtractionJobs,
+  updateExtractionStage,
+  type ExtractionJob,
+  type ExtractionKind,
+  type ExtractionReason,
+  type ExtractionStatus,
+} from '../../../lib/node/pi/roleplay/extraction-jobs.ts';
 import { clearRoleplayFacts, serializeRoleplayFact } from '../../../lib/node/pi/roleplay/fact-memory.ts';
 import { CAPTURE_ENTRY_TYPE, planFactReconcile } from '../../../lib/node/pi/roleplay/fact-branch.ts';
 import {
@@ -288,7 +306,7 @@ import {
   slugifyName,
   upsertEntry,
 } from '../../../lib/node/pi/roleplay/store.ts';
-import { ROLEPLAY_USAGE, roleplaySubverbs } from '../../../lib/node/pi/roleplay/usage.ts';
+import { ROLEPLAY_USAGE, completeRoleplayArguments } from '../../../lib/node/pi/roleplay/usage.ts';
 import { type RoleplayToolParams } from '../../../lib/node/pi/roleplay/tool-params.ts';
 import {
   type ActionPlan,
@@ -548,6 +566,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   let lastWindowCheckpointSignature: string | undefined;
   /** Snapshot of the last context-window pass, for `/roleplay context`. Null until the first turn is processed. */
   let lastWindowSnapshot: ContextWindowReadoutSnapshot | null = null;
+  let lastFullRequestChars = 0;
   /** Lowercased fact names captured this process, to skip re-writing the same fact. */
   const capturedFacts = new Set<string>();
   /** Lazy `roleplay-fact-extractor` runner + one-shot init guard. */
@@ -565,6 +584,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     lastWindowCheckpointSignature = undefined;
     capturedFacts.clear();
     lastWindowSnapshot = null;
+    lastFullRequestChars = 0;
   };
 
   /**
@@ -638,6 +658,31 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     } catch {
       return null;
     }
+  };
+
+  // Read original branch messages, not a reconstruction from diagnostic text.
+  const originalSceneMessages = (ctx: ExtensionContext): ReminderMessage[] => {
+    const entries = getBranchEntries(ctx) ?? [];
+    const stored = entries.flatMap((entry) => {
+      if (entry.type !== 'message' || !entry.message || typeof entry.message !== 'object') return [];
+      const message = entry.message as ReminderMessage;
+      if (typeof message.role !== 'string') return [];
+      return [{ ...message, ...(typeof entry.id === 'string' ? { cacheReminderEntryId: `entry:${entry.id}:0` } : {}) }];
+    });
+    return sceneMessages(stored.length > 0 ? stored : (lastMessages as readonly ReminderMessage[]), entries);
+  };
+
+  const policyFor = (ctx: ExtensionContext): EffectiveRoleplayPolicy =>
+    effectiveRoleplayPolicy(
+      loadRoleplayConfig(cwd, envCharBudget),
+      readRoleplayPolicyOverrides(getBranchEntries(ctx) ?? [], state.cast),
+    );
+  const openerFor = (ctx: ExtensionContext): ReminderMessage[] => {
+    const policy = policyFor(ctx);
+    if (!policy.pin) return [];
+    const original = originalSceneMessages(ctx);
+    const range = sceneOpenerRange(original, policy.includeReply);
+    return range ? original.slice(range.from, range.to) : [];
   };
 
   const clearCastFacts = (cast: string, ctx: ExtensionContext): number => {
@@ -1247,6 +1292,22 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     return { model: mm ?? sm, distinct };
   };
 
+  const diagnostics = createRoleplayDiagnostics(pi, {
+    cast: activeCast,
+    scene: originalSceneMessages,
+    recap: () => win.recapText,
+    timeline: () =>
+      renderTimelineBlock(win.timelineText, {
+        maxChars: loadRoleplayConfig(cwd, envCharBudget).timelineMaxInjectChars,
+      }) ?? '',
+    coverage: () => win.recapCutoff,
+    policy: policyFor,
+    window: () => lastWindowSnapshot,
+    recapModel: (ctx) => resolveRecapModelInfo(ctx).model,
+    recapAsync: (ctx) => recapAsyncForced() ?? resolveRecapModelInfo(ctx).distinct,
+    config: () => loadRoleplayConfigWithSources(cwd, envCharBudget),
+  });
+
   interface RecapResult {
     next: string | null;
     /**
@@ -1486,6 +1547,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   const writeFactsToSessionMemory = (
     sid: string,
     facts: readonly { name: string; description: string }[],
+    onError?: () => void,
   ): { slug: string; name: string; description: string }[] => {
     const written: { slug: string; name: string; description: string }[] = [];
     try {
@@ -1537,11 +1599,11 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         try {
           atomicWriteFile(memoryIndexFileFor('session', cwd, sid), renderMemoryMd(sessionEntries, 'session'));
         } catch {
-          /* index rebuild is best-effort */
+          onError?.();
         }
       }
     } catch {
-      /* memory write must never break a turn */
+      onError?.();
     }
     return written;
   };
@@ -1742,8 +1804,12 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     sid: string | null,
     signal: AbortSignal | undefined,
     isCurrent: () => boolean,
+    outcome?: (status: ExtractionStatus, reason?: ExtractionReason) => void,
   ): Promise<void> => {
-    if (!timelineEnabled()) return;
+    if (!timelineEnabled()) {
+      outcome?.('skipped', 'disabled');
+      return;
+    }
     const audit = {
       sessionId: sid !== null,
       extractor: false,
@@ -1759,7 +1825,8 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       version: 2 as const,
       beats: '' as string,
     };
-    const emit = (): void => {
+    const emit = (): boolean => {
+      if (!isCurrent() || signal?.aborted) return false;
       // The first v2 entry of a carry-over-seeded session also carries the
       // seed as `base` (deltas are de-duped against it, so hydration needs it).
       const base = win.timelineSeedBase;
@@ -1767,8 +1834,11 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         pi.appendEntry('roleplay-timeline', { ts: Date.now(), cast: state.cast, ...audit, ...(base ? { base } : {}) });
         win.timelineSeedBase = null;
       } catch {
-        /* audit write is best-effort */
+        audit.skip = 'write-error';
       }
+      const result = extractionAuditOutcome(audit.skip);
+      outcome?.(result.status, result.reason);
+      return audit.skip !== 'write-error';
     };
     try {
       const extractor = getTimelineExtractor(ctx);
@@ -1778,13 +1848,12 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         return;
       }
       audit.extractor = true;
-      const cfg = loadRoleplayConfig(cwd, envCharBudget);
       const info = resolveRecapModelInfo(ctx);
       const maxSpanChars = deriveMaxSpanChars({
         contextWindowTokens: info.model?.contextWindow,
         charsPerToken: win.charsPerToken,
       });
-      const plan = planSummarization(span, { minMessages: cfg.summarizeMinMessages, maxSpanChars });
+      const plan = planSummarization(span, { minMessages: 1, maxSpanChars });
       if (!plan) {
         audit.skip = 'no-plan';
         emit();
@@ -1798,7 +1867,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       );
       // Stale (reset / branch change while extracting): discard silently -
       // no in-memory mutation and no entry on the (now different) branch.
-      if (!isCurrent()) return;
+      if (!isCurrent() || signal?.aborted) return;
       if (raw === null) {
         audit.skip = 'extractor-null';
         emit();
@@ -1808,15 +1877,19 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       const beats = parseTimelineBeats(raw);
       audit.parsed = beats.length;
       if (beats.length === 0) {
-        audit.skip = 'no-beats';
+        audit.skip = /^\s*(?:```(?:json)?\s*)?(?:\[\s*\]|null)(?:\s*```)?\s*$/i.test(raw)
+          ? 'no-beats'
+          : 'invalid-output';
         emit();
         return;
       }
       // Stamp the delta into the audit entry so it doubles as the
       // branch-primary timeline store (see hydrateTimelineFromBranch).
+      const previous = win.timelineText;
       audit.beats = appendTimelineBeats(formatBeatLines(beats));
-      audit.wrote = beats.length;
-      emit();
+      audit.wrote = audit.beats.split('\n').filter((line) => line.trim()).length;
+      if (!audit.beats) audit.skip = 'all-duplicates';
+      if (!emit()) win.timelineText = previous;
     } catch {
       audit.skip = 'error';
       emit();
@@ -1829,8 +1902,12 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     sid: string | null,
     signal: AbortSignal | undefined,
     isCurrent: () => boolean,
+    outcome?: (status: ExtractionStatus, reason?: ExtractionReason) => void,
   ): Promise<void> => {
-    if (!captureEnabled()) return;
+    if (!captureEnabled()) {
+      outcome?.('skipped', 'disabled');
+      return;
+    }
     // Auditable outcome (custom entry, never sent to the LLM). Emitted on
     // every return path so a zero-write run is debuggable: which gate hit.
     const audit = {
@@ -1844,11 +1921,14 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       facts: [] as { slug: string; name: string; description: string }[],
     };
     const emit = (): void => {
+      if (!isCurrent() || signal?.aborted) return;
       try {
         pi.appendEntry(CAPTURE_ENTRY_TYPE, { ts: Date.now(), cast: state.cast, ...audit });
       } catch {
-        /* audit write is best-effort */
+        audit.skip = 'write-error';
       }
+      const result = extractionAuditOutcome(audit.skip);
+      outcome?.(result.status, result.reason);
     };
     // `sid` is snapshotted by the caller at roll-plan time: the async path
     // must not read the session manager inside its `.then`.
@@ -1867,13 +1947,12 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         return;
       }
       audit.extractor = true;
-      const cfg = loadRoleplayConfig(cwd, envCharBudget);
       const info = resolveRecapModelInfo(ctx);
       const maxSpanChars = deriveMaxSpanChars({
         contextWindowTokens: info.model?.contextWindow,
         charsPerToken: win.charsPerToken,
       });
-      const plan = planSummarization(span, { minMessages: cfg.summarizeMinMessages, maxSpanChars });
+      const plan = planSummarization(span, { minMessages: 1, maxSpanChars });
       if (!plan) {
         audit.skip = 'no-plan';
         emit();
@@ -1897,14 +1976,19 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       const candidates = parseFactCandidates(raw);
       audit.parsed = candidates.length;
       if (candidates.length === 0) {
-        audit.skip = 'no-candidates';
+        audit.skip = /^\s*(?:```(?:json)?\s*)?(?:\[\s*\]|null)(?:\s*```)?\s*$/i.test(raw)
+          ? 'no-candidates'
+          : 'invalid-output';
         emit();
         return;
       }
 
       // Write to the session note tier (live layer) + mirror to the per-cast
       // carry-over sidecar (durable seed for future sessions).
-      const written = writeFactsToSessionMemory(sessionId, candidates);
+      let writeFailed = false;
+      const written = writeFactsToSessionMemory(sessionId, candidates, () => {
+        writeFailed = true;
+      });
       mirrorFactsToCarryOver(written);
       const wrote = written.length;
       audit.wrote = wrote;
@@ -1919,6 +2003,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       } else {
         audit.skip = 'all-duplicates';
       }
+      if (writeFailed) audit.skip = 'write-error';
       emit();
     } catch {
       // Capture must never break a turn.
@@ -1926,6 +2011,93 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       emit();
     }
   };
+
+  const runExtractionJob = async (
+    ctx: ExtensionContext,
+    initial: ExtractionJob,
+    span: SummarizableMessage[],
+    signal: AbortSignal | undefined,
+    isCurrent: () => boolean,
+    kinds: readonly ExtractionKind[] = ['facts', 'timeline'],
+  ): Promise<void> => {
+    let job = initial;
+    const save = (kind: ExtractionKind, status: ExtractionStatus, reason?: ExtractionReason): void => {
+      if (!isCurrent() || signal?.aborted) return;
+      job = updateExtractionStage(job, kind, status, Math.max(Date.now(), job.updatedAt), reason);
+      pi.appendEntry(EXTRACTION_JOB_ENTRY, job);
+    };
+    const stage = async (kind: ExtractionKind): Promise<void> => {
+      if (!kinds.includes(kind) || !isCurrent() || signal?.aborted) return;
+      if (job[kind].status === 'complete' || job[kind].status === 'skipped') return;
+      if ((kind === 'facts' && !captureEnabled()) || (kind === 'timeline' && !timelineEnabled())) {
+        save(kind, 'skipped', 'disabled');
+        return;
+      }
+      save(kind, 'running');
+      const capture = kind === 'facts' ? captureFacts : captureTimeline;
+      await capture(ctx, span, currentSessionId(ctx), signal, isCurrent, (status, reason) =>
+        save(kind, status, reason),
+      );
+    };
+    // Shared local endpoints must finish facts before starting timeline work.
+    await stage('facts');
+    await stage('timeline');
+  };
+
+  const captureRecapSpan = async (
+    ctx: ExtensionContext,
+    transcript: readonly ReminderMessage[],
+    from: number,
+    to: number,
+    span: SummarizableMessage[],
+    signal: AbortSignal | undefined,
+    isCurrent: () => boolean,
+  ): Promise<void> => {
+    if (!isCurrent() || (!captureEnabled() && !timelineEnabled())) return;
+    const first = transcript[from];
+    const after = transcript[to];
+    if (!first || !after) return;
+    const fromAnchor = reminderMessageAnchor(first);
+    const toAnchor = reminderMessageAnchor(after);
+    const original = originalSceneMessages(ctx);
+    const turnAt = (anchor: string, inclusive: boolean): number | undefined => {
+      const index = original.findIndex((message) => reminderMessageKeys(message).includes(anchor));
+      if (index < 0) return undefined;
+      return (
+        original.slice(0, index + (inclusive ? 1 : 0)).filter((message) => message.role === 'user').length || undefined
+      );
+    };
+    const scheduled = createExtractionJob(
+      {
+        cast: state.cast,
+        fromAnchor,
+        toAnchor,
+        sourceRecapId: `recap:${fromAnchor}:${toAnchor}`,
+        fromTurn: turnAt(fromAnchor, true),
+        toTurn: turnAt(toAnchor, false),
+      },
+      Date.now(),
+    );
+    const previous = scanExtractionJobs(getBranchEntries(ctx) ?? [], state.cast, {
+      restore: false,
+      terminalLimit: Number.MAX_SAFE_INTEGER,
+    }).find((job) => job.id === scheduled.id);
+    const job = previous ?? scheduled;
+    if (!previous) pi.appendEntry(EXTRACTION_JOB_ENTRY, job);
+    await runExtractionJob(ctx, job, span, signal, isCurrent);
+  };
+
+  const withSceneMemory = (messages: readonly ReminderMessage[], ctx: ExtensionContext): ReminderMessage[] =>
+    projectSceneMemory(
+      messages,
+      recapMode ? win.recapText : '',
+      recapMode && win.timelineText.trim()
+        ? renderTimelineBlock(win.timelineText, {
+            maxChars: loadRoleplayConfig(cwd, envCharBudget).timelineMaxInjectChars,
+          })
+        : null,
+      openerFor(ctx),
+    );
 
   // Scene boundaries also apply when every optional window/reminder feature is disabled.
   pi.on('context', (event, ctx) => {
@@ -2181,10 +2353,16 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
             const rollCfg = loadRoleplayConfig(cwd, envCharBudget);
             const info = resolveRecapModelInfo(ctx);
             const wantAsync = recapAsyncForced() ?? info.distinct;
+            if (!wantAsync && win.recapPromise) {
+              const generation = win.recapGen;
+              await waitForRecap(win.recapPromise, ctx.signal);
+              if (generation !== win.recapGen) return undefined;
+            }
             // Snapshot the session id at roll-plan time (decision a): the async
             // path must not read it inside its `.then` (the manager may be gone).
             const sid = currentSessionId(ctx);
             const spanFrom = win.recapCutoff;
+            const recapTranscript = messages as readonly ReminderMessage[];
             // Cap how far one roll advances coverage so the summarizer only ever
             // merges a digestible increment onto the prior recap (an unbounded
             // spanTo=natural made a stalled recap re-summarize a growing span,
@@ -2282,11 +2460,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
                       // extractors run under the recap's own AbortController
                       // (cancelled by resetWindowState, immune to a turn
                       // abort) and re-check staleness after every await.
-                      await captureFacts(ctx, span, sid, abort.signal, isCurrent);
-                      if (!isCurrent()) return;
-                      // Timeline runs AFTER capture, sequential + awaited, for
-                      // the same single-endpoint reason (C4).
-                      await captureTimeline(ctx, span, sid, abort.signal, isCurrent);
+                      await captureRecapSpan(ctx, recapTranscript, spanFrom, spanTo, span, abort.signal, isCurrent);
                     }
                   })
                   .catch(() => {
@@ -2321,24 +2495,32 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
                   win.recapCutoff = spanTo;
                   win.recapAnchor = recapAnchor;
                   writeRecapRecord(commit, sid);
-                  await captureFacts(ctx, span, sid, ctx.signal, isCurrent);
-                  if (!isCurrent()) return undefined;
-                  await captureTimeline(ctx, span, sid, ctx.signal, isCurrent);
+                  writeRecapAudit({
+                    result,
+                    model: info.model,
+                    spanFrom,
+                    spanTo,
+                    mode: 'sync',
+                    forced,
+                    anchor: recapAnchor,
+                  });
+                  await captureRecapSpan(ctx, recapTranscript, spanFrom, spanTo, span, ctx.signal, isCurrent);
                   if (!isCurrent()) return undefined;
                 } else if (result.trivial) {
                   // Backstop: see the async path.
                   win.recapCutoff = spanTo;
                   win.recapAnchor = recapAnchor;
                 }
-                writeRecapAudit({
-                  result,
-                  model: info.model,
-                  spanFrom,
-                  spanTo,
-                  mode: 'sync',
-                  forced,
-                  anchor: recapAnchor,
-                });
+                if (!commit)
+                  writeRecapAudit({
+                    result,
+                    model: info.model,
+                    spanFrom,
+                    spanTo,
+                    mode: 'sync',
+                    forced,
+                    anchor: recapAnchor,
+                  });
               }
             }
           }
@@ -2379,7 +2561,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
           // Only the final limiter may inject memory after choosing its anchor,
           // and it runs only under an active coordinator. Without one, inject
           // here: covered history is already gone from this list.
-          deferMemory: remindersEnabled && coordinatorActive(),
+          deferMemory: true,
           timelineBlock:
             recapMode && win.timelineText.trim()
               ? renderTimelineBlock(win.timelineText, {
@@ -2390,6 +2572,15 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         });
         if (pass.changed) {
           messages = pass.messages;
+          changed = true;
+        }
+        const opener = openerFor(ctx);
+        if (opener.length > 0) {
+          messages = restorePinnedHead(messages as readonly ReminderMessage[], opener);
+          changed = true;
+        }
+        if (!(remindersEnabled && coordinatorActive())) {
+          messages = withSceneMemory(messages as readonly ReminderMessage[], ctx);
           changed = true;
         }
 
@@ -2526,19 +2717,22 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     };
     const windowTokens = ctx.model?.contextWindow;
     const head = typeof ctx.getSystemPrompt === 'function' ? ctx.getSystemPrompt() : undefined;
-    const withMemory = (messages: readonly ReminderMessage[]): ReminderMessage[] => {
-      let out = messages as readonly Record<string, unknown>[];
-      if (recapMode && win.recapText.trim()) out = injectRecap(out, win.recapText);
-      if (recapMode && win.timelineText.trim()) {
-        const timeline = renderTimelineBlock(win.timelineText, {
-          maxChars: loadRoleplayConfig(cwd, envCharBudget).timelineMaxInjectChars,
-        });
-        if (timeline) out = injectTimeline(out, timeline);
-      }
-      return out as ReminderMessage[];
-    };
+    const withMemory = (messages: readonly ReminderMessage[]): ReminderMessage[] => withSceneMemory(messages, ctx);
+    const protectedKeys = pinnedKeys(openerFor(ctx));
     if (typeof windowTokens !== 'number' || !Number.isFinite(windowTokens) || windowTokens <= 0)
       return { messages: withMemory(request.messages), fits: true };
+    const initialMemory = {
+      recapCutoff: win.recapCutoff,
+      recapAnchor: win.recapAnchor,
+      committedCutoff: win.committedCutoff,
+      recapText: win.recapText,
+      timelineText: win.timelineText,
+      timelineSeedBase: win.timelineSeedBase,
+    };
+    const requestTokens = (candidate: readonly ReminderMessage[], chars: number): number =>
+      windowTokens >= PI_SAFETY_MIN_WINDOW
+        ? Math.max(chars / win.charsPerToken, piFallbackTokens(candidate, head)) + PI_CONTEXT_SAFETY_TOKENS
+        : chars / win.charsPerToken;
     interface Finalized {
       messages: ReminderMessage[];
       fits: boolean;
@@ -2548,25 +2742,44 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     const step = async (): Promise<Finalized> => {
       if (!current()) return fail('The scene changed or the safety recap was cancelled; retry the request.');
       // Coverage can end mid-turn (char-bounded spans); drop only whole turns.
-      const covered = dropCoveredMessages(request.messages, raw, snapDropToUserBoundary(raw, win.recapCutoff));
-      const result = limitReminderContext({
+      const covered = dropCoveredMessages(
+        request.messages,
+        raw,
+        snapDropToUserBoundary(raw, win.recapCutoff),
+        protectedKeys,
+      );
+      const limitOptions = {
         messages: covered,
-        preview: (candidate) => request.preview(withMemory(candidate)),
-        requestChars: (candidate) => reminderRequestChars(candidate, head),
+        preview: (candidate: readonly ReminderMessage[]) => request.preview(withMemory(candidate)),
+        requestChars: (candidate: readonly ReminderMessage[]) => reminderRequestChars(candidate, head),
         // Size against pi's own max_tokens clamp too: it reserves a fixed margin
         // and may estimate at 3.5 chars/token, so a prompt that only fits our
         // calibrated estimate can still leave the reply a single token.
         // Below PI_SAFETY_MIN_WINDOW pi's fixed margin cannot be met at all.
-        requestTokens: (candidate, chars) =>
-          windowTokens >= PI_SAFETY_MIN_WINDOW
-            ? Math.max(chars / win.charsPerToken, piFallbackTokens(candidate, head)) + PI_CONTEXT_SAFETY_TOKENS
-            : chars / win.charsPerToken,
+        requestTokens,
         origin: request.origin,
         windowTokens,
         charsPerToken: win.charsPerToken,
-      });
-      const before = retainedTranscriptStart(covered, raw);
-      const target = retainedTranscriptStart(result.messages, raw);
+        protectedKeys,
+      };
+      const hard = limitReminderContext(limitOptions);
+      const softTarget = policyFor(ctx).target;
+      const result = softTarget > 0 ? limitReminderContext({ ...limitOptions, promptTokenTarget: softTarget }) : hard;
+      const before = retainedTranscriptStart(covered, raw, protectedKeys);
+      const target = retainedTranscriptStart(result.messages, raw, protectedKeys);
+      const softOnly = hard.fits && retainedTranscriptStart(hard.messages, raw, protectedKeys) <= before;
+      const preserveOrFail = (reason: string): Finalized => {
+        if (!softOnly || softTarget <= 0) return fail(reason);
+        const key = `soft-budget:${reason}`;
+        if (!surfacedWarnings.has(key)) {
+          surfacedWarnings.add(key);
+          ctx.ui.notify(
+            `roleplay: soft prompt target could not be met. ${reason} History retained; the physical window still fits.`,
+            'warning',
+          );
+        }
+        return { messages: withMemory(covered), fits: true };
+      };
       if (!result.fits)
         return fail(
           'The protected input, system prompt, tools or reminders exceed the model window; no uncovered history was discarded.',
@@ -2576,28 +2789,31 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         return { messages: withMemory(result.messages), fits: true };
       }
       if (target < 0 || target <= win.recapCutoff)
-        return fail('Cannot resolve recap coverage for the requested budget cut; history was preserved.');
+        return preserveOrFail('Cannot resolve recap coverage for the requested budget cut; history was preserved.');
       if (win.recapPromise) {
         await waitForRecap(win.recapPromise, ctx.signal);
         return step();
       }
       if (!recapMode || !getSummarizer(ctx)?.isEnabled())
-        return fail(
+        return preserveOrFail(
           'A token-budget cut needs a configured roleplay summarizer; request paused instead of discarding scene history.',
         );
       const cfg = loadRoleplayConfig(cwd, envCharBudget);
       const from = win.recapCutoff;
       const boundedTo = boundRollSpanTo(raw, from, target, cfg.recapMaxAdvance, 1);
-      if (boundedTo <= from) return fail('A safety recap could not advance coverage; scene history was preserved.');
+      if (boundedTo <= from)
+        return preserveOrFail('A safety recap could not advance coverage; scene history was preserved.');
       const info = resolveRecapModelInfo(ctx);
       // Children load no extensions: sanitize the span the way the provider copy is.
       const sanitized = sanitizeForChild(raw.slice(from, boundedTo), ctx);
       if (!sanitized)
-        return fail('The safety recap span could not be sanitized; request paused with scene history preserved.');
+        return preserveOrFail(
+          'The safety recap span could not be sanitized; request paused with scene history preserved.',
+        );
       // Cover only what the summarizer reads (no renderSpan front truncation).
       const to = from + boundSpanByChars(sanitized, 0, boundedTo - from, recapSpanChars(info, win.recapText));
       const anchor = raw[to] ? reminderMessageAnchor(raw[to]) : undefined;
-      if (!anchor) return fail('The safety recap boundary is unavailable; scene history was preserved.');
+      if (!anchor) return preserveOrFail('The safety recap boundary is unavailable; scene history was preserved.');
       const abort = new AbortController();
       win.recapAbort = abort;
       win.recapInFlight = true;
@@ -2610,7 +2826,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         if (!current()) return fail('The scene changed or the safety recap was cancelled; retry the request.');
         if (!result.applied && !result.trivial) {
           writeRecapAudit({ result, model: info.model, spanFrom: from, spanTo: to, mode: 'budget' });
-          return fail(
+          return preserveOrFail(
             'The safety recap failed or was rejected; request paused instead of discarding uncovered history.',
           );
         }
@@ -2623,9 +2839,8 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         win.committedCutoff = Math.max(win.committedCutoff, to);
         writeRecapAudit({ result, model: info.model, spanFrom: from, spanTo: to, mode: 'budget', anchor });
         if (result.applied) {
-          await captureFacts(ctx, span, currentSessionId(ctx), abort.signal, current);
+          await captureRecapSpan(ctx, raw, from, to, span, abort.signal, current);
           if (!current()) return fail('The scene changed during safety capture; retry the request.');
-          await captureTimeline(ctx, span, currentSessionId(ctx), abort.signal, current);
         }
       } finally {
         ctx.signal?.removeEventListener('abort', stop);
@@ -2637,8 +2852,47 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       return step();
     };
     try {
+      const full = [
+        ...request.messages.filter((message) => message.role === 'system'),
+        ...raw.filter((message) => message.role !== 'system'),
+      ];
+      lastFullRequestChars = reminderRequestChars(request.preview(withMemory(full)), head);
       return await step();
     } catch {
+      if (current() && policyFor(ctx).target > 0) {
+        // A soft-target failure cannot commit an unpersisted cut. Rehydrate
+        // any successfully recorded partial progress on the next context pass.
+        Object.assign(win, initialMemory, { recapHydrated: false });
+        try {
+          const preserved = withMemory(
+            dropCoveredMessages(
+              request.messages,
+              raw,
+              snapDropToUserBoundary(raw, initialMemory.recapCutoff),
+              protectedKeys,
+            ),
+          );
+          const hard = limitReminderContext({
+            messages: preserved,
+            preview: request.preview,
+            requestChars: (candidate) => reminderRequestChars(candidate, head),
+            requestTokens,
+            origin: request.origin,
+            windowTokens,
+            charsPerToken: win.charsPerToken,
+            protectedKeys,
+          });
+          if (hard.fits && hard.messages.length === preserved.length) {
+            ctx.ui.notify(
+              'roleplay: soft-target preparation failed; physically fitting scene history was retained. Inspect jobs for unfinished extraction.',
+              'warning',
+            );
+            return { messages: preserved, fits: true };
+          }
+        } catch {
+          /* The hard safety path still fails closed. */
+        }
+      }
       return fail('Safety context finalization failed; request paused with uncovered history preserved.');
     }
   };
@@ -2682,9 +2936,18 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
           dropMoved: lastWindowSnapshot.dropMoved || win.recapCutoff !== lastWindowSnapshot.dropCutoff,
           recapChanged: lastWindowSnapshot.recapChanged || win.recapText.length !== lastWindowSnapshot.recapChars,
           estSentPromptTokens: sent,
-          estFullPromptTokens: Math.max(sent, lastWindowSnapshot.estFullPromptTokens),
-          estSavedTokens: Math.max(0, lastWindowSnapshot.estFullPromptTokens - sent),
+          estFullPromptTokens: Math.max(sent, Math.round(lastFullRequestChars / win.charsPerToken)),
+          estSavedTokens: Math.max(0, Math.round(lastFullRequestChars / win.charsPerToken) - sent),
         };
+      }
+      try {
+        diagnostics.capture(request.messages, ctx);
+      } catch {
+        // Observability must never abort an otherwise valid scene request.
+        if (!surfacedWarnings.has('request-diagnostics')) {
+          surfacedWarnings.add('request-diagnostics');
+          ctx.ui.notify('roleplay: request diagnostics unavailable; the scene request is unchanged.', 'warning');
+        }
       }
       if (contextWindowEnabled && ctx.model) {
         const checkpoint = createWindowCheckpoint(win, lastMessages as readonly ReminderMessage[], {
@@ -3369,6 +3632,121 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     renderResult: (result, options, theme, context) => renderGenerateResult(result, options, theme, context),
   });
 
+  const controlMemory = (ctx: ExtensionContext): { recap: string; timeline: string } => {
+    const entries = getBranchEntries(ctx) ?? [];
+    const recap = scanBranchForRecap(entries, Number.MAX_SAFE_INTEGER, state.cast);
+    const timeline = scanBranchForTimeline(entries, state.cast);
+    return {
+      recap: win.recapHydrated
+        ? win.recapText
+        : (recap?.recap ??
+          (canSeedScene(entries)
+            ? (readEntryBody(state.cast, { id: 'auto', kind: 'summary', name: '', description: '' }) ?? '')
+            : '')),
+      timeline: win.recapHydrated
+        ? win.timelineText
+        : (timeline ??
+          (canSeedScene(entries)
+            ? (readEntryBody(state.cast, { id: 'auto', kind: 'timeline', name: '', description: '' }) ?? '')
+            : '')),
+    };
+  };
+
+  const runControlTask = async (
+    ctx: ExtensionContext,
+    task: (signal: AbortSignal, current: () => boolean) => Promise<void>,
+  ): Promise<void> => {
+    const generation = win.recapGen;
+    await (ctx as ExtensionContext & { waitForIdle?: () => Promise<void> }).waitForIdle?.();
+    if (win.recapPromise) await waitForRecap(win.recapPromise, ctx.signal);
+    if (generation !== win.recapGen) {
+      ctx.ui.notify('Scene changed while waiting; no work started.', 'warning');
+      return;
+    }
+    const abort = new AbortController();
+    const current = (): boolean => generation === win.recapGen && !abort.signal.aborted;
+    win.recapAbort = abort;
+    win.recapInFlight = true;
+    const promise = task(abort.signal, current);
+    win.recapPromise = promise;
+    try {
+      await promise;
+    } catch {
+      if (current()) ctx.ui.notify('Roleplay work failed; inspect /roleplay jobs for retryable stages.', 'warning');
+    } finally {
+      if (generation === win.recapGen) {
+        win.recapAbort = null;
+        win.recapInFlight = false;
+        win.recapPromise = null;
+      }
+    }
+  };
+
+  const recapNow = async (ctx: ExtensionContext, signal: AbortSignal, current: () => boolean): Promise<void> => {
+    const transcript = originalSceneMessages(ctx);
+    if (!recapMode || !getSummarizer(ctx)?.isEnabled()) {
+      ctx.ui.notify('Immediate recap requires enabled windowing and a configured summarizer.', 'warning');
+      return;
+    }
+    const prior = scanBranchForRecap(getBranchEntries(ctx) ?? [], transcript.length, state.cast);
+    const memory = controlMemory(ctx);
+    const anchor = win.recapAnchor ?? prior?.anchor;
+    const anchored = anchor ? transcript.findIndex((message) => reminderMessageKeys(message).includes(anchor)) : -1;
+    const from = anchored >= 0 ? anchored : (prior?.coveredTo ?? 0);
+    const natural = computeCutoff(transcript, loadRoleplayConfig(cwd, envCharBudget).keepTurns);
+    if (natural <= from) {
+      ctx.ui.notify('No uncovered aged history eligible for recap. Lower keepTurns to age more history.', 'info');
+      return;
+    }
+    const cfg = loadRoleplayConfig(cwd, envCharBudget);
+    const bounded = boundRollSpanTo(transcript, from, natural, cfg.recapMaxAdvance, 1);
+    const sanitized = sanitizeForChild(transcript.slice(from, bounded), ctx);
+    if (!sanitized) {
+      ctx.ui.notify('Recap span sanitization failed; nothing was covered.', 'warning');
+      return;
+    }
+    const info = resolveRecapModelInfo(ctx);
+    const to = from + boundSpanByChars(sanitized, 0, sanitized.length, recapSpanChars(info, memory.recap));
+    if (to <= from || !transcript[to]) {
+      ctx.ui.notify('No complete recap span available.', 'warning');
+      return;
+    }
+    const span = sanitized.slice(0, to - from).map(toSummarizable);
+    const result = await doRecap(ctx, span, memory.recap, info, signal, 1);
+    if (!current()) return;
+    if (!result.applied || !result.next) {
+      ctx.ui.notify('Recap failed or was rejected; coverage unchanged.', 'warning');
+      return;
+    }
+    win.recapText = result.next;
+    win.timelineText = memory.timeline;
+    win.recapCutoff = to;
+    win.committedCutoff = to;
+    win.recapAnchor = reminderMessageAnchor(transcript[to]);
+    win.recapHydrated = true;
+    writeRecapRecord(result.next, currentSessionId(ctx));
+    writeRecapAudit({ result, model: info.model, spanFrom: from, spanTo: to, mode: 'sync', anchor: win.recapAnchor });
+    await captureRecapSpan(ctx, transcript, from, to, span, signal, current);
+    if (current())
+      ctx.ui.notify(
+        `Recap committed for ${to - from} messages; inspect /roleplay jobs for extraction outcomes. No narrative turn was added.`,
+        'info',
+      );
+  };
+
+  const controls = createRoleplayControls(pi, {
+    cast: activeCast,
+    memory: controlMemory,
+    timelineMaxChars: () => loadRoleplayConfig(cwd, envCharBudget).timelineMaxInjectChars,
+    scene: originalSceneMessages,
+    policy: policyFor,
+    inFlight: () => win.recapInFlight,
+    runTask: runControlTask,
+    recapNow,
+    runJob: runExtractionJob,
+    sanitize: (messages, ctx) => sanitizeForChild([...messages], ctx),
+  });
+
   // ── /roleplay command ───────────────────────────────────────────────
   // Human-readable readout of the last context-window pass for `/roleplay
   // context`. Reads the per-turn snapshot captured by the context hook.
@@ -3386,9 +3764,8 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   pi.registerCommand('roleplay', {
     description: 'Inspect or switch the active roleplay cast',
     getArgumentCompletions: (prefix) =>
-      completeSubverbs(
-        prefix,
-        roleplaySubverbs(listCasts, () => state.entries.filter((e) => e.kind === 'character').map((e) => e.id)),
+      completeRoleplayArguments(prefix, listCasts, () =>
+        state.entries.filter((e) => e.kind === 'character').map((e) => e.id),
       ),
     handler: async (args, ctx) => {
       if (isHelpArg(args)) {
@@ -3410,6 +3787,8 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         ctx.ui.notify(dormant ? dormantNote : formatText(state), 'info');
         return;
       }
+      if (diagnostics.handle(verb, rest, ctx)) return;
+      if (await controls.handle(verb, rest, ctx)) return;
       if (verb === 'context' || verb === 'ctx' || verb === 'window') {
         const win = (ctx.model as { contextWindow?: number } | undefined)?.contextWindow;
         ctx.ui.notify(formatContextWindow(win), 'info');

@@ -365,9 +365,12 @@ On a small context window, pi's threshold compaction see-saws: most of the windo
 compaction reclaims little. Instead the extension reduces the conversation itself in the `context` hook every turn. The
 reduction is a non-destructive overlay: the full transcript stays in the session file, the model is just sent less.
 
-From oldest to newest, the model sees: a narrative **recap** of dropped history, older uncovered messages **condensed**
-head+tail, and the last `keepTurns` user turns (default 8) **verbatim**. Drop boundaries always land on a user message,
-so an assistant tool call is never separated from its result.
+From oldest to newest, the model sees: an optional **pinned original scene opener**, a narrative **recap** of dropped
+history, the optional **timeline**, older uncovered messages **condensed** head+tail, and the last `keepTurns` user
+turns (default 8) **verbatim**. Drop boundaries always land on a user message, so an assistant tool call is never
+separated from its result. Opener pinning preserves the historical input, optionally with its complete reply/tool
+exchange; it never re-emits the opener as a new event. The opener still enters recap coverage as it ages, so later
+unpinning is safe. Scene memory is projected once, not duplicated as lore.
 
 | Mode                | When                                         | Behavior                                                                                                                     |
 | ------------------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
@@ -381,15 +384,31 @@ threshold compaction runs normally and summarizes the history instead. A token l
 ages anything. The final budget pass must recap uncovered history before dropping it, waiting for that safety recap even
 when normal recaps are asynchronous. If preservation fails or no summarizer is configured, it aborts the request rather
 than silently restarting the scene. Sizing includes the effective system prompt, tool declarations, historical
-snapshots, pending reminders, recap and timeline. Accepted memory is attached to the first retained user message.
+snapshots, pending reminders, recap and timeline. Accepted memory follows the pinned opener, if any, before the recent
+continuation.
+
+`promptTokenTarget` optionally sets a **soft full projected input-prompt target**, not a conversation-only allowance or
+a hard model limit. It includes the system prompt, tools, reminders, memory, pinned head and retained tail. It defaults
+to `0` (off); positive values have a 1024-token floor. When reduction is needed, planning aims below the target with 10%
+hysteresis to avoid cutting on every turn. Physical context-window and output-reserve checks remain independent.
+Mandatory context, a protected opener/latest input, or unavailable/rejected recap work can prevent meeting the target:
+if the physical window fits, the request may safely overshoot while preserving uncovered history. Physical overflow
+still aborts when preservation cannot make it fit. No target setting authorizes uncovered-history loss.
+
+`/roleplay budget set N` and `/roleplay budget off` override the file setting on the selected scene/branch.
+`/roleplay opener pin [reply]` and `/roleplay opener unpin` override opener retention there; `opener show` reports safe
+availability/count metadata without text. These overrides survive reload/tree navigation but stop at scene/cast
+boundaries. `pinSceneOpener` and `pinSceneOpenerReply` both default to `false`; reply retention requires opener pinning.
 
 **The recap** is a thin narrative layer (recent events, mood, open threads) written by the
 [`roleplay-summarizer`](../agents/roleplay-summarizer.md) agent. It rolls every `recapStride` aged messages (default:
 `recapChunk`, 8), merging at most `recapMaxAdvance` messages per roll. Rejected or over-length candidates are held back,
 and once coverage lags `recapLagCeiling` or more messages the best candidate is force-accepted so coverage cannot stall
 forever. `/roleplay recap` shows the current recap and coverage; `/roleplay recap force` makes the next context pass
-roll regardless of the stride. The recap runs synchronously on the session model, or asynchronously when a distinct
-`summarizeModel` is configured (override with `recapAsync` / `PI_ROLEPLAY_RECAP_ASYNC`).
+roll regardless of the stride. `/roleplay recap now` immediately processes one bounded uncovered aged span without
+adding a narrative turn, then runs its enabled extraction stages. It requires enabled windowing and a configured
+summarizer; with no aged span it does nothing. The recap runs synchronously on the session model, or asynchronously when
+a distinct `summarizeModel` is configured (override with `recapAsync` / `PI_ROLEPLAY_RECAP_ASYNC`).
 
 **Persistence.** Each roll stamps the recap and its exact coverage on the session branch, so resume, fork, and tree
 navigation continue the right recap. Each roll also refreshes the per-cast carry-over `summary/auto.md`. A genuinely new
@@ -413,7 +432,17 @@ compact recent-beats block capped at `timelineMaxInjectChars` is injected as its
 
 **Fact capture** (opt-in, `capture: true` or `PI_ROLEPLAY_CAPTURE=1`, requires recap mode and a session id) extracts
 self-contained facts from each rolled span into `memory`'s session (`note`) tier and mirrors them to `facts/<slug>.md`,
-which seeds future sessions.
+which seeds future sessions. Capture creates notes; injection is memory's separate reminder/index delivery, not extra
+roleplay lore. New captures may first appear on the next agent run or memory tool call. Disabling capture stops new
+extraction, not injection of already stored notes.
+
+Committed recap spans schedule branch-local extraction jobs when facts or timeline extraction is enabled. Each stage has
+durable status/attempt snapshots, guarded against stale scene generations. Interruption preserves pending work; restored
+running stages become `interrupted`. `complete` and deliberately `skipped` stages are terminal, including stages skipped
+because their feature was disabled. `pending`, `failed`, and `interrupted` stages are retryable. `/roleplay jobs` is
+metadata-only status. `jobs retry facts|timeline|all` and `jobs drain` explicitly invoke model work for retryable stages
+of already queued jobs only. Neither discovers nor backfills legacy extraction gaps. Failures use fixed reason codes,
+never raw model/provider errors in job metadata.
 
 Mechanics (zones, roll cadence, span cap, collapse guard, wedge breaker, hydration ladder, fact taxonomy) are in
 [roleplay-internals.md](./roleplay-internals.md#rolling-context-window).
@@ -549,26 +578,78 @@ selection and branch-mode restoration live in [`image-tools.ts`](../../../lib/no
 
 ## `/roleplay` command
 
-| Verb                                | Effect                                                                                                                                                                |
-| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| (none) / `list`                     | Show the active cast index (or the dormant note).                                                                                                                     |
-| `context` (aliases `ctx`, `window`) | Show the last context-window pass: message counts, cutoffs, which boundary binds, recap size, token estimates, prefix-cache reuse, and backlog drain.                 |
-| `lore`                              | Show the last narrative turn's lore selection (keyword lore kept / dropped by budget, depth lore kept / dropped), active bundles, and live sticky / cooldown windows. |
-| `recap [show]`                      | Show recap mode, recap model, coverage cutoffs, in-flight / forced status, the recap text, and a preview of the injected timeline block.                              |
-| `recap force`                       | Arm a forced roll: the next context pass rolls the recap regardless of the stride (waits for an in-flight async roll). Refused when recap mode is off.                |
-| `relationships` (alias `rel`)       | List relationship records sorted by name with stored and decayed affinity, trust, last interaction (and days since), and open threads.                                |
-| `cast <name>`                       | Set the active-cast override (effective once a `roleplay: true` persona is active). With no name, print the active cast.                                              |
-| `import <path.json\|.png>`          | Import a SillyTavern card into the active cast (see below).                                                                                                           |
-| `export [character] [path]`         | Export a character + the active lore as a Character Card V2 JSON (see below).                                                                                         |
-| `event [hint]`                      | Queue a one-shot scene complication for your next reply.                                                                                                              |
-| `images [simple\|full\|off]`        | Show or change the image interface.                                                                                                                                   |
-| `newscene`                          | Archive carry-overs, clear owned fact notes and pending scene work, and exclude prior conversation from the new scene.                                                |
-| `dir`                               | Print the store root + active cast dir.                                                                                                                               |
-| `rescan`                            | Re-read the active cast from disk and rebuild `INDEX.md` from the complete on-disk inventory (base + every lore bundle).                                              |
-| `casts`                             | List every cast directory on disk (active one marked `*`).                                                                                                            |
-| `help` / `--help` / `-h` / `?`      | Print USAGE.                                                                                                                                                          |
+| Verb                                             | Effect                                                                                                                                                                |
+| ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| (none) / `list`                                  | Show the active cast index (or the dormant note).                                                                                                                     |
+| `context` (aliases `ctx`, `window`)              | Show the last context-window pass: message counts, cutoffs, which boundary binds, recap size, token estimates, prefix-cache reuse, and backlog drain.                 |
+| `lore`                                           | Show the last narrative turn's lore selection (keyword lore kept / dropped by budget, depth lore kept / dropped), active bundles, and live sticky / cooldown windows. |
+| `recap [show]`                                   | Show recap mode, recap model, coverage cutoffs, in-flight / forced status, the recap text, and a preview of the injected timeline block.                              |
+| `recap force`                                    | Arm a forced roll: the next context pass rolls the recap regardless of the stride (waits for an in-flight async roll). Refused when recap mode is off.                |
+| `recap now`                                      | Immediately recap one bounded aged span, with enabled extraction stages, without adding a narrative turn.                                                             |
+| `summary`                                        | Show the full local recap text. Sensitive content; no model call.                                                                                                     |
+| `timeline [--all]`                               | Show a capped injection preview, or with `--all` the full retained in-memory timeline log, not rotated disk archives.                                                 |
+| `facts [--content]`                              | Show active-scene branch capture counts; `--content` explicitly shows names/descriptions. Does not enumerate legacy untracked notes.                                  |
+| `budget [set N\|off]`                            | Show or override the scene/branch soft full-input target; `N` must be an integer >= 1024.                                                                             |
+| `opener [show\|pin [reply]\|unpin]`              | Show metadata or override scene/branch opener retention, optionally including its complete reply.                                                                     |
+| `request` / `debug`                              | Inspect captured request metadata; explicit text flags and selectors are described below. No model call.                                                              |
+| `request capture on\|off`                        | Explicitly enable/disable sensitive bounded request-content persistence for this scene/branch.                                                                        |
+| `jobs`                                           | Show safe extraction stage status without model work.                                                                                                                 |
+| `jobs retry facts\|timeline\|all` / `jobs drain` | Explicitly run retryable stages of queued jobs only; no legacy backfill.                                                                                              |
+| `relationships` (alias `rel`)                    | List relationship records sorted by name with stored and decayed affinity, trust, last interaction (and days since), and open threads.                                |
+| `cast <name>`                                    | Set the active-cast override (effective once a `roleplay: true` persona is active). With no name, print the active cast.                                              |
+| `import <path.json\|.png>`                       | Import a SillyTavern card into the active cast (see below).                                                                                                           |
+| `export [character] [path]`                      | Export a character + the active lore as a Character Card V2 JSON (see below).                                                                                         |
+| `event [hint]`                                   | Queue a one-shot scene complication for your next reply.                                                                                                              |
+| `images [simple\|full\|off]`                     | Show or change the image interface.                                                                                                                                   |
+| `newscene`                                       | Archive carry-overs, clear owned fact notes and pending scene work, and exclude prior conversation from the new scene.                                                |
+| `dir`                                            | Print the store root + active cast dir.                                                                                                                               |
+| `rescan`                                         | Re-read the active cast from disk and rebuild `INDEX.md` from the complete on-disk inventory (base + every lore bundle).                                              |
+| `casts`                                          | List every cast directory on disk (active one marked `*`).                                                                                                            |
+| `help` / `--help` / `-h` / `?`                   | Print USAGE.                                                                                                                                                          |
 
-Argument completion covers verbs, `cast` names, `recap` modes, `images` modes, and `export` character ids.
+Argument completion covers verbs and their subcommands, including policy controls, request selectors/sections, job
+operations, `cast` names, `recap` modes, `images` modes, and `export` character ids.
+
+### Request inspection and sensitive content
+
+`/roleplay request` reports the latest observed request on the active scene branch. `/roleplay debug` adds effective
+numeric/boolean configuration and source labels, branch policy, recap/window state, safe job metadata, and recent
+request-size trends. Both default to metadata only; `--json` also returns metadata only, even alongside text flags.
+These readouts never trigger a model call or inject diagnostic text into the scene.
+
+The observation is the **sanitized pi projection**, not a promise of the final backend chat template. The provider hook
+observes an attempt, and assistant completion records outcome and associated usage when available; neither proves exact
+final provider bytes. Structural prefix stability is not a measured cache hit. Use provider-reported cache usage for
+cache claims, not unchanged cutoffs or snapshots.
+
+Text requires an explicit opt-in:
+
+```text
+/roleplay request --snippets
+/roleplay request --section head --content
+/roleplay request --section tail --content --turn 12 --request 2
+/roleplay debug --section recap --content
+/roleplay request capture on
+/roleplay request capture off
+```
+
+`--section` accepts `system`, `tools`, `conversation`, `recap`, `timeline`, `lore`, `depth`, `scene-fold`, `memory`,
+`other-reminder`, `head`, or `tail`. `--content` requires a section; `--snippets` shows bounded previews (optionally
+section-filtered). `--turn N` and `--request N` select positive ordinals, choosing the latest matching recorded request.
+Tool continuations can create multiple requests for one turn. Tool declarations are visible only to the extent they
+exist in the observed pi projection, not reconstructed from the backend.
+
+By default only the latest live request's bounded content is retained transiently; metadata persists on the branch.
+Reload/tree navigation clears that live text. Earlier uncaptured content is unavailable, never reconstructed from
+current files or old conversation. `request capture on` explicitly persists future sensitive bounded section snapshots
+in the session. Capture is scene/branch-local; turning it off does not delete earlier captures. Sections default to 16
+Ki characters each and report truncation/unavailability; snippets are shorter, with terminal controls escaped and
+headers redacted. Sanitization and bounds do not make explicit content capture non-sensitive.
+
+`summary` intentionally shows the full sensitive local recap, unlike bounded request-section snapshots. `timeline` shows
+a capped injection preview; `timeline --all` shows the full retained memory log, still subject to the normal in-memory
+log cap. `facts` shows counts only; `facts --content` shows tracked active-scene capture names/descriptions, not the
+entire shared memory note tier.
 
 ## Importing SillyTavern cards
 
@@ -663,6 +744,9 @@ project file can undo a user-level `true` / `false`.
   "events": [], // fallback complication deck for `/roleplay event` (default [])
   "eventMaxChars": 280, // cap on a generated or deck-picked scene event (default 280, floor 40)
   "eventSeedThreads": true, // offer relationship openThreads to the event generator (default true)
+  "promptTokenTarget": 0, // soft full projected input target; 0 = off, positive floor 1024 (default 0)
+  "pinSceneOpener": false, // preserve the original first genuine scene input (default false)
+  "pinSceneOpenerReply": false, // also retain its complete reply/tool exchange when pinned (default false)
   "keepTurns": 8, // recent user turns kept verbatim (default 8, 1-200)
   "recapChunk": 8, // aged messages per roll when recapStride is 0 (default 8, 1-500)
   "windowAssistantChars": 200, // condense budget for older assistant text (default 200, floor 40)
@@ -680,6 +764,25 @@ project file can undo a user-level `true` / `false`.
   "sceneFoldRefreshTurns": 6, // re-send a still-active name-triggered sheet after N turns (default 6, 1-100)
 }
 ```
+
+For a long-scene Gemma setup, start with this project or user `roleplay.json` example, then inspect actual request sizes
+and provider usage. The 60000-token target is soft and must still fit the model's physical window with reserves:
+
+```jsonc
+{
+  "promptTokenTarget": 60000,
+  "keepTurns": 12,
+  "recapChunk": 4,
+  "summarizeMaxChars": 3000,
+  "loreCharBudget": 3000,
+  "recapAsync": null,
+  "pinSceneOpener": false, // optional: true to retain the historical scene opener
+  "pinSceneOpenerReply": false, // optional complete reply, only when opener pinning is on
+}
+```
+
+These three retention settings have no new environment-variable counterparts. Scene/branch policy overrides win over
+file defaults; the ordinary project > user > env > built-in configuration order is otherwise unchanged.
 
 The recap **model** is resolved separately: set `roleplay.summarizeModel` in `~/.pi/agent/settings.json`, or a
 `summarizeModel` key in `roleplay-summarize.json` (project or user). With no model resolved, no recap is generated and

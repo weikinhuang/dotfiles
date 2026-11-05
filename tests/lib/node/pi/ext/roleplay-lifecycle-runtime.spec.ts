@@ -10,7 +10,7 @@ import { EventEmitter } from 'node:events';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, expect, test, vi, type Mock } from 'vitest';
 import roleplay from '../../../../../config/pi/extensions/roleplay.ts';
 import cacheReminders from '../../../../../config/pi/extensions/cache-reminders.ts';
 import memoryExtension from '../../../../../config/pi/extensions/memory.ts';
@@ -136,6 +136,8 @@ interface LifecycleHarness {
   stored: Record<string, unknown>[];
   ctx: ExtensionContext;
   abort: ReturnType<typeof vi.fn>;
+  notify: Mock<(message: string, type?: 'info' | 'warning' | 'error') => void>;
+  failEntry: (type: string | null) => void;
   agent: string;
   system: () => string;
   carry: (cast: string) => string;
@@ -183,6 +185,8 @@ async function harness(config: Record<string, unknown> = {}): Promise<LifecycleH
   const stored: Record<string, unknown>[] = [];
   const bus = new EventEmitter();
   const abort = vi.fn();
+  const notify = vi.fn<(message: string, type?: 'info' | 'warning' | 'error') => void>();
+  let failingEntry: string | null = null;
   const pi = {
     on: (name: string, handler: Handler) => {
       hooks.set(name, [...(hooks.get(name) ?? []), handler]);
@@ -192,7 +196,10 @@ async function harness(config: Record<string, unknown> = {}): Promise<LifecycleH
     getActiveTools: () => ['read', 'roleplay'],
     getAllTools: () => [{ name: 'read' }, { name: 'roleplay' }],
     setActiveTools: vi.fn(),
-    appendEntry: (customType: string, data: unknown) => stored.push({ type: 'custom', customType, data }),
+    appendEntry: (customType: string, data: unknown) => {
+      if (customType === failingEntry) throw new Error('synthetic append failure');
+      stored.push({ type: 'custom', customType, data });
+    },
     events: {
       on: (name: string, fn: (data: unknown) => void) => {
         bus.on(name, fn);
@@ -206,7 +213,7 @@ async function harness(config: Record<string, unknown> = {}): Promise<LifecycleH
   const ctx = {
     cwd: root,
     hasUI: false,
-    ui: { notify: vi.fn(), setStatus: vi.fn(), setWidget: vi.fn() },
+    ui: { notify, setStatus: vi.fn(), setWidget: vi.fn() },
     sessionManager: {
       getBranch: () => stored,
       getSessionId: () => 'audit-session',
@@ -302,7 +309,11 @@ async function harness(config: Record<string, unknown> = {}): Promise<LifecycleH
     stored,
     ctx,
     abort,
+    notify,
     agent,
+    failEntry: (type: string | null) => {
+      failingEntry = type;
+    },
     system: () => systemPrompt,
     carry: (cast: string) => join(agent, 'roleplay', 'casts', cast, 'summary', 'auto.md'),
   };
@@ -310,6 +321,98 @@ async function harness(config: Record<string, unknown> = {}): Promise<LifecycleH
 async function flush(): Promise<void> {
   for (let i = 0; i < 20; i++) await Promise.resolve();
 }
+
+test('roleplay: full-prompt target recaps before dropping a middle while preserving the opener', async () => {
+  const h = await harness({ keepTurns: 50, pinSceneOpener: true, promptTokenTarget: 2500, recapMaxAdvance: 4 });
+  const dialogue = history(12, 'TOKEN_TARGET');
+  for (const message of dialogue)
+    if ('content' in message && Array.isArray(message.content))
+      message.content = [{ type: 'text', text: `${text(message)} ${'detail '.repeat(220)}` }];
+  const before = JSON.stringify(dialogue);
+  await h.start('latest scene');
+  await h.request(dialogue);
+  expect(h.abort).not.toHaveBeenCalled();
+  expect(summary.detailed).toHaveBeenCalled();
+  const projected = h.projected();
+  expect(projected.some((message) => message.timestamp === dialogue[0].timestamp)).toBe(true);
+  expect(projected.some((message) => message.timestamp === dialogue[2].timestamp)).toBe(false);
+  expect(JSON.stringify(projected).indexOf('GENERATED_RECAP')).toBeGreaterThan(
+    JSON.stringify(projected).indexOf('TOKEN_TARGET turn 0'),
+  );
+  expect(JSON.stringify(dialogue)).toBe(before);
+  const audit = h.stored.filter((entry) => entry.customType === 'roleplay-context-recap');
+  expect(audit.some((entry) => (entry.data as Record<string, unknown>).mode === 'budget')).toBe(true);
+});
+
+test('roleplay: a rejected soft-target recap keeps physically fitting history instead of aborting', async () => {
+  const h = await harness({ keepTurns: 50, promptTokenTarget: 1500 });
+  summary.detailed.mockResolvedValue({ recap: null, raw: null });
+  const dialogue = [user('PRIVATE_PROTECTED ' + 'detail '.repeat(1800), 1), user('LATEST_ACTION', 2)];
+  await h.start('LATEST_ACTION');
+  const out = await h.request(dialogue);
+  expect(out).toContain('PRIVATE_PROTECTED');
+  expect(out).toContain('LATEST_ACTION');
+  expect(h.abort).not.toHaveBeenCalled();
+});
+
+test('roleplay: request/debug defaults are content-free and content persistence is explicit', async () => {
+  const h = await harness();
+  const marker = 'PRIVATE_ROLEPLAY_MARKER';
+  const dialogue = [user(marker, 1)];
+  await h.start(marker);
+  await h.request(dialogue);
+  const notifications = h.notify;
+  await h.command('request');
+  expect(notifications.mock.calls.at(-1)?.[0]).not.toContain(marker);
+  await h.command('debug --json');
+  expect(notifications.mock.calls.at(-1)?.[0]).not.toContain(marker);
+  expect(JSON.stringify(h.stored.filter((entry) => entry.customType === 'roleplay-request'))).not.toContain(marker);
+  await h.command('request --section head --content');
+  expect(notifications.mock.calls.at(-1)?.[0]).toContain(marker);
+  await h.dispatch('session_tree');
+  await h.command('request --section head --content');
+  expect(notifications.mock.calls.at(-1)?.[0]).not.toContain(marker);
+  await h.command('request capture on');
+  await h.start(marker);
+  await h.request(dialogue);
+  await h.dispatch('session_tree');
+  await h.command('request --section head --content');
+  expect(notifications.mock.calls.at(-1)?.[0]).toContain(marker);
+});
+
+test('roleplay: a soft-target scheduling exception preserves hard-safe uncovered history', async () => {
+  const h = await harness({ keepTurns: 50, promptTokenTarget: 1500, capture: true });
+  h.failEntry('roleplay-extraction-job');
+  const dialogue = [user('UNCOVERED_ORIGINAL ' + 'detail '.repeat(1800), 1), user('LATEST_ACTION', 2)];
+  await h.start('LATEST_ACTION');
+  const out = await h.request(dialogue);
+  expect(out).toContain('UNCOVERED_ORIGINAL');
+  expect(out).toContain('LATEST_ACTION');
+  expect(h.abort).not.toHaveBeenCalled();
+});
+
+test('roleplay: overlapping captures cannot claim a delayed earlier response as latest usage', async () => {
+  const h = await harness();
+  await h.start('A');
+  await h.request([user('A', 1)]);
+  await h.start('B');
+  await h.request([user('A', 1), user('B', 2)]);
+  await h.dispatch('message_end', {
+    message: {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'EARLIER_A' }],
+      timestamp: 3,
+      model: 'fixture',
+      provider: 'fixture',
+      stopReason: 'stop',
+      usage: { input: 123, output: 1, cacheRead: 0, cacheWrite: 0 },
+    },
+  });
+  await h.command('request --json');
+  const output = String(h.notify.mock.calls.at(-1)?.[0]);
+  expect(JSON.parse(output)).toMatchObject({ turnOrdinal: 2, outcome: 'projected' });
+  expect(output).not.toContain('reportedInputTokens');
+});
 
 test('roleplay: meaningful short spans wait for the summarizer minimum instead of being dropped', async () => {
   const h = await harness({ keepTurns: 2, recapStride: 2, summarizeMinMessages: 4 });

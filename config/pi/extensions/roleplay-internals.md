@@ -27,8 +27,8 @@ conversation). The extension sorts injected state by volatility:
   (`roleplay-event`). `before_agent_start` computes them once per narrative run (so timing advances exactly once) and
   the first narrative `context` request emits them through
   [`context-reminder.ts`](../../../lib/node/pi/context-reminder.ts). Later requests in the run emit nothing new.
-- **Conversation prefix.** The recap and timeline blocks are prepended to the first kept user message and stay
-  byte-identical between rolls.
+- **Conversation prefix.** The original pinned opener, when enabled, precedes the recap, timeline and retained
+  continuation. Memory blocks stay byte-identical between rolls; they are not duplicated as lore.
 
 The default-on [`cache-reminders`](./cache-reminders.md) coordinator captures reminder blocks once per run, sorts their
 IDs, and projects a branch-recoverable snapshot whose historical items stay byte-stable. Mid-run state changes do not
@@ -63,6 +63,8 @@ lowest-ranked kept chunks are evicted (never the first). Depth lore renders no h
 `headerChars: 0`.
 
 Scene folds and rolling context reduction can still legitimately move a prefix; the coordinator does not redesign them.
+Structural stability does not establish a provider cache hit. Only associated provider cache usage can support that
+claim; the sanitized pi projection is not a guarantee of the final backend template.
 
 ## Lore selection pipeline
 
@@ -155,7 +157,8 @@ in [`window-state.ts`](../../../lib/node/pi/roleplay/window-state.ts).
 
 ### Zones
 
-The reduction is a non-destructive overlay: the `context` hook output is never persisted. Three zones, oldest to newest:
+The reduction is a non-destructive overlay: the `context` hook output is never persisted. Three transcript zones, oldest
+to newest, before optional opener restoration and scene-memory projection:
 
 ```text
 [ dropped prefix ] [ condensed boundary (head+tail) ] [ verbatim tail: keepTurns turns ]
@@ -175,6 +178,29 @@ drop (`snapDropToUserBoundary`) down to the nearest turn start. When none preced
 forward: moving forward would discard messages no recap covers. The reduced list therefore never opens on an assistant
 turn or an orphaned tool result, and a partially covered turn stays in the request until coverage passes it.
 
+### Pinned historical head and soft prompt target
+
+[`retention-policy.ts`](../../../lib/node/pi/roleplay/retention-policy.ts) merges file defaults with the latest valid
+per-field `roleplay-context-policy` overrides on the active branch. Scanning stops at a scene/cast boundary; explicit
+zero/false values override enabled file defaults. `promptTokenTarget` defaults to 0 (off), with a 1024-token floor for
+positive values. `pinSceneOpener` and `pinSceneOpenerReply` default to false; reply pinning requires opener pinning.
+There are no new environment variables for these settings.
+
+`sceneOpenerRange` selects the first genuine scene user input, excluding startup/custom/snapshot items. Reply pinning
+extends only through a complete assistant/tool exchange; malformed or unfinished chains leave only the input pinned.
+[`pinned-window.ts`](../../../lib/node/pi/roleplay/pinned-window.ts) restores original identity-stamped messages after
+window reduction, deduplicating by stable keys. `projectSceneMemory` orders the projection as original pinned head,
+recap, timeline, then retained continuation. It does not emit a new event or repeat memory as lore. Recap coverage
+continues through the opener normally, making a later unpin safe.
+
+The full projected prompt target includes the effective system prompt, tools, historical/pending reminders, memory,
+pinned opener and tail. The final limiter independently checks physical context capacity and output reserves. Above the
+soft target it aims for 90% of the target as hysteresis; unchanged under-target requests need no target-driven cut.
+Coverage must justify every transcript drop. When only the soft target is blocked by mandatory context, protected
+messages, or failed/unavailable recap work, a physically fitting request may overshoot safely with history retained.
+Physical overflow still fails closed. With no usable model window the runtime injects memory but skips size cuts,
+including target-driven cuts.
+
 ### Modes
 
 - **Recap mode** (summarize on + window on): layered drop + condense, then the recap and timeline prefixes. The
@@ -188,8 +214,9 @@ turn or an orphaned tool result, and a partially covered turn stays in the reque
 ### Roll cadence and span cap
 
 `planRoll` fires when `natural` has advanced `stride` aged messages past `committedCutoff` (`stride` = `recapStride`, or
-`recapChunk` when 0). Between rolls the condensed prefix and recap are byte-identical, so the prompt-prefix cache is
-reused and only the new turn is prefilled - one reprocess spike per roll.
+`recapChunk` when 0). Between rolls the condensed prefix and recap are byte-identical, making prefix reuse possible; a
+roll can cause a reprocess spike. Actual cache reuse depends on provider behavior and reported usage, not structural
+stability alone.
 
 A roll summarizes `[recapCutoff, spanTo)` where
 `spanTo = boundRollSpanTo(messages, recapCutoff, natural, recapMaxAdvance, summarizeMinMessages)`: at most
@@ -236,6 +263,10 @@ copy, the roll starts nothing and commits no coverage, and a safety recap aborts
 - **Forced roll.** `/roleplay recap force` arms `forceRecap`; `planRoll` then rolls off-stride when there are uncovered
   aged messages, and `settleForcedRecap` clears the flag once a recap actually starts (an in-flight async roll keeps it
   armed for the next pass). A force with nothing to cover is dropped.
+- **Immediate roll.** `/roleplay recap now` performs explicit model work on one bounded uncovered aged span immediately,
+  without a narrative turn or waiting for the normal stride. It uses the same sanitization, recap validation and
+  generation guard, commits only an accepted recap, then schedules/runs enabled extraction stages. With no aged span or
+  configured summarizer it reports the blocker without advancing coverage.
 
 ### Sync vs async
 
@@ -263,17 +294,18 @@ meaningful spans even below the normal planning minimum, but rejected candidates
 unavailable summarization, cancellation, an unresolved boundary, or an oversized protected input aborts the request with
 history intact. No snapshot is persisted or event consumed on failure.
 
-Every budget preview includes scene memory, and the accepted prefix is attached to the first retained user turn (a user
-message or custom input). It never rides a system message: pi replaces the provider head with the forced prompt the
-extension returns, which would discard it. With no retained user turn a standalone user message carries it. The final
-limiter runs on every request under an active coordinator, including models without a usable `contextWindow` (memory is
-injected, the size cut skipped). Without a coordinator the context pass injects memory itself. The limiter prefers a
-3072-token output reserve and may use a 1024-token hard margin when a larger mandatory head makes the preferred reserve
-impossible. These remain token estimates, not exact tokenization. pi-ai then clamps the reply to
-`contextWindow - its estimate - 4096` and often estimates at 3.5 chars/token, well above the real count on prose. A
-prompt that fit only the calibrated estimate left the reply 1 token on a live 53k window. From a 16k window up, each
-candidate's footprint is therefore `max(calibrated estimate, piFallbackTokens) + 4096` before those reserves apply;
-smaller windows cannot meet pi's margin at all and keep the calibrated estimate alone.
+Every budget preview includes scene memory. The accepted prefix follows the pinned historical opener, if any, and is
+attached to the first retained continuation user turn (a user message or custom input). It never rides a system message:
+pi replaces the provider head with the forced prompt the extension returns, which would discard it. With no retained
+user turn a standalone user message carries it. The final limiter runs on every request under an active coordinator,
+including models without a usable `contextWindow` (memory is injected, the size cut skipped). Without a coordinator the
+context pass injects memory itself. The limiter prefers a 3072-token output reserve and may use a 1024-token hard margin
+when a larger mandatory head makes the preferred reserve impossible. These remain token estimates, not exact
+tokenization. pi-ai then clamps the reply to `contextWindow - its estimate - 4096` and often estimates at 3.5
+chars/token, well above the real count on prose. A prompt that fit only the calibrated estimate left the reply 1 token
+on a live 53k window. From a 16k window up, each candidate's footprint is therefore
+`max(calibrated estimate, piFallbackTokens) + 4096` before those reserves apply; smaller windows cannot meet pi's margin
+at all and keep the calibrated estimate alone.
 
 Usage calibration pairs the complete projected request with its own `message_end` input/cache usage. It does not use
 `getContextUsage()`, whose context estimate also includes output and trailing messages. Structured prompt sections and
@@ -319,6 +351,28 @@ not restored: a projected request must be paired with its own later response, ne
 `/roleplay context` formats the last pass snapshot
 ([`context-readout.ts`](../../../lib/node/pi/roleplay/context-readout.ts)). `PI_ROLEPLAY_CONTEXT_DEBUG=1` additionally
 appends a `roleplay-context-window-debug` entry per turn.
+
+[`roleplay-diagnostics.ts`](../../../lib/node/pi/ext/roleplay-diagnostics.ts) observes the accepted sanitized pi
+projection without mutating it. `before_provider_request` marks an attempt, and `message_end` associates outcome and
+input/cache usage with the live request. This does not certify the provider's final rendered backend template.
+[`request-report.ts`](../../../lib/node/pi/roleplay/request-report.ts) supplies allowlisted metadata, component
+classification, bounded section snapshots, formatting and matched usage association. Content-free metadata persists as
+`roleplay-request` entries; duplicate lifecycle snapshots reduce to the latest matching turn/request for inspection.
+
+`request` and `debug` default to metadata, including `--json`. `--snippets` explicitly opts into bounded previews;
+`--section system|tools|conversation|recap|timeline|lore|depth|scene-fold|memory|other-reminder|head|tail --content`
+opts into one bounded text section. `--turn N` / `--request N` select captured ordinals, not a reconstruction from the
+current transcript. Only the latest live request's text is transiently available by default; reset/reload/tree changes
+clear it. `request capture on|off` persists a scene/branch-local opt-in for future sensitive content snapshots. Turning
+it off does not remove prior captures. Sections default to 16 Ki characters, with truncation/unavailability explicit;
+formatting escapes terminal controls and redacts headers. Supplemental recap/timeline snapshots are labeled and are not
+additional budget charges. Uncaptured old text stays unavailable.
+
+`debug` adds numeric/boolean/null config and source labels, effective policy, window state, safe job metadata and recent
+request-size trends. It never treats stable structure as cache-hit evidence. `--json` remains metadata-only even with
+text flags. Full local recap text is instead available explicitly through `summary`; `timeline [--all]` selects a capped
+injection preview or the full retained memory log, and `facts --content` shows tracked active-scene captures. These
+local readouts do not call a model or inject text into the scene.
 
 ## Branch-primary scene memory
 
@@ -402,8 +456,34 @@ the active branch: notes only other branches captured are removed, notes this br
 boundary are restored, and notes no capture entry names (legacy, user-written) are never touched.
 
 Fact capture writes during context preparation, after memory's pre-run rescan. Newly captured notes therefore surface on
-the next agent run or memory tool call, not necessarily in the same request. Capture stays default-off pending
-validation of extraction quality.
+the next agent run or memory tool call, not necessarily in the same request. Capture creates notes; memory's own
+reminder/index pipeline injects them. The roleplay projection does not duplicate that content as lore, and disabling
+capture does not suppress existing note injection. `facts` reports only branch-tracked active-scene counts;
+`facts --content` explicitly shows their names/descriptions, excluding legacy untracked notes and sibling captures.
+Capture stays default-off pending validation of extraction quality.
+
+## Durable extraction jobs
+
+[`extraction-jobs.ts`](../../../lib/node/pi/roleplay/extraction-jobs.ts) owns strict full-snapshot
+`roleplay-extraction-job` entries. Jobs identify an accepted recap span by cast and stable from/to anchors, with a
+source recap identity, optional turn ordinals, timestamps, and independent facts/timeline stages. They contain no
+transcript, recap body, model output or arbitrary error text. Stages are `pending`, `running`, `complete`, `skipped`,
+`failed`, or `interrupted`, with attempt counts and fixed reason enums (`restored-running`, `span-unavailable`,
+`disabled`, `no-input`, `no-results`, `model-error`, `invalid-output`, `write-error`, `cancelled`).
+
+The runtime queues committed recap spans only when at least one extraction feature is enabled, persists running and
+result snapshots, and checks generation/cancellation before commits. Reload/tree recovery scans only the active scene
+branch and cast, retaining all unfinished jobs plus the latest 20 fully terminal jobs. Restored running stages become
+interrupted, so interruption does not silently mark work complete. Completed/skipped stages are immutable, including
+stages deliberately skipped while disabled; enabling a feature later does not reopen those stages. Pending/failed/
+interrupted stages remain retryable. Stable-anchor span resolution fails closed if either boundary is missing or
+ambiguous; it does not guess from turn numbers.
+
+[`roleplay-controls.ts`](../../../lib/node/pi/ext/roleplay-controls.ts) provides safe `jobs` status and explicit
+`jobs retry facts|timeline|all` / `jobs drain` model work. Both select existing retryable queue stages only, re-sanitize
+the original span and run facts then timeline as applicable. They do not infer missing jobs from recap coverage or
+backfill legacy spans. `recap now` is another explicit model-work path, not a narrative prompt. Policy changes and
+summary/timeline/fact inspection never run a model.
 
 ## Timeline mechanics
 
@@ -497,8 +577,17 @@ Context window and scene memory:
   `applyLayeredWindow`, `snapDropToUserBoundary`, `boundRollSpanTo`, `boundSpanByChars`, `messageSummaryText`,
   `freezeFloorCutoff`, `injectRecap` / `injectTimeline`, `acceptRecap`, `shouldForceRecap`, `planRecap`, and sizing
   helpers (`deriveMaxSpanChars`, `updateCharsPerToken`, `deriveKeepTurns`, `estimateChars`).
-- [`window-pass.ts`](../../../lib/node/pi/roleplay/window-pass.ts) - `planWindowFloor` (frozen safety floor with
-  overflow valve) and `applyWindowPass` (recap / hard-drop / condense-only).
+- [`window-pass.ts`](../../../lib/node/pi/roleplay/window-pass.ts) - `planWindowFloor` and `applyWindowPass`; normal
+  runtime reduction drops only committed recap coverage, retaining uncovered condensed history.
+- [`retention-policy.ts`](../../../lib/node/pi/roleplay/retention-policy.ts) - `readRoleplayPolicyOverrides`,
+  `effectiveRoleplayPolicy`, `sceneOpenerRange` / `sceneOpenerKeys`, `preserveSceneOpener`, and `planTokenTarget`.
+- [`pinned-window.ts`](../../../lib/node/pi/roleplay/pinned-window.ts) - `pinnedKeys`, `isPinned`, `restorePinnedHead`,
+  and `projectSceneMemory` (historical head before recap/timeline/continuation).
+- [`request-report.ts`](../../../lib/node/pi/roleplay/request-report.ts) - `captureRoleplayRequest`,
+  `readRoleplayRequestMetadata`, `formatRoleplayRequest`, and `associateRoleplayRequestUsage`.
+- [`extraction-jobs.ts`](../../../lib/node/pi/roleplay/extraction-jobs.ts) - `createExtractionJob`,
+  `updateExtractionStage`, `scanExtractionJobs`, `pendingExtractionJobs`, `resolveExtractionSpan`,
+  `extractionJobMetadata`, and `formatExtractionJobs`.
 - [`window-state.ts`](../../../lib/node/pi/roleplay/window-state.ts) - grouped window state with `resetWindowState`,
   `resetWindowCoverage` (post-compaction), `invalidateRecap`, `armForcedRecap`, `planRoll`, `settleForcedRecap`.
 - [`branch-hydration.ts`](../../../lib/node/pi/roleplay/branch-hydration.ts) - cast-filtered `scanBranchForRecap`
@@ -535,7 +624,12 @@ Relationships, events, and subagents:
   [`visual-identity.ts`](../../../lib/node/pi/roleplay/visual-identity.ts) - image-mode tool selection and visual
   identity extraction.
 
-Pi-importing helper (under [`../../../lib/node/pi/ext/`](../../../lib/node/pi/ext/)):
+Pi-importing helpers (under [`../../../lib/node/pi/ext/`](../../../lib/node/pi/ext/)):
+
+- [`roleplay-diagnostics.ts`](../../../lib/node/pi/ext/roleplay-diagnostics.ts) - `createRoleplayDiagnostics`: sanitized
+  projection capture, lifecycle observation, metadata/text inspection and explicit capture policy.
+- [`roleplay-controls.ts`](../../../lib/node/pi/ext/roleplay-controls.ts) - `createRoleplayControls`: local memory
+  inspection, branch policy controls and explicit recap/queued extraction work.
 
 - [`roleplay-child-session.ts`](../../../lib/node/pi/ext/roleplay-child-session.ts) - `runRoleplayChild` for the
   summarizer, event generator, and extractors: persisted child `SessionManager` under the parent's subagent tree

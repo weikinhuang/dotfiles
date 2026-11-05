@@ -448,6 +448,57 @@ test('a genuinely empty text span can advance coverage without a recap', async (
   expect(h.debug().at(-1)?.recapCutoff).toBeGreaterThan(0);
 });
 
+test('pinned opener stays before recap and is not copied into a tail reminder', async () => {
+  const h = await harness({ recapAsync: false, recapStride: 1, pinSceneOpener: true });
+  stub.summarizeDetailed.mockResolvedValue({ recap: 'PINNED_RECAP', raw: 'PINNED_RECAP' });
+  const original = history(4);
+  const out = await h.request(original);
+  expect(text(out[0])).toBe('turn 0 prompt');
+  expect(out.filter((message) => text(message) === 'turn 0 prompt')).toHaveLength(1);
+  expect(JSON.stringify(out).indexOf('PINNED_RECAP')).toBeGreaterThan(JSON.stringify(out).indexOf('turn 0 prompt'));
+  expect(JSON.stringify(original)).not.toContain('PINNED_RECAP');
+  expect(await h.command('opener')).toContain('pin on');
+  await h.command('opener unpin');
+  expect(await h.command('opener')).toContain('off');
+});
+
+test('immediate recap commits eligible history without another context pass', async () => {
+  const h = await harness({ recapAsync: false, recapStride: 500 });
+  stub.summarizeDetailed.mockResolvedValue({ recap: 'IMMEDIATE_RECAP', raw: 'IMMEDIATE_RECAP' });
+  await h.request(history(5));
+  expect(stub.summarizeDetailed).not.toHaveBeenCalled();
+  const debugCount = h.debug().length;
+  await h.command('recap now');
+  expect(stub.summarizeDetailed).toHaveBeenCalledTimes(1);
+  expect(h.debug()).toHaveLength(debugCount);
+  expect(await h.command('summary')).toContain('IMMEDIATE_RECAP');
+});
+
+test('an interrupted timeline job survives tree restore and retries only unfinished work', async () => {
+  const h = await harness({ keepTurns: 2, recapAsync: true, recapStride: 1, recapMaxAdvance: 4, timeline: true });
+  stub.summarizeDetailed.mockResolvedValue({ recap: 'JOB_RECAP', raw: 'JOB_RECAP' });
+  const pending = deferred<string | null>();
+  child.run.mockReturnValueOnce(pending.promise);
+  await h.request(history(3));
+  await flush();
+  expect(h.recaps()).toHaveLength(1);
+  expect(h.customs('roleplay-extraction-job').at(-1)).toMatchObject({ timeline: { status: 'running' } });
+  await h.dispatch('session_tree');
+  pending.resolve('[{"summary":"STALE_BEAT"}]');
+  await flush();
+  expect(h.customs('roleplay-timeline')).toEqual([]);
+  await h.request(history(3));
+  expect(await h.command('jobs')).toContain('interrupted');
+  child.run.mockResolvedValue('[{"when":"day 1","summary":"RECOVERED_BEAT"}]');
+  await h.command('jobs retry timeline');
+  expect(h.customs('roleplay-timeline').at(-1)).toMatchObject({ beats: '- [day 1] RECOVERED_BEAT' });
+  expect(h.customs('roleplay-extraction-job').at(-1)).toMatchObject({ timeline: { status: 'complete' } });
+  const calls = child.run.mock.calls.length;
+  await h.command('jobs retry timeline');
+  expect(child.run).toHaveBeenCalledTimes(calls);
+  expect(h.recaps()).toHaveLength(1);
+});
+
 test('sync recap that resolves after a reset is not committed', async () => {
   const h = await harness({ recapAsync: false, recapStride: 1, recapMaxAdvance: 6 });
   const pending = deferred<{ recap: string | null; raw: string | null }>();

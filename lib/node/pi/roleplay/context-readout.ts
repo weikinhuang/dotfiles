@@ -82,7 +82,7 @@ export function formatContextWindowReadout(opts: ContextReadoutOptions): string 
     `  binding  : ${floorBinds ? 'safety floor' : 'recap coverage'} sets the drop boundary`,
     `  recap    : ${snap.recapChars} chars${snap.recapInFlight ? '  [async roll in flight]' : ''}`,
     `  tokens   : sent=${snap.estSentPromptTokens}${pct}  system=${snap.estSystemTokens}  full=${snap.estFullPromptTokens}  saved=${snap.estSavedTokens}  window=${winStr}  (~${snap.charsPerToken} ch/tok)`,
-    `  cache    : ${busted ? `prefix REPROCESSED last turn (${bustWhy})` : 'prefix reused (drop boundary + recap held) -> cache hit'}`,
+    `  cache    : ${busted ? `roleplay prefix CHANGED last turn (${bustWhy})` : 'roleplay boundaries unchanged (drop boundary + recap held)'}; actual cache reuse requires provider usage`,
     `  drain    : ${drainLine}`,
   ].join('\n');
 }

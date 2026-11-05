@@ -4,13 +4,18 @@
  * Pure module - no pi runtime needed.
  */
 
-import { afterEach, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
+import { readJsoncOrUndefined } from '../../../../../lib/node/pi/fs-safe.ts';
+
+vi.mock('../../../../../lib/node/pi/fs-safe.ts', () => ({ readJsoncOrUndefined: vi.fn() }));
 
 import {
   clampEnvInt,
   coerceConfigLayer,
   DEFAULT_CONFIG,
   loadRoleplayConfig,
+  loadRoleplayConfigWithSources,
+  MIN_PROMPT_TOKEN_TARGET,
   mergeConfigLayers,
   MAX_REPETITION_NGRAM,
   MAX_REPETITION_WINDOW,
@@ -31,6 +36,84 @@ import {
   MIN_RECAP_CHUNK,
   MIN_WINDOW_CHARS,
 } from '../../../../../lib/node/pi/roleplay/config.ts';
+
+beforeEach(() => {
+  vi.mocked(readJsoncOrUndefined).mockReset();
+  for (const key of Object.keys(process.env)) {
+    if (key.startsWith('PI_ROLEPLAY_')) vi.stubEnv(key, undefined);
+  }
+});
+
+test('budget and opener defaults are off; enabled budgets floor without losing explicit off', () => {
+  expect(DEFAULT_CONFIG.promptTokenTarget).toBe(0);
+  expect(DEFAULT_CONFIG.pinSceneOpener).toBe(false);
+  expect(DEFAULT_CONFIG.pinSceneOpenerReply).toBe(false);
+  expect(coerceConfigLayer({ promptTokenTarget: 1 })).toEqual({ promptTokenTarget: MIN_PROMPT_TOKEN_TARGET });
+  expect(coerceConfigLayer({ promptTokenTarget: 4096.9 })).toEqual({ promptTokenTarget: 4096 });
+  for (const target of [0, -1])
+    expect(coerceConfigLayer({ promptTokenTarget: target })).toEqual({ promptTokenTarget: 0 });
+  for (const target of ['4000', null, Number.NaN, Number.POSITIVE_INFINITY]) {
+    expect(coerceConfigLayer({ promptTokenTarget: target })).toEqual({});
+  }
+  expect(coerceConfigLayer({ pinSceneOpener: true, pinSceneOpenerReply: false })).toEqual({
+    pinSceneOpener: true,
+    pinSceneOpenerReply: false,
+  });
+  expect(coerceConfigLayer({ pinSceneOpener: 'true', pinSceneOpenerReply: 1 })).toEqual({});
+});
+
+test('config provenance follows validated default, environment, user, and project precedence', () => {
+  vi.stubEnv('PI_CODING_AGENT_DIR', '/synthetic/user');
+  vi.stubEnv('PI_ROLEPLAY_CONTEXT_TURNS', '12');
+  vi.mocked(readJsoncOrUndefined).mockImplementation((path) =>
+    path === '/synthetic/user/roleplay.json'
+      ? { charBudget: 6000, promptTokenTarget: 8000, pinSceneOpener: true, pinSceneOpenerReply: true, scanDepth: 20 }
+      : {
+          charBudget: 7000,
+          promptTokenTarget: 0,
+          pinSceneOpener: false,
+          pinSceneOpenerReply: false,
+          scanDepth: 'invalid',
+        },
+  );
+  const { config, sources } = loadRoleplayConfigWithSources('/synthetic/project', 5000);
+  expect(config).toMatchObject({
+    charBudget: 7000,
+    promptTokenTarget: 0,
+    pinSceneOpener: false,
+    pinSceneOpenerReply: false,
+    scanDepth: 20,
+    keepTurns: 12,
+  });
+  expect(sources).toMatchObject({
+    charBudget: 'project',
+    promptTokenTarget: 'project',
+    pinSceneOpener: 'project',
+    pinSceneOpenerReply: 'project',
+    scanDepth: 'user',
+    keepTurns: 'environment',
+    recapChunk: 'default',
+    imageWorkflow: 'default',
+  });
+  expect(loadRoleplayConfig('/synthetic/project', 5000)).toEqual(config);
+  expect(Object.values(sources).every((source) => ['default', 'environment', 'user', 'project'].includes(source))).toBe(
+    true,
+  );
+});
+
+test('invalid environment scalars retain default provenance; valid clamped values retain environment provenance', () => {
+  vi.stubEnv('PI_ROLEPLAY_CONTEXT_TURNS', 'junk');
+  vi.stubEnv('PI_ROLEPLAY_RECAP_CHUNK', '0');
+  const { config, sources } = loadRoleplayConfigWithSources('/synthetic/project', Number.NaN);
+  expect(config.charBudget).toBe(DEFAULT_CONFIG.charBudget);
+  expect(sources.charBudget).toBe('default');
+  expect(sources.keepTurns).toBe('default');
+  expect(config.recapChunk).toBe(MIN_RECAP_CHUNK);
+  expect(sources.recapChunk).toBe('environment');
+  const env = loadRoleplayConfigWithSources('/synthetic/project', 1);
+  expect(env.config.charBudget).toBe(MIN_CHAR_BUDGET);
+  expect(env.sources.charBudget).toBe('environment');
+});
 
 test('coerceConfigLayer accepts a valid charBudget and floors it', () => {
   expect(coerceConfigLayer({ charBudget: 5000 })).toEqual({ charBudget: 5000 });

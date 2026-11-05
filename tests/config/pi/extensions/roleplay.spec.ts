@@ -15,8 +15,8 @@
 
 import { expect, test } from 'vitest';
 
-import { completeSubverbs, type SubverbSpec } from '../../../../lib/node/pi/commands/complete.ts';
-import { ROLEPLAY_USAGE, roleplaySubverbs } from '../../../../lib/node/pi/roleplay/usage.ts';
+import { completeSubverbs, type CompletionItem, type SubverbSpec } from '../../../../lib/node/pi/commands/complete.ts';
+import { completeRoleplayArguments, ROLEPLAY_USAGE, roleplaySubverbs } from '../../../../lib/node/pi/roleplay/usage.ts';
 
 /** The real subverb spec roleplay.ts registers, with a fixed cast list. */
 const ROLEPLAY_SUBVERBS: SubverbSpec = roleplaySubverbs(
@@ -32,6 +32,14 @@ test('roleplay command lists every subverb (including event) at level 1', () => 
     'context',
     'lore',
     'recap',
+    'summary',
+    'timeline',
+    'facts',
+    'budget',
+    'opener',
+    'jobs',
+    'request',
+    'debug',
     'relationships',
     'cast',
     'import',
@@ -102,13 +110,14 @@ test('lore and relationships are terminal subverbs documented in USAGE', () => {
   expect(ROLEPLAY_USAGE).toContain('alias `rel`');
 });
 
-test('recap subverb completes show / force with the full verb prefix', () => {
+test('recap subverb completes show / force / now with the full verb prefix', () => {
   expect(completeSubverbs('recap ', ROLEPLAY_SUBVERBS)).toEqual([
     { value: 'recap show', label: 'show' },
     { value: 'recap force', label: 'force' },
+    { value: 'recap now', label: 'now' },
   ]);
   expect(completeSubverbs('recap f', ROLEPLAY_SUBVERBS)).toEqual([{ value: 'recap force', label: 'force' }]);
-  expect(ROLEPLAY_USAGE).toContain('recap [show|force]');
+  expect(ROLEPLAY_USAGE).toContain('recap [show|force|now]');
 });
 
 test('export subverb completes character ids from the injected list', () => {
@@ -123,4 +132,106 @@ test('export completion defaults to no characters when none are injected', () =>
       roleplaySubverbs(() => []),
     ),
   ).toBeNull();
+});
+
+const complete = (prefix: string): CompletionItem[] | null =>
+  completeRoleplayArguments(
+    prefix,
+    () => ['exusiai', 'texas'],
+    () => ['mira', 'kai'],
+  );
+
+test('new controls expose documented first-level and option completions', () => {
+  for (const [prefix, values] of [
+    ['budget ', ['budget set', 'budget off']],
+    ['opener ', ['opener show', 'opener pin', 'opener unpin']],
+    ['jobs ', ['jobs retry', 'jobs drain']],
+    ['facts ', ['facts --content']],
+    ['timeline ', ['timeline --all']],
+    ['recap n', ['recap now']],
+  ] as const)
+    expect(complete(prefix)?.map((item) => item.value)).toEqual(values);
+  expect(complete('summary ')).toBeNull();
+  for (const text of [
+    'summary',
+    'timeline [--all]',
+    'facts [--content]',
+    'budget [set N|off]',
+    'opener [show|pin [reply]|unpin]',
+    'jobs retry facts|timeline|all',
+    'jobs drain',
+  ])
+    expect(ROLEPLAY_USAGE).toContain(text);
+});
+
+test('nested queue, opener and capture completions preserve every preceding token', () => {
+  expect(complete('jobs retry ')).toEqual([
+    { value: 'jobs retry facts', label: 'facts' },
+    { value: 'jobs retry timeline', label: 'timeline' },
+    { value: 'jobs retry all', label: 'all' },
+  ]);
+  expect(complete('jobs retry t')).toEqual([{ value: 'jobs retry timeline', label: 'timeline' }]);
+  expect(complete('opener pin r')).toEqual([{ value: 'opener pin reply', label: 'reply' }]);
+  expect(complete('request capture o')?.map((item) => item.value)).toEqual([
+    'request capture on',
+    'request capture off',
+  ]);
+  for (const prefix of [
+    'jobs drain ',
+    'jobs retry all ',
+    'opener pin reply ',
+    'budget set ',
+    'recap now ',
+    'request capture on ',
+    'debug capture ',
+  ])
+    expect(complete(prefix)).toBeNull();
+});
+
+test('request and debug complete flags and all sections, preserving selectors and full prefix', () => {
+  for (const verb of ['request', 'debug']) {
+    expect(complete(`${verb} --`)?.map((item) => item.value)).toEqual(
+      ['--json', '--snippets', '--content', '--section', '--turn', '--request'].map((flag) => `${verb} ${flag}`),
+    );
+    expect(complete(`${verb} --section `)?.map((item) => item.label)).toEqual([
+      'system',
+      'tools',
+      'conversation',
+      'recap',
+      'timeline',
+      'lore',
+      'depth',
+      'scene-fold',
+      'memory',
+      'other-reminder',
+      'head',
+      'tail',
+    ]);
+    expect(complete(`${verb} --turn 2 --request 3 --section h`)).toEqual([
+      { value: `${verb} --turn 2 --request 3 --section head`, label: 'head' },
+    ]);
+    expect(complete(`${verb} --section tail --c`)).toEqual([
+      { value: `${verb} --section tail --content`, label: '--content' },
+    ]);
+    expect(complete(`${verb} --turn `)).toBeNull();
+    expect(complete(`${verb} --request `)).toBeNull();
+  }
+  expect(complete('cast t')?.map((item) => item.value)).toEqual(['cast texas']);
+  expect(complete('export m')?.map((item) => item.value)).toEqual(['export mira']);
+});
+
+test('help spells out privacy defaults, explicit model work and capture persistence', () => {
+  for (const text of [
+    'metadata by default',
+    'sensitive local recap text',
+    'without a model call',
+    'N >= 1024',
+    'without adding a narrative turn',
+    'never automatically backfilling legacy gaps',
+    'request capture on|off',
+    'does not delete earlier captures',
+    'escape terminal controls',
+    '--content (requires --section)',
+  ])
+    expect(ROLEPLAY_USAGE).toContain(text);
 });

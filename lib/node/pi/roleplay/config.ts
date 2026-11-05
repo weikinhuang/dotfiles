@@ -69,6 +69,12 @@ export interface RoleplayConfig {
   eventMaxChars: number;
   /** Offer the cast's relationship `openThreads` to the event generator as escalation seeds. */
   eventSeedThreads: boolean;
+  /** Soft target for the entire input prompt in tokens; 0 disables it, independent of model context size. */
+  promptTokenTarget: number;
+  /** Keep the scene's first genuine user message verbatim through context trimming. */
+  pinSceneOpener: boolean;
+  /** When pinning, also retain the first complete assistant exchange (including tools). */
+  pinSceneOpenerReply: boolean;
   /** Recent user-turns kept verbatim in the rolling context window (`context` hook). */
   keepTurns: number;
   /** Aged messages between rolls: re-recap + advance the drop boundary once this many age out. */
@@ -128,6 +134,9 @@ export const DEFAULT_CONFIG: RoleplayConfig = {
   events: [],
   eventMaxChars: 280,
   eventSeedThreads: true,
+  promptTokenTarget: 0,
+  pinSceneOpener: false,
+  pinSceneOpenerReply: false,
   keepTurns: 8,
   recapChunk: 8,
   windowAssistantChars: 200,
@@ -144,6 +153,9 @@ export const DEFAULT_CONFIG: RoleplayConfig = {
   timelineFileMaxChars: 65536,
   timelineMemoryMaxChars: 32768,
 };
+
+/** Smallest enabled full-prompt target; zero remains an explicit off switch. */
+export const MIN_PROMPT_TOKEN_TARGET = 1024;
 
 /** Floor for the injected-block budgets so a tiny value can't blank them. */
 export const MIN_CHAR_BUDGET = 500;
@@ -267,6 +279,12 @@ export function coerceConfigLayer(raw: unknown): Partial<RoleplayConfig> {
   if (typeof v.eventSeedThreads === 'boolean') {
     out.eventSeedThreads = v.eventSeedThreads;
   }
+  if (typeof v.promptTokenTarget === 'number' && Number.isFinite(v.promptTokenTarget)) {
+    out.promptTokenTarget =
+      v.promptTokenTarget <= 0 ? 0 : Math.max(MIN_PROMPT_TOKEN_TARGET, Math.floor(v.promptTokenTarget));
+  }
+  if (typeof v.pinSceneOpener === 'boolean') out.pinSceneOpener = v.pinSceneOpener;
+  if (typeof v.pinSceneOpenerReply === 'boolean') out.pinSceneOpenerReply = v.pinSceneOpenerReply;
   if (typeof v.keepTurns === 'number' && Number.isFinite(v.keepTurns)) {
     out.keepTurns = Math.max(MIN_KEEP_TURNS, Math.min(MAX_KEEP_TURNS, Math.floor(v.keepTurns)));
   }
@@ -330,9 +348,14 @@ export function mergeConfigLayers(...layers: Partial<RoleplayConfig>[]): Rolepla
  * defaults and the file layers so a committed project config still wins
  * over a stray shell export.
  */
-export function loadRoleplayConfig(cwd: string, envCharBudget?: number): RoleplayConfig {
-  const envLayer: Partial<RoleplayConfig> =
-    typeof envCharBudget === 'number' ? { charBudget: Math.max(MIN_CHAR_BUDGET, envCharBudget) } : {};
+export type RoleplayConfigSource = 'default' | 'environment' | 'user' | 'project';
+export type RoleplayConfigSources = Record<keyof RoleplayConfig, RoleplayConfigSource>;
+
+export function loadRoleplayConfigWithSources(
+  cwd: string,
+  envCharBudget?: number,
+): { config: RoleplayConfig; sources: RoleplayConfigSources } {
+  const envLayer = coerceConfigLayer({ charBudget: envCharBudget });
   // Rolling-window dials: env sits below the config files (a committed
   // project config still wins over a stray shell export). Only fold a knob
   // in when its env var is actually set, so an unset environment leaves the
@@ -398,7 +421,37 @@ export function loadRoleplayConfig(cwd: string, envCharBudget?: number): Rolepla
   if (env.PI_ROLEPLAY_TIMELINE !== undefined) {
     envLayer.timeline = envTruthy(env.PI_ROLEPLAY_TIMELINE);
   }
+  // Invalid numeric environment values fall back to defaults, not to an
+  // attributed environment override. Keep the existing prefix-tolerant parser.
+  const numericEnv: [keyof RoleplayConfig, string | undefined][] = [
+    ['keepTurns', env.PI_ROLEPLAY_CONTEXT_TURNS],
+    ['recapChunk', env.PI_ROLEPLAY_RECAP_CHUNK],
+    ['windowAssistantChars', env.PI_ROLEPLAY_CONTEXT_ASSISTANT_CHARS],
+    ['windowUserChars', env.PI_ROLEPLAY_CONTEXT_USER_CHARS],
+    ['recapStride', env.PI_ROLEPLAY_RECAP_STRIDE],
+    ['recapMaxAdvance', env.PI_ROLEPLAY_RECAP_MAX_ADVANCE],
+    ['recapLagCeiling', env.PI_ROLEPLAY_RECAP_LAG_CEILING],
+  ];
+  for (const [key, raw] of numericEnv) {
+    if (!Number.isFinite(Number.parseInt(raw ?? '', 10))) delete envLayer[key];
+  }
   const userLayer = coerceConfigLayer(readJsoncOrUndefined(piAgentPath('roleplay.json')));
   const projectLayer = coerceConfigLayer(readJsoncOrUndefined(piProjectPath(cwd, 'roleplay.json')));
-  return mergeConfigLayers(envLayer, userLayer, projectLayer);
+  const sources = Object.fromEntries(
+    [...Object.keys(DEFAULT_CONFIG), 'imageWorkflow'].map((key) => [key, 'default']),
+  ) as RoleplayConfigSources;
+  const layers: [Partial<RoleplayConfig>, RoleplayConfigSource][] = [
+    [envLayer, 'environment'],
+    [userLayer, 'user'],
+    [projectLayer, 'project'],
+  ];
+  for (const [layer, source] of layers) {
+    for (const key of Object.keys(layer) as (keyof RoleplayConfig)[]) sources[key] = source;
+  }
+  return { config: mergeConfigLayers(envLayer, userLayer, projectLayer), sources };
+}
+
+/** Compatibility wrapper sharing validation and precedence with the provenance loader. */
+export function loadRoleplayConfig(cwd: string, envCharBudget?: number): RoleplayConfig {
+  return loadRoleplayConfigWithSources(cwd, envCharBudget).config;
 }

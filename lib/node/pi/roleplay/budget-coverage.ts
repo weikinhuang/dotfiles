@@ -11,9 +11,11 @@ export function transcriptIndex(message: ReminderMessage, transcript: readonly R
 export function retainedTranscriptStart(
   candidate: readonly ReminderMessage[],
   transcript: readonly ReminderMessage[],
+  protectedKeys: ReadonlySet<string> = new Set(),
 ): number {
   for (const message of candidate) {
     if (message.role === 'system') continue;
+    if (reminderMessageKeys(message).some((key) => protectedKeys.has(key))) continue;
     const index = transcriptIndex(message, transcript);
     if (index >= 0) return index;
   }
@@ -25,6 +27,7 @@ export function dropCoveredMessages(
   messages: readonly ReminderMessage[],
   transcript: readonly ReminderMessage[],
   coveredTo: number,
+  protectedKeys: ReadonlySet<string> = new Set(),
 ): ReminderMessage[] {
   const positions = new Map<string, number>();
   for (const [index, message] of transcript.entries()) {
@@ -32,6 +35,7 @@ export function dropCoveredMessages(
   }
   return messages.filter((message) => {
     if (message.role === 'system') return true;
+    if (reminderMessageKeys(message).some((key) => protectedKeys.has(key))) return true;
     const index = reminderMessageKeys(message)
       .map((key) => positions.get(key))
       .find((value) => value !== undefined);

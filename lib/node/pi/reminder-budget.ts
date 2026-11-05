@@ -132,6 +132,10 @@ export function limitReminderContext(params: {
   floorAnchor?: string;
   windowTokens: number;
   charsPerToken: number;
+  /** Soft full-input target; physical fit and preservation still take precedence. */
+  promptTokenTarget?: number;
+  /** A disjoint historical head may survive every tail cut. */
+  protectedKeys?: ReadonlySet<string>;
   /** Provider-visible head overrides can be applied after the context hooks. */
   requestChars?: (messages: readonly ReminderMessage[]) => number;
   /**
@@ -151,17 +155,22 @@ export function limitReminderContext(params: {
   const reserve = Math.min(3072, Math.max(outputMargin, Math.floor(windowTokens * 0.75)));
   const hardLimit = Math.max(1, windowTokens - outputMargin);
   const fitTarget = Math.max(1, windowTokens - reserve);
+  const softTarget = params.promptTokenTarget && params.promptTokenTarget > 0 ? params.promptTokenTarget : Infinity;
+  const softFitTarget = Number.isFinite(softTarget) ? Math.max(1, Math.floor(softTarget * 0.9)) : Infinity;
+  const protectedKeys = params.protectedKeys ?? new Set<string>();
+  const protectedMessage = (message: ReminderMessage): boolean =>
+    reminderMessageKeys(message).some((key) => protectedKeys.has(key));
   const originIndex = origin
     ? messages.findIndex((message) => reminderMessageKeys(message).includes(origin))
     : messages.findLastIndex((message) => message.role === 'user' || message.role === 'custom');
   const cut = (index: number): ReminderMessage[] =>
-    messages.filter((message, position) => message.role === 'system' || position >= index);
+    messages.filter((message, position) => message.role === 'system' || protectedMessage(message) || position >= index);
   const held = floorAnchor ? messages.findIndex((message) => reminderMessageKeys(message).includes(floorAnchor)) : -1;
   const start = held >= 0 && (originIndex < 0 || held <= originIndex) ? held : 0;
   let selected = cut(start);
   let measured = tokensOf(preview(selected));
   let projectedChars = measured.chars;
-  if (measured.tokens <= hardLimit)
+  if (measured.tokens <= hardLimit && measured.chars / cpt <= softTarget)
     return { messages: selected, fits: true, projectedChars, ...(held >= 0 ? { floorAnchor } : {}) };
   // Cut only at whole real user turns, or at the actual custom trigger. Never
   // count replayed instruction messages as new turns or discard startup guides.
@@ -169,20 +178,29 @@ export function limitReminderContext(params: {
     .map((message, index) => ({ message, index }))
     .filter(
       ({ message, index }) =>
-        index > start && index <= originIndex && (message.role === 'user' || index === originIndex),
+        index > start &&
+        index <= originIndex &&
+        !protectedMessage(message) &&
+        (message.role === 'user' || index === originIndex),
     );
   let selectedAnchor: string | undefined;
-  let hardFit: ReminderLimitResult | undefined;
+  let hardFit: ReminderLimitResult | undefined =
+    measured.tokens <= hardLimit
+      ? { messages: selected, fits: true, projectedChars, ...(held >= 0 ? { floorAnchor } : {}) }
+      : undefined;
   for (const { message, index } of boundaries) {
     selected = cut(index);
     selectedAnchor = reminderMessageAnchor(message);
     measured = tokensOf(preview(selected));
     projectedChars = measured.chars;
-    if (measured.tokens <= fitTarget) {
+    if (measured.tokens <= fitTarget && measured.chars / cpt <= softFitTarget) {
       hardFit = undefined;
       break;
     }
-    if (!hardFit && measured.tokens <= hardLimit)
+    if (
+      measured.tokens <= hardLimit &&
+      (!hardFit || (Number.isFinite(softTarget) && measured.chars / cpt <= softTarget))
+    )
       hardFit = {
         messages: selected,
         fits: true,
