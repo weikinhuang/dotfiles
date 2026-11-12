@@ -1,0 +1,23 @@
+{
+  // opencode plugins. Separate from the root project because TUI parts
+  // (`<name>/tui.tsx`) render OpenTUI Solid JSX, whose `solid-js` element
+  // types need the DOM lib; adding DOM globals to the whole repo would hide
+  // mistakes in Node-only code. opencode compiles the JSX itself at load time.
+  "extends": "../../../tsconfig.json",
+  "compilerOptions": {
+    "lib": [
+      // multiline
+      "esnext",
+      "dom"
+    ],
+    "jsx": "preserve",
+    "jsxImportSource": "@opentui/solid",
+    "incremental": false
+  },
+  "include": [
+    // multiline
+    "**/*.ts",
+    "**/*.tsx"
+  ],
+  "exclude": []
+}

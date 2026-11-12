@@ -231,6 +231,9 @@ export default defineConfig({
         'config/pi/extensions/**/*.{ts,mts,cts,js,mjs,cjs}',
         'lib/node/pi/ext/**/*.{ts,mts,cts,js,mjs,cjs}',
         'tests/lib/node/pi/ext/**/*.{ts,mts,cts,js,mjs,cjs}',
+        // opencode plugin shells: thin glue over `@opencode/plugin`, same
+        // posture as the pi extension shells above.
+        'config/opencode/plugins/**/*.{ts,tsx,mts,cts,js,mjs,cjs}',
       ],
       rules: {
         // 'typescript/await-thenable': 'off',

@@ -15,7 +15,7 @@
     "markdownlint:check": "markdownlint-cli2 '**/*.{md,mdc}' '.*/**/*.{md,mdc}'",
     "test": "vitest run",
     "test:watch": "vitest",
-    "tsc": "tsc --noEmit"
+    "tsc": "tsc --noEmit && tsc --noEmit -p config/opencode/plugins"
   },
   "devDependencies": {
     "@anthropic-ai/sandbox-runtime": "^0.0.81",
@@ -23,6 +23,10 @@
     "@earendil-works/pi-coding-agent": "^1.5.0",
     "@earendil-works/pi-tui": "^1.5.0",
     "@eslint/json": "^2.1.1",
+    "@opencode/plugin": "2.2.7",
+    "@opencode/theme": "2.2.7",
+    "@opentui/core": "^0.8.4",
+    "@opentui/solid": "^0.8.4",
     "@types/node": "^26.6.6",
     "@vitest/coverage-v8": "^5.1.0",
     "globals": "^17.14.0",
@@ -35,6 +39,7 @@
     "oxlint-tsgolint": "^7.0.2005",
     "quickjs-emscripten": "^0.32.0",
     "sharp": "^0.35.5",
+    "solid-js": "^1.9.19",
     "typebox": "^1.4.4",
     "typescript": "^7.0.2",
     "vitest": "^5.1.0",

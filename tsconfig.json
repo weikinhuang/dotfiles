@@ -28,7 +28,10 @@
   ],
   "exclude": [
     "node_modules",
-    ".pi"
+    ".pi",
+    // Type-checked by its own project (DOM lib + OpenTUI Solid JSX for TUI
+    // parts): `tsc -p config/opencode/plugins`.
+    "config/opencode/plugins/**"
     // Extension shells + `lib/node/pi/ext/**` + their specs ARE type-checked
     // here (`@earendil-works/*` resolves from `node_modules`). Uncomment to
     // skip them if a future pi version can't be resolved at tsc time.
