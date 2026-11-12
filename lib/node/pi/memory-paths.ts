@@ -236,8 +236,13 @@ export function readTextFile(path: string): string | null {
   }
 }
 
-export function readMemoryBody(entry: MemoryEntry, cwd: string, sessionId: string | null = null): string | null {
-  const path = fileFor(entry.scope, entry.type, entry.id, cwd, sessionId);
+export function readMemoryBody(
+  entry: MemoryEntry,
+  cwd: string,
+  sessionId: string | null = null,
+  root: string = memoryRoot(),
+): string | null {
+  const path = fileFor(entry.scope, entry.type, entry.id, cwd, sessionId, root);
   if (!existsSync(path)) return null;
   const raw = readTextFile(path);
   if (raw == null) return null;
@@ -254,8 +259,9 @@ export function readMemoryFrontmatter(
   entry: MemoryEntry,
   cwd: string,
   sessionId: string | null = null,
+  root: string = memoryRoot(),
 ): Frontmatter | null {
-  const path = fileFor(entry.scope, entry.type, entry.id, cwd, sessionId);
+  const path = fileFor(entry.scope, entry.type, entry.id, cwd, sessionId, root);
   if (!existsSync(path)) return null;
   const raw = readTextFile(path);
   if (raw == null) return null;
@@ -364,13 +370,14 @@ export function scanScope(
 export function rebuildMemoryIndex(
   cwd: string,
   sessionId: string | null = null,
+  root: string = memoryRoot(),
 ): { state: MemoryState; warnings: string[] } {
   const warnings: string[] = [];
-  const g = scanScope(globalDir(), 'global');
-  const p = scanScope(projectDir(cwd), 'project');
+  const g = scanScope(globalDir(root), 'global');
+  const p = scanScope(projectDir(cwd, root), 'project');
   // Only the current session's dir is scanned - other sessions' notes are
   // never loaded, so session memory stays scoped to the session that owns it.
-  const s = sessionId ? scanScope(sessionDir(cwd, sessionId), 'session') : { entries: [], warnings: [] };
+  const s = sessionId ? scanScope(sessionDir(cwd, sessionId, root), 'session') : { entries: [], warnings: [] };
   for (const w of [...g.warnings, ...p.warnings, ...s.warnings]) warnings.push(`${w.path}: ${w.reason}`);
   return {
     state: {
