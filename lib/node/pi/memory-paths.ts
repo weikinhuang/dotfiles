@@ -45,7 +45,7 @@ import { dirname, join } from 'node:path';
 import { atomicWriteFile, ensureDirSync } from './atomic-write.ts';
 import { parseFrontmatter, takenSlugs, validTypesForScope } from './memory-reducer.ts';
 import { expandTilde } from './path-expand.ts';
-import { cwdSlug, piAgentPath, slugFromEnv } from './pi-paths.ts';
+import { cwdSlug, piAgentDir, slugFromEnv } from './pi-paths.ts';
 import { slugifyAscii } from './slugify.ts';
 import {
   type Frontmatter,
@@ -115,13 +115,14 @@ export function chooseMemorySlug(
 }
 
 /** Absolute path to the memory root, honouring `PI_MEMORY_ROOT` (and
- * `PI_CODING_AGENT_DIR` for the default via `piAgentPath`). */
-export function memoryRoot(): string {
-  const env = process.env.PI_MEMORY_ROOT;
+ * `PI_CODING_AGENT_DIR` for the default via `piAgentDir`). `env` and `home`
+ * are injectable for other hosts sharing the store (and tests). */
+export function memoryRoot(env: NodeJS.ProcessEnv = process.env, home: string = homedir()): string {
+  const override = env.PI_MEMORY_ROOT;
   // Expand a leading `~` so a config value like `~/.pi/memory` resolves to
   // an absolute path rather than a literal `~` directory under the cwd.
-  if (env && env.trim().length > 0) return expandTilde(env.trim(), homedir());
-  return piAgentPath('memory');
+  if (override && override.trim().length > 0) return expandTilde(override.trim(), home);
+  return join(piAgentDir(env, home), 'memory');
 }
 
 export function globalDir(root: string = memoryRoot()): string {
