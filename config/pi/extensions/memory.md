@@ -222,7 +222,8 @@ own model call remains a deferred option.
 - `/memory stale` - list project-scope memories older than `PI_MEMORY_STALE_DAYS`, oldest first, with their age in days.
   Read-only; never auto-deletes - review and `update` or `remove` as needed.
 - `/memory gc` - prune session memory dirs whose session id no longer has a transcript in pi's session dir. The current
-  session is always kept. No-op (with a warning) when no session dir is resolvable.
+  session is always kept, and so are opencode session dirs (`ses_*`, written by the opencode memory plugin that shares
+  this store). No-op (with a warning) when no session dir is resolvable.
 
 ## Environment variables
 

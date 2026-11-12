@@ -413,10 +413,20 @@ export function listSessionMemoryDirs(cwd: string, root: string = memoryRoot()):
 }
 
 /**
+ * Session ids owned by another host sharing this store. The opencode memory
+ * plugin (config/opencode/plugins/memory) keeps its session notes under
+ * opencode session ids (`ses_...`), which never have a pi transcript.
+ */
+export function isForeignSessionId(id: string): boolean {
+  return id.startsWith('ses_');
+}
+
+/**
  * Delete session memory dirs whose id is not in `liveSessionIds` (i.e.
  * sessions with no surviving transcript). Returns the ids that were
  * pruned. The caller supplies the live set so this stays pure-ish and
- * testable without reaching into pi's session store.
+ * testable without reaching into pi's session store. Dirs owned by another
+ * host (`isForeignSessionId`) are never pruned.
  */
 export function pruneOrphanSessionDirs(
   cwd: string,
@@ -427,7 +437,7 @@ export function pruneOrphanSessionDirs(
   const parent = sessionsParentDir(cwd, root);
   const removed: string[] = [];
   for (const id of listSessionMemoryDirs(cwd, root)) {
-    if (live.has(id)) continue;
+    if (live.has(id) || isForeignSessionId(id)) continue;
     rmSync(join(parent, id), { recursive: true, force: true });
     removed.push(id);
   }

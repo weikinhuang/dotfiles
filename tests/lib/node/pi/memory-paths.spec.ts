@@ -451,6 +451,16 @@ test('listSessionMemoryDirs / pruneOrphanSessionDirs: prune dirs with no live tr
   expect(listSessionMemoryDirs(cwd).sort()).toEqual(['live-1', 'live-2']);
 });
 
+test('pruneOrphanSessionDirs: keeps opencode session dirs that have no pi transcript', () => {
+  const cwd = '/tmp/pi-test-foreign';
+  for (const sid of ['live-1', 'orphan-1', 'ses_2a0bOpencode']) {
+    writeMemory(join(sessionDir(cwd, sid), 'note'), 'n.md', { name: 'n', description: 'd', type: 'note' }, 'b');
+  }
+
+  expect(pruneOrphanSessionDirs(cwd, new Set(['live-1']))).toEqual(['orphan-1']);
+  expect(listSessionMemoryDirs(cwd).sort()).toEqual(['live-1', 'ses_2a0bOpencode']);
+});
+
 test('pruneOrphanSessionDirs: no-op when parent dir is absent', () => {
   expect(pruneOrphanSessionDirs('/tmp/never-used', new Set(['x']))).toEqual([]);
 });

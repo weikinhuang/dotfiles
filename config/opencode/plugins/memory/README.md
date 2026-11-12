@@ -103,8 +103,8 @@ Set options with a plugin entry in `opencode.jsonc` (see [Install](../README.md#
   `context` hook insertion vanishes from later requests and breaks the cached tail. opencode's summary sections
   (`Requirements` / `Decisions`) also differ from the ones pi mines. A `ctx.session.synthetic` turn (pi's opt-in
   `PI_MEMORY_CAPTURE_TURN`) is the likely route.
-- **`/memory gc`**. The store is shared, so an orphan check needs both hosts' live session ids. Note that pi's own
-  `/memory gc` prunes every session dir without a pi transcript, including opencode's (`ses_*`) session notes.
+- **`/memory gc`**. The store is shared, so an orphan check needs both hosts' live session ids. pi's own `/memory gc`
+  skips opencode's `ses_*` session dirs (`isForeignSessionId` in `memory-paths.ts`), so it never prunes them.
 - **`memory-first` skill**. Not wired into opencode; the tool description carries the when-to-save and what-not-to-save
   rules.
 - `/memory rescan` is unnecessary (every call rescans), and pi's `memory:changed` event has no counterpart.
