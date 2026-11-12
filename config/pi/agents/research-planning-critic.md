@@ -49,7 +49,8 @@ Rules:
 - Do not critique things you cannot verify. If the rubric asks about LOC budget and you cannot see line counts, say so
   in an issue instead of guessing.
 - Never suggest that the planner "think harder" or "reconsider" without pointing at a specific rubric item. Vague nudges
-produce vague rewrites.
+  produce vague rewrites.
+
 <!-- markdownlint-enable MD013 -->
 
 Output schema - return exactly this shape:

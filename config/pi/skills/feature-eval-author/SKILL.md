@@ -101,15 +101,11 @@ The whole point is isolation: the model must have no _other_ source for the answ
   const sm = SessionManager.inMemory(CWD);
   sm.appendCustomEntry('todo-state', {
     nextId: 3,
-    todos: [
-      /* … */
-    ],
+    todos: [/* … */],
   }); // type strings: '<name>-state'
   sm.appendCustomEntry('scratchpad-state', {
     nextId: 2,
-    notes: [
-      /* … */
-    ],
+    notes: [/* … */],
   });
   ```
 
