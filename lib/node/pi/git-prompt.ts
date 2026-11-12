@@ -84,6 +84,10 @@ export interface FetchGitSegmentOptions {
   timeoutMs?: number;
   /** Override the default execFile maxBuffer. */
   maxBuffer?: number;
+  /** `__git_ps1` printf format (default `" (%s)"`). */
+  format?: string;
+  /** Extra env layered over the `GIT_PS1_*` defaults (e.g. `GIT_PS1_STATESEPARATOR`). */
+  env?: Readonly<Record<string, string>>;
   /** Notified when bash/exec itself errors out (timeout, ENOENT, …). */
   onError?: (err: Error) => void;
 }
@@ -101,17 +105,19 @@ export function fetchGitSegmentAsync(options: FetchGitSegmentOptions): Promise<s
   return new Promise((resolve) => {
     execFile(
       'bash',
-      ['-c', 'source "$GIT_PROMPT_SCRIPT" && __git_ps1 " (%s)"'],
+      ['-c', 'source "$GIT_PROMPT_SCRIPT" && __git_ps1 "$GIT_PROMPT_FORMAT"'],
       {
         cwd: options.cwd,
         env: {
           ...process.env,
           GIT_PROMPT_SCRIPT: options.scriptPath,
+          GIT_PROMPT_FORMAT: options.format ?? ' (%s)',
           GIT_PS1_SHOWDIRTYSTATE: 'true',
           GIT_PS1_SHOWSTASHSTATE: 'true',
           GIT_PS1_SHOWUNTRACKEDFILES: 'true',
           GIT_PS1_SHOWUPSTREAM: 'auto',
           LC_ALL: 'C',
+          ...options.env,
         },
         timeout: options.timeoutMs ?? GIT_SEGMENT_TIMEOUT_MS,
         maxBuffer: options.maxBuffer ?? GIT_SEGMENT_MAX_BUFFER,

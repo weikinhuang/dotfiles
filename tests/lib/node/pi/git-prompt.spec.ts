@@ -4,7 +4,11 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, expect, test } from 'vitest';
 
-import { GIT_PROMPT_FILENAME, resolveGitPromptScript } from '../../../../lib/node/pi/git-prompt.ts';
+import {
+  fetchGitSegmentAsync,
+  GIT_PROMPT_FILENAME,
+  resolveGitPromptScript,
+} from '../../../../lib/node/pi/git-prompt.ts';
 
 let sandbox = '';
 let savedDotfilesRoot: string | undefined;
@@ -123,4 +127,33 @@ test('resolveGitPromptScript: ignores $DOTFILES_ROOT that does not contain the s
   mkdirSync(extDir, { recursive: true });
 
   expect(resolveGitPromptScript(extDir)).toBe(walkScript);
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// fetchGitSegmentAsync
+// ──────────────────────────────────────────────────────────────────────
+
+test('fetchGitSegmentAsync: default " (%s)" format and GIT_PS1 flags', async () => {
+  const scriptPath = join(sandbox, 'stub.sh');
+  // Stub __git_ps1 echoes its format argument and the flags it was given.
+  writeFileSync(
+    scriptPath,
+    '__git_ps1() { printf "%s|%s|%s\\n" "$1" "$GIT_PS1_SHOWUPSTREAM" "${GIT_PS1_STATESEPARATOR-unset}"; }\n',
+  );
+  expect(await fetchGitSegmentAsync({ scriptPath, cwd: sandbox })).toBe(' (%s)|auto|unset');
+});
+
+test('fetchGitSegmentAsync: format and env options override the defaults', async () => {
+  const scriptPath = join(sandbox, 'stub.sh');
+  writeFileSync(
+    scriptPath,
+    '__git_ps1() { printf "%s|%s|%s" "$1" "$GIT_PS1_SHOWUPSTREAM" "$GIT_PS1_STATESEPARATOR"; }\n',
+  );
+  const out = await fetchGitSegmentAsync({
+    scriptPath,
+    cwd: sandbox,
+    format: '%s',
+    env: { GIT_PS1_SHOWUPSTREAM: 'verbose', GIT_PS1_STATESEPARATOR: ':' },
+  });
+  expect(out).toBe('%s|verbose|:');
 });
