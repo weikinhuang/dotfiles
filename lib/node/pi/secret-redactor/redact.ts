@@ -100,6 +100,16 @@ function collectSpans(text: string, rules: CompiledRule[], cfg: RedactorConfig):
   return spans;
 }
 
+/** Optional knobs for {@link redactText}. */
+export interface RedactOptions {
+  /**
+   * Handles to leave as plaintext (revealed to the model). Defaults to the
+   * store's own approvals; hosts that scope reveals per conversation (the
+   * opencode plugin shares one store across sessions) pass their own.
+   */
+  isRevealed?: (handle: string) => boolean;
+}
+
 /**
  * Redact every detected secret in `text`, registering each in `store`
  * and replacing it with a stable placeholder. Returns the rewritten text
@@ -109,6 +119,7 @@ export function redactText(
   text: string,
   store: SecretStore,
   cfg: RedactorConfig = DEFAULT_CONFIG,
+  opts: RedactOptions = {},
 ): {
   text: string;
   hits: RedactHit[];
@@ -135,12 +146,13 @@ export function redactText(
   // has approved (via reveal_secret / /unredact) is left as plaintext -
   // otherwise the next context pass would re-redact a value we were
   // explicitly told to reveal.
+  const isRevealed = opts.isRevealed ?? ((handle: string) => store.isApproved(handle));
   const hits: RedactHit[] = [];
   let out = text;
   for (let i = accepted.length - 1; i >= 0; i--) {
     const s = accepted[i];
     const entry = store.register(s.value, s.label);
-    if (store.isApproved(entry.handle)) continue;
+    if (isRevealed(entry.handle)) continue;
     out = out.slice(0, s.start) + makePlaceholder(entry.label, entry.handle) + out.slice(s.end);
     hits.push({ handle: entry.handle, label: entry.label });
   }

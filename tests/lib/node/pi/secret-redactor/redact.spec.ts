@@ -178,6 +178,17 @@ describe('redactText - stability + determinism', () => {
     expect(after.text).toBe('AKIAIOSFODNN7EXAMPLE');
     expect(after.hits).toHaveLength(0);
   });
+
+  test('an isRevealed override replaces the store approvals', () => {
+    const store = new SecretStore();
+    const first = redactText('AKIAIOSFODNN7EXAMPLE', store, cfg());
+    const { handle } = first.hits[0];
+    store.approve(handle);
+
+    expect(redactText('AKIAIOSFODNN7EXAMPLE', store, cfg(), { isRevealed: () => false }).hits).toHaveLength(1);
+    const revealed = redactText('AKIAIOSFODNN7EXAMPLE', new SecretStore(), cfg(), { isRevealed: (h) => h === handle });
+    expect(revealed.text).toBe('AKIAIOSFODNN7EXAMPLE');
+  });
 });
 
 describe('rehydrateText', () => {

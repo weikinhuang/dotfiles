@@ -11,7 +11,13 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
-import { loadRedactorConfig } from '../../../../../lib/node/pi/secret-redactor/config.ts';
+import { type ConfigWarning } from '../../../../../lib/node/pi/jsonc.ts';
+import {
+  applyRedactorConfigObject,
+  createDefaultRedactorConfig,
+  loadRedactorConfig,
+  loadRedactorConfigFiles,
+} from '../../../../../lib/node/pi/secret-redactor/config.ts';
 
 let root: string;
 let agentDir: string;
@@ -97,5 +103,29 @@ describe('loadRedactorConfig', () => {
     writeProject({ rules: 'nope' });
     const { warnings } = loadRedactorConfig(cwd, agentDir);
     expect(warnings.some((w) => w.error.includes('`rules` must be an array'))).toBe(true);
+  });
+});
+
+describe('applyRedactorConfigObject / loadRedactorConfigFiles', () => {
+  test('stacks an in-memory object under caller-chosen file paths', () => {
+    const config = createDefaultRedactorConfig();
+    const warnings: ConfigWarning[] = [];
+    applyRedactorConfigObject(config, { keywordMinLength: 4, allowlist: ['^a$'] }, 'opts', warnings);
+    writeGlobal({ keywordMinLength: 6, allowlist: ['^b$'] });
+    const result = loadRedactorConfigFiles(
+      [join(agentDir, 'secret-redactor.json'), join(root, 'missing.json')],
+      config,
+      warnings,
+    );
+    expect(result.config).toBe(config);
+    expect(config.keywordMinLength).toBe(6);
+    expect(config.allowlist).toHaveLength(2);
+    expect(warnings).toEqual([]);
+  });
+
+  test('labels warnings with the given path', () => {
+    const warnings: ConfigWarning[] = [];
+    applyRedactorConfigObject(createDefaultRedactorConfig(), { rules: [{ id: 'x' }] }, 'opts', warnings);
+    expect(warnings).toEqual([{ path: 'opts', error: 'rule is missing a non-empty `pattern`' }]);
   });
 });
