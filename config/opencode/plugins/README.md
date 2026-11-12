@@ -7,9 +7,10 @@ loads directly as TypeScript; there is no build step. Authoring conventions for 
 
 ## Plugins
 
-| Plugin                         | Parts  | Description                                                                         |
-| ------------------------------ | ------ | ----------------------------------------------------------------------------------- |
-| [`notify`](./notify/README.md) | server | `notify` tool plus a turn-end desktop notification via `quick-toast` (pi `notify`). |
+| Plugin                                 | Parts            | Description                                                                                    |
+| -------------------------------------- | ---------------- | ---------------------------------------------------------------------------------------------- |
+| [`cost-guard`](./cost-guard/README.md) | server, tui, rpc | Local-only cache-rewrite and spend warnings as TUI toasts and a status slot (pi `cost-guard`). |
+| [`notify`](./notify/README.md)         | server           | `notify` tool plus a turn-end desktop notification via `quick-toast` (pi `notify`).            |
 
 ## Layout
 
