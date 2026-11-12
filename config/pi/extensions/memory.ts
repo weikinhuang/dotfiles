@@ -69,23 +69,15 @@ import { Text } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 
 import {
-  atomicWriteFile,
-  chooseMemorySlug,
-  fileFor,
   globalDir,
-  indexFileFor,
   listSessionMemoryDirs,
   memoryRoot,
   projectDir,
   projectSlug,
   pruneOrphanSessionDirs,
   readMemoryBody,
-  readMemoryFrontmatter,
   rebuildMemoryIndex,
-  removeFileIfExists,
-  reserveMemoryFile,
   sessionDir,
-  slugifyName,
 } from '../../../lib/node/pi/memory-paths.ts';
 import { completeSubverbs } from '../../../lib/node/pi/commands/complete.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
@@ -115,7 +107,7 @@ import {
   withEntry,
   withoutEntry,
 } from '../../../lib/node/pi/memory/delivery.ts';
-import { validateSaveParams } from '../../../lib/node/pi/memory/save.ts';
+import { runMemoryAction } from '../../../lib/node/pi/memory/actions.ts';
 import { MEMORY_USAGE } from '../../../lib/node/pi/memory/usage.ts';
 import {
   cloneState,
@@ -125,17 +117,11 @@ import {
   formatText,
   isStaleEntry,
   type MemoryEntry,
-  type MemoryIndex,
   type MemoryScope,
   type MemoryState,
   type MemoryType,
-  removeEntry,
-  renderMemoryMd,
-  resolveMemoryEntry,
-  serializeMemory,
-  upsertEntry,
 } from '../../../lib/node/pi/memory-reducer.ts';
-import { findSimilarMemories, searchMemories } from '../../../lib/node/pi/memory-search.ts';
+import { findSimilarMemories } from '../../../lib/node/pi/memory-search.ts';
 import { truncate } from '../../../lib/node/pi/shared.ts';
 import { envTruthy, parseClampedPositiveInt, parsePositiveInt } from '../../../lib/node/pi/parse-env.ts';
 
@@ -211,20 +197,6 @@ interface MemoryDetails {
 // ──────────────────────────────────────────────────────────────────────
 // Helpers
 // ──────────────────────────────────────────────────────────────────────
-
-function bucketFor(index: MemoryIndex, scope: MemoryScope): MemoryEntry[] {
-  if (scope === 'global') return index.global;
-  if (scope === 'session') return index.session;
-  return index.project;
-}
-
-function writeIndex(scope: MemoryScope, cwd: string, sessionId: string | null, entries: MemoryEntry[]): void {
-  const md = renderMemoryMd(
-    entries.filter((e) => e.scope === scope),
-    scope,
-  );
-  atomicWriteFile(indexFileFor(scope, cwd, sessionId), md);
-}
 
 /**
  * Resolve the current session id, tolerating an absent/throwing session
@@ -334,15 +306,6 @@ export default function memoryExtension(pi: ExtensionAPI): void {
   const renderFullIndex = (): RenderedFullIndex | null => {
     const rendered = renderMemoryIndex(state, { maxChars: maxInjectedChars, now: now(), staleDays });
     return rendered ? { body: rendered.body, truncated: rendered.skipped > 0 } : null;
-  };
-
-  const readOnlyError = (action: string): { content: string; details: MemoryDetails; isError: boolean } => {
-    const error = `memory is read-only: PI_MEMORY_READONLY=1`;
-    return {
-      content: `Error: ${error}`,
-      details: { action, state: cloneState(state), error },
-      isError: true,
-    };
   };
 
   /**
@@ -589,296 +552,29 @@ export default function memoryExtension(pi: ExtensionAPI): void {
     });
   }
 
-  // ── Actions ─────────────────────────────────────────────────────────
+  // ── Actions (shared with the opencode memory plugin) ─────────────────
 
-  const actList = (): { content: string; details: MemoryDetails } => {
-    return {
-      content: formatText(state),
-      details: { action: 'list', state: cloneState(state) },
-    };
-  };
-
-  const actRead = (params: MemoryParamsT): { content: string; details: MemoryDetails; isError?: boolean } => {
-    const resolved = resolveMemoryEntry(state, params);
-    if ('error' in resolved) {
-      return {
-        content: `Error: ${resolved.error}`,
-        details: { action: 'read', state: cloneState(state), error: resolved.error },
-        isError: true,
-      };
-    }
-    const body = readMemoryBody(resolved, cwd, sessionId);
-    if (body == null) {
-      const error = `memory "${resolved.id}" not readable on disk`;
-      return {
-        content: `Error: ${error}`,
-        details: { action: 'read', state: cloneState(state), error },
-        isError: true,
-      };
-    }
-    const header = `[${resolved.scope}/${resolved.type}] ${resolved.id} - ${resolved.name}\n${resolved.description}\n`;
-    return {
-      content: `${header}\n${body.trim()}\n`,
-      details: { action: 'read', state: cloneState(state), entry: { ...resolved }, body },
-    };
-  };
-
-  const actSave = (params: MemoryParamsT): { content: string; details: MemoryDetails; isError?: boolean } => {
-    if (readOnly) return readOnlyError('save');
-    const validated = validateSaveParams(params, sessionId);
-    if (!validated.ok) {
-      return {
-        content: validated.content,
-        details: { action: 'save', state: cloneState(state), error: validated.error },
-        isError: true,
-      };
-    }
-    const { type, scope, name, description, body } = validated;
-    // Non-blocking duplicate check, scoped to the same scope+type.
-    // (Secret-shaped content is gated upstream by the secret-redactor
-    // extension's tool-arg guard, so memory never needs its own check.)
-    const similar = findSimilarMemories(
-      { name, description, body },
-      bucketFor(state.index, scope).filter((e) => e.type === type),
-      (e) => readMemoryBody(e, cwd, sessionId),
-    );
-    const warnings: string[] = [];
-    if (similar.length > 0) {
-      const ids = similar.map((s) => `\`${s.entry.id}\` ([${s.entry.type}])`).join(', ');
-      warnings.push(
-        `Note: this looks similar to existing memory ${ids}. Consider \`update\`-ing instead of saving a duplicate.`,
-      );
-    }
-    // Claim the file with an exclusive create while picking the slug, so a
-    // concurrent save in another pi session can never pick the same file.
-    const slug = chooseMemorySlug(
-      state,
-      scope,
-      name,
-      undefined,
-      (s) => !reserveMemoryFile(fileFor(scope, type, s, cwd, sessionId)),
-    );
-    const path = fileFor(scope, type, slug, cwd, sessionId);
-    // New memory: stamp both timestamps with the same instant.
-    const stamp = now().toISOString();
-    const serialized = serializeMemory({
-      name,
-      description,
-      type,
-      body,
-      created: stamp,
-      updated: stamp,
+  const runAction = (params: MemoryParamsT): { content: string; details: MemoryDetails; isError?: boolean } => {
+    const result = runMemoryAction(state, params, {
+      cwd,
+      sessionId,
+      root: memoryRoot(),
+      now,
+      ...(readOnly ? { readOnlyReason: 'PI_MEMORY_READONLY=1' } : {}),
     });
-    try {
-      atomicWriteFile(path, serialized);
-    } catch (error) {
-      // Drop the empty placeholder so it doesn't surface as a malformed file.
-      removeFileIfExists(path);
-      throw error;
-    }
-    const entry: MemoryEntry = {
-      id: slug,
-      scope,
-      type,
-      name,
-      description,
-      created: stamp,
-      updated: stamp,
-    };
-    const nextIndex = upsertEntry(state.index, entry);
-    state = { index: nextIndex, projectSlug: state.projectSlug, sessionId: state.sessionId };
-    writeIndex(scope, cwd, sessionId, bucketFor(nextIndex, scope));
-    noteLocalUpsert(entry);
+    state = result.state;
+    const change = result.change;
+    if (change?.kind === 'upsert') noteLocalUpsert(change.entry, change.replaced);
+    if (change?.kind === 'remove') noteLocalRemoval(change.entry);
     // A successful save clears the capture-assist gate: nothing fresh is
     // unsaved until the next user turn.
-    resetCaptureState();
-    const prefix = warnings.length > 0 ? `${warnings.join('\n')}\n\n` : '';
-    return {
-      content: `${prefix}Saved memory [${scope}/${type}] \`${slug}\` - ${entry.description}`,
-      details: { action: 'save', state: cloneState(state), entry },
-    };
-  };
-
-  const actUpdate = (params: MemoryParamsT): { content: string; details: MemoryDetails; isError?: boolean } => {
-    if (readOnly) return readOnlyError('update');
-    const resolved = resolveMemoryEntry(state, params);
-    if ('error' in resolved) {
-      return {
-        content: `Error: ${resolved.error}`,
-        details: { action: 'update', state: cloneState(state), error: resolved.error },
-        isError: true,
-      };
-    }
-    if (params.name === undefined && params.description === undefined && params.body === undefined) {
-      const error = '`update` requires at least one of `name`, `description`, `body`';
-      return {
-        content: `Error: ${error}`,
-        details: { action: 'update', state: cloneState(state), error },
-        isError: true,
-      };
-    }
-    const nextName = params.name !== undefined ? params.name.trim() : resolved.name;
-    if (nextName.length === 0) {
-      const error = '`name` may not be empty';
-      return {
-        content: `Error: ${error}`,
-        details: { action: 'update', state: cloneState(state), error },
-        isError: true,
-      };
-    }
-    const nextDescription = params.description !== undefined ? params.description.trim() : resolved.description;
-    // When the caller omits `body`, we preserve the on-disk body. If we can't
-    // read it, refuse to clobber - rewriting the file with an empty body here
-    // would silently destroy content.
-    let nextBody: string;
-    if (params.body !== undefined) {
-      nextBody = params.body.trim();
-      if (nextBody.length === 0) {
-        const error = '`body` may not be empty - use `remove` to delete the memory';
-        return {
-          content: `Error: ${error}`,
-          details: { action: 'update', state: cloneState(state), error },
-          isError: true,
-        };
-      }
-    } else {
-      const existing = readMemoryBody(resolved, cwd, sessionId);
-      if (existing === null) {
-        const error = `cannot preserve body: "${resolved.id}" is not readable on disk - pass \`body\` explicitly or re-save`;
-        return {
-          content: `Error: ${error}`,
-          details: { action: 'update', state: cloneState(state), error },
-          isError: true,
-        };
-      }
-      nextBody = existing.trim();
-      if (nextBody.length === 0) {
-        const error = `existing body for "${resolved.id}" is empty - pass \`body\` explicitly`;
-        return {
-          content: `Error: ${error}`,
-          details: { action: 'update', state: cloneState(state), error },
-          isError: true,
-        };
-      }
-    }
-    const renamed = params.name !== undefined && slugifyName(params.name) !== resolved.id;
-    let nextIndex = state.index;
-    let nextId = resolved.id;
-    if (renamed) {
-      // Remove the outgoing entry from the index BEFORE picking a new slug so
-      // a rename that collapses back to the same slug (or a reclaimed one)
-      // doesn't get pushed to `-2`. The old file is deleted only after the
-      // new one is written, so a failed write never loses the memory.
-      nextIndex = removeEntry(nextIndex, resolved.scope, resolved.id, resolved.type);
-      nextId = chooseMemorySlug(
-        { index: nextIndex, projectSlug: state.projectSlug, sessionId: state.sessionId },
-        resolved.scope,
-        params.name!,
-        undefined,
-        // Our own file is free to keep; any other slug must be claimed.
-        (s) => s !== resolved.id && !reserveMemoryFile(fileFor(resolved.scope, resolved.type, s, cwd, sessionId)),
-      );
-    }
-    // Preserve `created`, bumping `updated` to now. Prefer the resolved
-    // entry's own `created` (populated by the disk scan and captured before
-    // any rename removed the old file); fall back to re-reading the
-    // on-disk frontmatter for entries indexed before timestamps existed.
-    // The rename path carries `created` across automatically via this value.
-    // Unknown frontmatter keys (e.g. another extension's ownership tag such
-    // as roleplay's `roleplayFactCast`) ride along so an edit never drops them.
-    const priorFrontmatter = readMemoryFrontmatter(resolved, cwd, sessionId);
-    const priorCreated = resolved.created ?? priorFrontmatter?.created;
-    const updatedStamp = now().toISOString();
-    const serialized = serializeMemory({
-      name: nextName,
-      description: nextDescription,
-      type: resolved.type,
-      body: nextBody,
-      created: priorCreated,
-      updated: updatedStamp,
-      ...(priorFrontmatter?.extra ? { extra: priorFrontmatter.extra } : {}),
-    });
-    const nextPath = fileFor(resolved.scope, resolved.type, nextId, cwd, sessionId);
-    try {
-      atomicWriteFile(nextPath, serialized);
-    } catch (error) {
-      if (nextId !== resolved.id) removeFileIfExists(nextPath);
-      throw error;
-    }
-    if (nextId !== resolved.id) {
-      removeFileIfExists(fileFor(resolved.scope, resolved.type, resolved.id, cwd, sessionId));
-    }
-    const entry: MemoryEntry = {
-      id: nextId,
-      scope: resolved.scope,
-      type: resolved.type,
-      name: nextName,
-      description: nextDescription,
-      created: priorCreated,
-      updated: updatedStamp,
-    };
-    nextIndex = upsertEntry(nextIndex, entry);
-    state = { index: nextIndex, projectSlug: state.projectSlug, sessionId: state.sessionId };
-    writeIndex(entry.scope, cwd, sessionId, bucketFor(nextIndex, entry.scope));
-    noteLocalUpsert(entry, resolved);
-    return {
-      content: `Updated memory [${entry.scope}/${entry.type}] \`${entry.id}\` - ${entry.description}`,
-      details: { action: 'update', state: cloneState(state), entry },
-    };
-  };
-
-  const actRemove = (params: MemoryParamsT): { content: string; details: MemoryDetails; isError?: boolean } => {
-    if (readOnly) return readOnlyError('remove');
-    if (!params.scope) {
-      const error = '`scope` is required for `remove` (global, project, or session)';
-      return {
-        content: `Error: ${error}`,
-        details: { action: 'remove', state: cloneState(state), error },
-        isError: true,
-      };
-    }
-    const resolved = resolveMemoryEntry(state, params);
-    if ('error' in resolved) {
-      return {
-        content: `Error: ${resolved.error}`,
-        details: { action: 'remove', state: cloneState(state), error: resolved.error },
-        isError: true,
-      };
-    }
-    removeFileIfExists(fileFor(resolved.scope, resolved.type, resolved.id, cwd, sessionId));
-    const nextIndex = removeEntry(state.index, resolved.scope, resolved.id, resolved.type);
-    state = { index: nextIndex, projectSlug: state.projectSlug, sessionId: state.sessionId };
-    writeIndex(resolved.scope, cwd, sessionId, bucketFor(nextIndex, resolved.scope));
-    noteLocalRemoval(resolved);
-    return {
-      content: `Removed memory [${resolved.scope}/${resolved.type}] \`${resolved.id}\``,
-      details: { action: 'remove', state: cloneState(state), entry: resolved },
-    };
-  };
-
-  const actSearch = (params: MemoryParamsT): { content: string; details: MemoryDetails; isError?: boolean } => {
-    const q = (params.query ?? '').trim();
-    if (q.length === 0) {
-      const error = '`query` is required for `search`';
-      return {
-        content: `Error: ${error}`,
-        details: { action: 'search', state: cloneState(state), error },
-        isError: true,
-      };
-    }
-    const allEntries = [...state.index.global, ...state.index.project, ...state.index.session];
-    const matches = searchMemories(allEntries, (e) => readMemoryBody(e, cwd, sessionId), q).map((s) => s.entry);
-    if (matches.length === 0) {
-      return {
-        content: `No memories match "${q}".`,
-        details: { action: 'search', state: cloneState(state), matches: [] },
-      };
-    }
-    const lines = matches.map((e) => `  [${e.scope}/${e.type}] ${e.id} - ${e.name}: ${e.description}`);
-    return {
-      content: `Matches for "${q}" (${matches.length}):\n${lines.join('\n')}`,
-      details: { action: 'search', state: cloneState(state), matches },
-    };
+    if (params.action === 'save' && change) resetCaptureState();
+    const details: MemoryDetails = { action: params.action, state: cloneState(state) };
+    if (result.entry) details.entry = result.entry;
+    if (result.matches) details.matches = result.matches;
+    if (result.body !== undefined) details.body = result.body;
+    if (result.error !== undefined) details.error = result.error;
+    return { content: result.content, details, ...(result.isError ? { isError: true } : {}) };
   };
 
   // ── Tool registration ───────────────────────────────────────────────
@@ -903,27 +599,7 @@ export default function memoryExtension(pi: ExtensionAPI): void {
       // any memory written by another pi session, so `read` finds it and a
       // write never rebuilds MEMORY.md or picks a slug from a stale index.
       rescan(ctx);
-      let out: { content: string; details: MemoryDetails; isError?: boolean };
-      switch (params.action) {
-        case 'list':
-          out = actList();
-          break;
-        case 'read':
-          out = actRead(params);
-          break;
-        case 'save':
-          out = actSave(params);
-          break;
-        case 'update':
-          out = actUpdate(params);
-          break;
-        case 'remove':
-          out = actRemove(params);
-          break;
-        case 'search':
-          out = actSearch(params);
-          break;
-      }
+      const out = runAction(params);
       return {
         content: [{ type: 'text', text: out.content }],
         details: out.details,
