@@ -14,6 +14,7 @@ import { type AgentDef } from '../../../../../lib/node/pi/subagent/loader.ts';
 import {
   createOneShotSubagentAdapter,
   type OneShotRunResult,
+  type OneShotFailureReason,
   resolveRoleplayChildModelSettings,
 } from '../../../../../lib/node/pi/roleplay/one-shot.ts';
 
@@ -153,4 +154,137 @@ test('run returns null when model resolution fails', async () => {
     modelRegistry: { find: () => undefined, authStorage: {} },
   };
   expect(await a.run(badCtx, 'task', 'prov/missing')).toBeNull();
+});
+
+test.each([
+  [new Error('private provider error'), 'child-failed'],
+  [{ finalText: 'private partial', stopReason: 'error', errorMessage: 'timeout private detail' }, 'child-failed'],
+  [{ finalText: 'private partial', stopReason: 'max_turns' }, 'child-failed'],
+  [{ finalText: 'private partial', stopReason: 'aborted' }, 'cancelled'],
+] as const)('onFailure reports only a fixed safe reason %#', async (result, expected) => {
+  const failures: OneShotFailureReason[] = [];
+  const a = createOneShotSubagentAdapter<FakeModel>({
+    agent: fakeAgent(),
+    timeoutMs: 60000,
+    label: 'child',
+    runOneShot: () => (result instanceof Error ? Promise.reject(result) : Promise.resolve(result)),
+    onFailure: (reason) => {
+      failures.push(reason);
+    },
+  });
+  expect(await a.run(ctx, 'private task')).toBeNull();
+  expect(failures).toEqual([expected]);
+  expect(JSON.stringify(failures)).not.toContain('private');
+});
+
+test('onFailure reports model-unavailable without spawning, but is silent on success and empty tasks', async () => {
+  const failures: OneShotFailureReason[] = [];
+  let runs = 0;
+  const a = createOneShotSubagentAdapter<FakeModel>({
+    agent: fakeAgent(),
+    timeoutMs: 60000,
+    label: 'child',
+    runOneShot: () => {
+      runs++;
+      return Promise.resolve({ finalText: 'raw', stopReason: 'completed' });
+    },
+    onFailure: (reason) => {
+      failures.push(reason);
+    },
+  });
+  expect(await a.run({ ...ctx, modelRegistry: { find: () => undefined, authStorage: {} } }, 'task', 'p/m')).toBeNull();
+  expect(failures).toEqual(['model-unavailable']);
+  expect(runs).toBe(0);
+  expect(await a.run(ctx, ' ')).toBeNull();
+  expect(await a.run(ctx, 'task')).toBe('raw');
+  expect(runs).toBe(1);
+  expect(failures).toEqual(['model-unavailable']);
+});
+
+test('onFailure callback and diagnostic sink errors are non-load-bearing', async () => {
+  const a = createOneShotSubagentAdapter<FakeModel>({
+    agent: fakeAgent(),
+    timeoutMs: 60000,
+    label: 'child',
+    runOneShot: () => Promise.reject(new Error('private provider failure')),
+    log: () => {
+      throw new Error('diagnostics failed');
+    },
+    onFailure: () => {
+      throw new Error('callback failed');
+    },
+  });
+  expect(await a.run(ctx, 'task')).toBeNull();
+});
+
+test('an aborted signal reports cancellation without spawning, even if a callback throws', async () => {
+  const controller = new AbortController();
+  controller.abort();
+  let runs = 0;
+  const failures: OneShotFailureReason[] = [];
+  const a = createOneShotSubagentAdapter<FakeModel>({
+    agent: fakeAgent(),
+    timeoutMs: 60000,
+    label: 'child',
+    runOneShot: () => {
+      runs++;
+      return Promise.resolve({ finalText: 'x', stopReason: 'completed' });
+    },
+    onFailure: (reason) => {
+      failures.push(reason);
+      throw new Error('callback failed');
+    },
+  });
+  expect(await a.run({ ...ctx, signal: controller.signal }, 'task')).toBeNull();
+  expect(runs).toBe(0);
+  expect(failures).toEqual(['cancelled']);
+});
+
+test.each(['throw', 'completed'] as const)('signal aborted during a run maps %s to cancelled', async (stop) => {
+  const controller = new AbortController();
+  const failures: OneShotFailureReason[] = [];
+  const a = createOneShotSubagentAdapter<FakeModel>({
+    agent: fakeAgent(),
+    timeoutMs: 60000,
+    label: 'child',
+    runOneShot: () => {
+      controller.abort();
+      return stop === 'throw'
+        ? Promise.reject(new Error('private error'))
+        : Promise.resolve({ finalText: 'private output', stopReason: 'completed' });
+    },
+    onFailure: (reason) => {
+      failures.push(reason);
+    },
+  });
+  expect(await a.run({ ...ctx, signal: controller.signal }, 'task')).toBeNull();
+  expect(failures).toEqual(['cancelled']);
+});
+
+test('signal aborted during model resolution is checked again before spawning', async () => {
+  const controller = new AbortController();
+  const failures: OneShotFailureReason[] = [];
+  let runs = 0;
+  const a = createOneShotSubagentAdapter<FakeModel>({
+    agent: fakeAgent(),
+    timeoutMs: 60000,
+    label: 'child',
+    runOneShot: () => {
+      runs++;
+      return Promise.resolve({ finalText: 'x', stopReason: 'completed' });
+    },
+    onFailure: (reason) => {
+      failures.push(reason);
+    },
+  });
+  const modelRegistry = {
+    find: (): FakeModel => {
+      controller.abort();
+      return { id: 'child' };
+    },
+    authStorage: {},
+  };
+  expect(await a.run({ ...ctx, modelRegistry, signal: controller.signal }, 'task', 'p/m')).toBeNull();
+  expect(runs).toBe(0);
+  expect(failures).toEqual(['cancelled']);
 });

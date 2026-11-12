@@ -131,6 +131,17 @@ import {
   type Summarizer,
 } from '../../../lib/node/pi/roleplay/summarize.ts';
 import {
+  readSummaryAttempt,
+  resolveSummaryLimits,
+  type SummaryAttemptMetadata,
+  type SummaryReason,
+} from '../../../lib/node/pi/roleplay/summary-attempt.ts';
+import {
+  createRoleplayBudgetStatus,
+  type RoleplayBudgetStatus,
+  type RoleplayBudgetReason,
+} from '../../../lib/node/pi/roleplay/budget-status.ts';
+import {
   acceptRecap,
   boundRollSpanTo,
   boundSpanByChars,
@@ -569,6 +580,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   /** Snapshot of the last context-window pass, for `/roleplay context`. Null until the first turn is processed. */
   let lastWindowSnapshot: ContextWindowReadoutSnapshot | null = null;
   let lastFullRequestChars = 0;
+  let lastBudgetStatus: RoleplayBudgetStatus | null = null;
   /** Lowercased fact names captured this process, to skip re-writing the same fact. */
   const capturedFacts = new Set<string>();
   /** Lazy `roleplay-fact-extractor` runner + one-shot init guard. */
@@ -589,6 +601,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     capturedFacts.clear();
     lastWindowSnapshot = null;
     lastFullRequestChars = 0;
+    lastBudgetStatus = null;
   };
 
   /**
@@ -1178,6 +1191,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         settings,
         summarizerAgent: loadAgent('roleplay-summarizer'),
         maxOutputChars: loadRoleplayConfig(cwd, envCharBudget).summarizeMaxChars,
+        targetOutputChars: loadRoleplayConfig(cwd, envCharBudget).summarizeTargetChars,
         // Pin the summarizer's neutral sampler (frontmatter `requestOptions`)
         // onto the child's provider request: the child loads with
         // noExtensions, so the persona's before_provider_request never fires
@@ -1308,6 +1322,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     coverage: () => win.recapCutoff,
     policy: policyFor,
     window: () => lastWindowSnapshot,
+    budget: () => lastBudgetStatus,
     recapModel: (ctx) => resolveRecapModelInfo(ctx).model,
     recapAsync: (ctx) => recapAsyncForced() ?? resolveRecapModelInfo(ctx).distinct,
     config: () => loadRoleplayConfigWithSources(cwd, envCharBudget),
@@ -1333,6 +1348,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     spanLen: number;
     priorLen: number;
     startedAt: number;
+    attempt?: SummaryAttemptMetadata;
   }
   /**
    * One recap pass over the aged span: derive the span cap from the recap
@@ -1351,9 +1367,26 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   ): Promise<RecapResult> => {
     const startedAt = Date.now();
     const priorLen = prior.length;
-    const sum = getSummarizer(ctx);
-    if (!sum?.isEnabled()) return { next: null, raw: null, applied: false, spanLen: 0, priorLen, startedAt };
     const cfg = loadRoleplayConfig(cwd, envCharBudget);
+    const limits = resolveSummaryLimits(cfg.summarizeMaxChars, cfg.summarizeTargetChars, prior.trim().length);
+    const emptyAttempt = (reason: SummaryReason): SummaryAttemptMetadata => ({
+      ...limits,
+      priorChars: prior.trim().length,
+      outputChars: 0,
+      reason,
+      attempts: [],
+    });
+    const sum = getSummarizer(ctx);
+    if (!sum?.isEnabled())
+      return {
+        next: null,
+        raw: null,
+        applied: false,
+        spanLen: 0,
+        priorLen,
+        startedAt,
+        attempt: emptyAttempt('disabled'),
+      };
     const maxSpanChars = deriveMaxSpanChars({
       contextWindowTokens: info.model?.contextWindow,
       priorRecapChars: priorLen,
@@ -1362,24 +1395,56 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
     const plan = planSummarization(span, { minMessages: minimumMessages ?? cfg.summarizeMinMessages, maxSpanChars });
     if (!plan) {
       const emptySpan = span.length > 0 && planSummarization(span, { minMessages: 1, maxSpanChars }) === null;
-      return { next: null, raw: null, applied: false, trivial: emptySpan, spanLen: 0, priorLen, startedAt };
+      return {
+        next: null,
+        raw: null,
+        applied: false,
+        trivial: emptySpan,
+        spanLen: 0,
+        priorLen,
+        startedAt,
+        attempt: emptyAttempt(emptySpan ? 'empty-span' : 'below-minimum'),
+      };
     }
     let next: string | null = null;
     let raw: string | null = null;
+    let attempt: SummaryAttemptMetadata | null = null;
     try {
       const detailed = await sum.summarizeDetailed(
         { cwd, model: ctx.model, modelRegistry: ctx.modelRegistry as never, signal },
         plan.spanText,
         prior.trim() ? prior : undefined,
         resolvePromptGuidance('summary', { cwd }),
+        { maxChars: cfg.summarizeMaxChars, targetChars: cfg.summarizeTargetChars },
       );
       next = detailed.recap;
       raw = detailed.raw;
+      attempt = readSummaryAttempt(detailed.attempt);
     } catch {
       next = null;
       raw = null;
+      attempt = emptyAttempt('child-failed');
     }
-    return { next, raw, applied: acceptRecap(prior, next), spanLen: plan.messageCount, priorLen, startedAt };
+    const applied = acceptRecap(prior, next);
+    // Legacy callers/mocks may not return structured details; never invent provider error text.
+    if (!attempt) {
+      const outputChars = next?.trim().length ?? raw?.trim().length ?? 0;
+      const reason: SummaryReason = applied
+        ? 'accepted'
+        : next
+          ? 'collapsed'
+          : outputChars > limits.maxChars
+            ? 'over-limit'
+            : 'no-output';
+      attempt = {
+        ...limits,
+        priorChars: prior.trim().length,
+        outputChars,
+        reason,
+        attempts: [{ reason, outputChars }],
+      };
+    }
+    return { next, raw, applied, spanLen: plan.messageCount, priorLen, startedAt, attempt };
   };
 
   /**
@@ -1438,6 +1503,8 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         forced: o.forced ?? false,
         ...(trivial ? { trivial: true, emptySpan: true } : {}),
         candidateChars: o.result.next?.length ?? 0,
+        rawCandidateChars: o.result.raw?.length ?? 0,
+        ...(readSummaryAttempt(o.result.attempt) ? { attempt: readSummaryAttempt(o.result.attempt) } : {}),
         recapChars: (o.acceptedRecap ?? win.recapText).length,
         // The actual recap text, so drift is inspectable from the audit log
         // itself (its stated purpose) without opening `summary/auto.md`.
@@ -2748,6 +2815,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
   ): Promise<{ messages: ReminderMessage[]; fits: boolean; reason?: string }> => {
     const raw = lastMessages as readonly ReminderMessage[];
     const generation = win.recapGen;
+    lastBudgetStatus = null;
     const current = (): boolean => generation === win.recapGen && !ctx.signal?.aborted;
     const fail = (reason: string): { messages: ReminderMessage[]; fits: boolean; reason: string } => {
       win.lastSentEstChars = 0;
@@ -2776,6 +2844,9 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       fits: boolean;
       reason?: string;
     }
+    const recordBudget = (chars: number, reason: RoleplayBudgetReason = 'none'): void => {
+      lastBudgetStatus = createRoleplayBudgetStatus(policyFor(ctx).target, chars / win.charsPerToken, reason);
+    };
     // Each safety recap strictly advances coverage, bounding this sequential recursion.
     const step = async (): Promise<Finalized> => {
       if (!current()) return fail('The scene changed or the safety recap was cancelled; retry the request.');
@@ -2806,13 +2877,15 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       const before = retainedTranscriptStart(covered, raw, protectedKeys);
       const target = retainedTranscriptStart(result.messages, raw, protectedKeys);
       const softOnly = hard.fits && retainedTranscriptStart(hard.messages, raw, protectedKeys) <= before;
-      const preserveOrFail = (reason: string): Finalized => {
-        if (!softOnly || softTarget <= 0) return fail(reason);
-        const key = `soft-budget:${reason}`;
+      const preserveOrFail = (reason: string, code: RoleplayBudgetReason = 'coverage-unresolved'): Finalized => {
+        recordBudget(hard.projectedChars, code);
+        if (!softOnly || softTarget <= 0)
+          return fail(`${reason} Request paused instead of discarding uncovered history.`);
+        const key = `soft-budget:${code}`;
         if (!surfacedWarnings.has(key)) {
           surfacedWarnings.add(key);
           ctx.ui.notify(
-            `roleplay: soft prompt target could not be met. ${reason} History retained; the physical window still fits.`,
+            `roleplay: soft prompt target could not be met (${code}). ${reason} Sent above the soft target with history retained; the physical window still fits. See /roleplay debug.`,
             'warning',
           );
         }
@@ -2823,6 +2896,12 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
           'The protected input, system prompt, tools or reminders exceed the model window; no uncovered history was discarded.',
         );
       if (target <= before) {
+        if (result.softTarget?.outcome === 'unmet')
+          return preserveOrFail(
+            'Available retained-window candidates exceed the target; protected input and pinned history were not removed.',
+            'no-feasible-tail',
+          );
+        recordBudget(result.projectedChars);
         win.projectedFloorAnchor = win.recapAnchor;
         return { messages: withMemory(result.messages), fits: true };
       }
@@ -2833,9 +2912,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         return step();
       }
       if (!recapMode || !getSummarizer(ctx)?.isEnabled())
-        return preserveOrFail(
-          'A token-budget cut needs a configured roleplay summarizer; request paused instead of discarding scene history.',
-        );
+        return preserveOrFail('A token-budget cut needs a configured roleplay summarizer.', 'summarizer-unavailable');
       const cfg = loadRoleplayConfig(cwd, envCharBudget);
       const from = win.recapCutoff;
       const boundedTo = boundRollSpanTo(raw, from, target, cfg.recapMaxAdvance, 1);
@@ -2844,10 +2921,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
       const info = resolveRecapModelInfo(ctx);
       // Children load no extensions: sanitize the span the way the provider copy is.
       const sanitized = sanitizeForChild(raw.slice(from, boundedTo), ctx);
-      if (!sanitized)
-        return preserveOrFail(
-          'The safety recap span could not be sanitized; request paused with scene history preserved.',
-        );
+      if (!sanitized) return preserveOrFail('The safety recap span could not be sanitized.', 'sanitizer-unavailable');
       // Cover only what the summarizer reads (no renderSpan front truncation).
       const to = from + boundSpanByChars(sanitized, 0, boundedTo - from, recapSpanChars(info, win.recapText));
       const anchor = raw[to] ? reminderMessageAnchor(raw[to]) : undefined;
@@ -2865,7 +2939,10 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         if (!result.applied && !result.trivial) {
           writeRecapAudit({ result, model: info.model, spanFrom: from, spanTo: to, mode: 'budget' });
           return preserveOrFail(
-            'The safety recap failed or was rejected; request paused instead of discarding uncovered history.',
+            `The safety recap was not accepted (${result.attempt?.reason ?? 'no-output'}).`,
+            ['over-limit', 'collapsed', 'constraints-conflict'].includes(result.attempt?.reason ?? '')
+              ? 'recap-rejected'
+              : 'recap-failed',
           );
         }
         const audit = { result, model: info.model, spanFrom: from, spanTo: to, mode: 'budget' as const, anchor };
@@ -2919,6 +2996,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
             protectedKeys,
           });
           if (hard.fits && hard.messages.length === preserved.length) {
+            recordBudget(hard.projectedChars, 'exception');
             ctx.ui.notify(
               'roleplay: soft-target preparation failed; physically fitting scene history was retained. Inspect jobs for unfinished extraction.',
               'warning',
@@ -2956,6 +3034,13 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
         request.messages,
         typeof ctx.getSystemPrompt === 'function' ? ctx.getSystemPrompt() : undefined,
       );
+      if (lastBudgetStatus) {
+        lastBudgetStatus = createRoleplayBudgetStatus(
+          lastBudgetStatus.targetTokens,
+          win.lastSentEstChars / win.charsPerToken,
+          lastBudgetStatus.reason,
+        );
+      }
       if (lastWindowSnapshot) {
         const sent = Math.round(win.lastSentEstChars / win.charsPerToken);
         lastWindowSnapshot = {
@@ -3071,6 +3156,7 @@ export default function roleplayExtension(pi: ExtensionAPI): void {
           plan.spanText,
           prior || undefined,
           resolvePromptGuidance('summary', { cwd }),
+          { maxChars: cfg.summarizeMaxChars, targetChars: cfg.summarizeTargetChars },
         );
         // Collapse guard: never let a degenerate recap clobber a longer prior.
         if (generation !== win.recapGen || recapCast !== activeCast() || recap === null || !acceptRecap(prior, recap))

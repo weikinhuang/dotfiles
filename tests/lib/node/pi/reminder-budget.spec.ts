@@ -142,6 +142,42 @@ test('request accounting includes system tool declarations and SDK summary messa
   expect(result.floorAnchor).toBeUndefined();
 });
 
+test('an impossible soft target explicitly reports unmet while preserving a physically fitting projection', () => {
+  const current = input(2);
+  const messages = [{ role: 'system', content: 'M'.repeat(8000) }, input(1), current];
+  const result = limitReminderContext({
+    messages,
+    preview: (items) => items,
+    origin: reminderMessageAnchor(current),
+    windowTokens: 32000,
+    charsPerToken: 4,
+    promptTokenTarget: 1000,
+  });
+  expect(result.fits).toBe(true);
+  expect(result.messages).toEqual(messages);
+  expect(result.softTarget).toMatchObject({ targetTokens: 1000, outcome: 'unmet' });
+  expect(result.softTarget?.estimatedInputTokens).toBeGreaterThan(1000);
+});
+
+test('meeting the actual soft target is enough when the hysteresis reserve is impossible', () => {
+  const current = { ...input(2), content: 'LATEST'.repeat(30) };
+  const messages = [
+    { role: 'system', content: 'M'.repeat(3600) },
+    { ...input(1), content: 'OLD'.repeat(1000) },
+    current,
+  ];
+  const result = limitReminderContext({
+    messages,
+    preview: (items) => items,
+    origin: reminderMessageAnchor(current),
+    windowTokens: 32000,
+    charsPerToken: 4,
+    promptTokenTarget: 1000,
+  });
+  expect(result.messages).toEqual([messages[0], current]);
+  expect(result.softTarget).toEqual({ targetTokens: 1000, estimatedInputTokens: 945, outcome: 'met' });
+});
+
 describe('piFallbackTokens', () => {
   it("matches pi-ai's 3.5 chars/token fallback estimate of a provider context", async () => {
     // Deep import: the estimator is not a public export, but parity is the contract.

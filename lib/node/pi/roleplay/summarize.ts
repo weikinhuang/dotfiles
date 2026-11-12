@@ -32,6 +32,12 @@ import { type AgentDef } from '../subagent/loader.ts';
 import { type ModelRegistryLike } from '../subagent/spawn.ts';
 import { truncateText } from './context-window.ts';
 import { createOneShotSubagentAdapter, resolveRoleplayChildModelSettings } from './one-shot.ts';
+import {
+  resolveSummaryLimits,
+  type SummaryAttemptMetadata,
+  type SummaryLimits,
+  type SummaryReason,
+} from './summary-attempt.ts';
 
 // ──────────────────────────────────────────────────────────────────────
 // Pure helpers: span rendering + trigger + validation + record shaping
@@ -137,7 +143,12 @@ export const DEFAULT_SUMMARY_GUIDANCE = `Update the running recap into ONE conso
  * contract, `null` sentinel, and the span / prior-recap data are always
  * builder-owned, so an override can never break the validator.
  */
-export function buildSummarizeTask(spanText: string, priorSummary?: string, guidance?: string): string {
+export function buildSummarizeTask(
+  spanText: string,
+  priorSummary?: string,
+  guidance?: string,
+  sizing?: SummaryLimits,
+): string {
   const g = guidance && guidance.trim().length > 0 ? guidance.trim() : DEFAULT_SUMMARY_GUIDANCE;
   const prior =
     priorSummary && priorSummary.trim().length > 0
@@ -147,7 +158,15 @@ export function buildSummarizeTask(spanText: string, priorSummary?: string, guid
     'Summarize only what is in the span and the prior recap - never invent events, characters, motivations, or ' +
     'outcomes; if a detail is ambiguous, leave it out. Prose only: no headings, lists, or meta commentary. If ' +
     'there is nothing substantive to record, reply with the literal string null.';
-  return `${prior}New conversation span to fold into the recap:\n${spanText}\n\n${g} ${contract}`;
+  const bounds = sizing
+    ? ` Fixed output contract (takes precedence over any guidance above): rewrite ONE cumulative recap, do not append. ` +
+      `Length is measured in CHARACTERS, not tokens. Aim to stay within ${sizing.targetChars} characters (soft target); ` +
+      `never exceed ${sizing.maxChars} characters (hard maximum). Preserve at least ${sizing.minChars} characters ` +
+      `(minimum to avoid collapsing the prior recap), unless replying with the literal null sentinel. ` +
+      `Do not pad to reach the target: shorter complete recaps are welcome within the minimum. ` +
+      `Use the headroom above the soft target only for necessary continuity details.`
+    : '';
+  return `${prior}New conversation span to fold into the recap:\n${spanText}\n\n${g} ${contract}${bounds}`;
 }
 
 /**
@@ -300,8 +319,10 @@ export interface SummarizerWiring<M> {
   runOneShot: SummarizeRunOneShot<M>;
   /** Optional diagnostic sink - non-fatal errors are reported here. */
   log?: (level: 'info' | 'warn', message: string) => void;
-  /** Soft cap on the recap body, in characters. Default 1500. */
+  /** Hard cap on the recap body, in characters. Default 1500. */
   maxOutputChars?: number;
+  /** Soft character target; 0 (default) selects two thirds of the hard cap. */
+  targetOutputChars?: number;
   /** Per-call agent timeout, in ms. Default: the agent's frontmatter `timeoutMs`, else 60000. */
   timeoutMs?: number;
 }
@@ -312,20 +333,22 @@ export interface Summarizer<M = unknown> {
    * Fold `spanText` (+ optional running recap) into an updated recap.
    * Returns the recap string, or `null` on ANY failure (disabled,
    * model-resolution failure, spawn error, non-`completed` stop, empty
-   * / `null` / over-cap response). `guidance` overrides the default recap
-   * guidance (see {@link buildSummarizeTask}) when non-empty.
+   * / `null` / over-cap / collapsed response). Sizing failures get one
+   * bounded rewrite retry. `guidance` overrides default coverage guidance;
+   * `outputLimits` overrides wiring bounds for this call only.
    */
   summarize(
     ctx: SummarizeContext<M>,
     spanText: string,
     priorSummary?: string,
     guidance?: string,
+    outputLimits?: { maxChars?: number; targetChars?: number },
   ): Promise<string | null>;
   /**
    * Like {@link summarize} but ALSO surfaces the raw trimmed model text
-   * before the over-cap discard. `recap` is the validated recap (null on
-   * empty / `null` sentinel / over-cap); `raw` is the trimmed model output
-   * (null only on a spawn/stop failure or empty / `null` sentinel). Lets the
+   * before the sizing discard. `recap` is the validated recap (null on
+   * empty / `null` sentinel / over-cap / collapse); `raw` is the best usable
+   * trimmed output, preserved even if the bounded rewrite fails. Lets the
    * forced recap path salvage an over-cap recap by clamping `raw` (see {@link
    * clampSummary}) rather than wedging on the discarded `recap`.
    */
@@ -334,15 +357,18 @@ export interface Summarizer<M = unknown> {
     spanText: string,
     priorSummary?: string,
     guidance?: string,
+    outputLimits?: { maxChars?: number; targetChars?: number },
   ): Promise<SummarizeResult>;
 }
 
 /** Both halves of one recap pass: the validated recap and the raw model text. */
 export interface SummarizeResult {
-  /** Validated recap; `null` on empty / `null` sentinel / over-cap. */
+  /** Validated recap; `null` on failure, empty / sentinel, over-cap or collapse. */
   recap: string | null;
-  /** Trimmed model text before the cap check; `null` on failure / empty / sentinel. */
+  /** Best available nonempty model text, retained even if a rewrite fails. */
   raw: string | null;
+  /** Content-free outcome; optional for compatibility with existing runtime mocks. */
+  attempt?: SummaryAttemptMetadata;
 }
 
 const DEFAULT_MAX_OUTPUT_CHARS = 1500;
@@ -354,7 +380,6 @@ const DEFAULT_TIMEOUT_MS = 60000;
  * object for the process.
  */
 export function createSummarizer<M>(wiring: SummarizerWiring<M>): Summarizer<M> {
-  const maxOutput = wiring.maxOutputChars ?? DEFAULT_MAX_OUTPUT_CHARS;
   // An explicit wiring override wins, then the agent's frontmatter `timeoutMs`.
   const timeoutMs = wiring.timeoutMs ?? wiring.summarizerAgent?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
@@ -365,35 +390,94 @@ export function createSummarizer<M>(wiring: SummarizerWiring<M>): Summarizer<M> 
     spanText: string,
     priorSummary?: string,
     guidance?: string,
+    outputLimits?: { maxChars?: number; targetChars?: number },
   ): Promise<SummarizeResult> => {
+    const priorChars = priorSummary?.trim().length ?? 0;
+    const limits = resolveSummaryLimits(
+      outputLimits?.maxChars ?? wiring.maxOutputChars ?? DEFAULT_MAX_OUTPUT_CHARS,
+      outputLimits?.targetChars ?? wiring.targetOutputChars ?? 0,
+      priorChars,
+    );
+    const attempts: { reason: SummaryReason; outputChars: number }[] = [];
+    let raw: string | null = null;
+    const finish = (reason: SummaryReason, outputChars = 0, recap: string | null = null): SummarizeResult => ({
+      recap,
+      raw,
+      attempt: { ...limits, priorChars, outputChars, reason, attempts },
+    });
     const agent = wiring.summarizerAgent;
     const settings = wiring.settings;
-    if (!agent || !settings) return { recap: null, raw: null };
-    if (spanText.trim().length === 0) return { recap: null, raw: null };
+    if (!agent || !settings) return finish('disabled');
+    if (spanText.trim().length === 0) return finish('empty-span');
+    if (limits.minChars > limits.maxChars) return finish('constraints-conflict');
+    if (ctx.signal?.aborted) return finish('cancelled');
 
+    const failure: { reason: SummaryReason } = { reason: 'child-failed' };
     const adapter = createOneShotSubagentAdapter<M>({
       agent,
       runOneShot: wiring.runOneShot,
       timeoutMs,
       label: 'summarizer',
       log: wiring.log,
+      onFailure: (reason) => {
+        failure.reason = reason;
+      },
     });
-    const finalText = await adapter.run(
-      ctx,
-      buildSummarizeTask(spanText, priorSummary, guidance),
-      settings.summarizeModel,
-    );
-    if (finalText === null) return { recap: null, raw: null };
-    const trimmed = finalText.trim();
-    const raw = trimmed.length === 0 || trimmed === 'null' ? null : trimmed;
-    return { recap: validateSummary(finalText, maxOutput), raw };
+    const originalTask = buildSummarizeTask(spanText, priorSummary, guidance, limits);
+    // Distance from the valid interval selects salvage text without blindly truncating it.
+    const distance = (length: number): number => Math.max(limits.minChars - length, length - limits.maxChars, 0);
+    const runAttempt = async (task: string, isRetry: boolean): Promise<SummarizeResult> => {
+      if (ctx.signal?.aborted) return finish('cancelled');
+      const finalText = await adapter.run(ctx, task, settings.summarizeModel);
+      if (finalText === null) {
+        if (failure.reason !== 'model-unavailable') attempts.push({ reason: failure.reason, outputChars: 0 });
+        return finish(failure.reason);
+      }
+      const trimmed = finalText.trim();
+      const outputChars = trimmed.length;
+      const reason: SummaryReason =
+        outputChars === 0
+          ? 'no-output'
+          : trimmed === 'null'
+            ? 'null-response'
+            : outputChars > limits.maxChars
+              ? 'over-limit'
+              : outputChars < limits.minChars
+                ? 'collapsed'
+                : 'accepted';
+      attempts.push({ reason, outputChars });
+      if (reason !== 'no-output' && reason !== 'null-response') {
+        // A non-collapsed over-cap draft can still be clamped by the forced path;
+        // a collapsed draft cannot restore the required continuity floor.
+        const meetsFloor = outputChars >= limits.minChars;
+        const rawMeetsFloor = raw !== null && raw.length >= limits.minChars;
+        if (
+          raw === null ||
+          (meetsFloor && !rawMeetsFloor) ||
+          (meetsFloor === rawMeetsFloor && distance(outputChars) <= distance(raw.length))
+        )
+          raw = trimmed;
+      }
+      if (reason === 'accepted') return finish(reason, outputChars, trimmed);
+      if (isRetry || (reason !== 'over-limit' && reason !== 'collapsed')) return finish(reason, outputChars);
+      // Retry the same authenticated inputs, never the ungrounded draft itself.
+      const retryTask =
+        `${originalTask}\n\nBounded rewrite retry: the previous output was ${outputChars} characters ` +
+        `and ${reason === 'over-limit' ? 'exceeded the hard maximum' : 'collapsed below the minimum'}. ` +
+        `Rewrite the entire cumulative recap from the ORIGINAL span and prior recap above. ` +
+        `Use compact, information-dense prose, preserving established facts without repetition or invention. ` +
+        `Aim to stay within ${limits.targetChars} CHARACTERS, with at least ${limits.minChars} and at most ${limits.maxChars} characters. ` +
+        `Do not append to the prior recap or discuss this retry. The fixed output contract still applies.`;
+      return runAttempt(retryTask, true);
+    };
+    return runAttempt(originalTask, false);
   };
 
   return {
     isEnabled,
     summarizeDetailed,
-    async summarize(ctx, spanText, priorSummary, guidance) {
-      return (await summarizeDetailed(ctx, spanText, priorSummary, guidance)).recap;
+    async summarize(ctx, spanText, priorSummary, guidance, outputLimits) {
+      return (await summarizeDetailed(ctx, spanText, priorSummary, guidance, outputLimits)).recap;
     },
   };
 }

@@ -62,6 +62,19 @@ test('budget and opener defaults are off; enabled budgets floor without losing e
   expect(coerceConfigLayer({ pinSceneOpener: 'true', pinSceneOpenerReply: 1 })).toEqual({});
 });
 
+test('recap soft target is advisory, auto by default, and independent across config layers', () => {
+  expect(DEFAULT_CONFIG.summarizeTargetChars).toBe(0);
+  expect(coerceConfigLayer({ summarizeTargetChars: 4000.9 })).toEqual({ summarizeTargetChars: 4000 });
+  expect(coerceConfigLayer({ summarizeTargetChars: 1 })).toEqual({ summarizeTargetChars: MIN_SUMMARY_CHARS });
+  expect(coerceConfigLayer({ summarizeTargetChars: -1 })).toEqual({ summarizeTargetChars: 0 });
+  expect(coerceConfigLayer({ summarizeTargetChars: '4000' })).toEqual({});
+  expect(coerceConfigLayer({ summarizeTargetChars: Number.NaN })).toEqual({});
+  expect(mergeConfigLayers({ summarizeTargetChars: 4000 }, { summarizeMaxChars: 6000 })).toMatchObject({
+    summarizeTargetChars: 4000,
+    summarizeMaxChars: 6000,
+  });
+});
+
 test('config provenance follows validated default, environment, user, and project precedence', () => {
   vi.stubEnv('PI_CODING_AGENT_DIR', '/synthetic/user');
   vi.stubEnv('PI_ROLEPLAY_CONTEXT_TURNS', '12');

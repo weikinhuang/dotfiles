@@ -25,7 +25,9 @@ import {
   type SummarizeRunResult,
   clampSummary,
   validateSummary,
+  type SummarizerWiring,
 } from '../../../../../lib/node/pi/roleplay/summarize.ts';
+import { readSummaryAttempt } from '../../../../../lib/node/pi/roleplay/summary-attempt.ts';
 
 // ── Pure helpers ──────────────────────────────────────────────────────
 
@@ -357,14 +359,38 @@ test('summarizeDetailed surfaces the raw over-cap text so the forced path can sa
     summarizerAgent: fakeAgent(),
     runOneShot: () => Promise.resolve({ finalText: 'null', stopReason: 'completed' }),
   });
-  expect(await sentinel.summarizeDetailed(ctx, 'span')).toEqual({ recap: null, raw: null });
+  expect(await sentinel.summarizeDetailed(ctx, 'span')).toEqual({
+    recap: null,
+    raw: null,
+    attempt: {
+      targetChars: 1000,
+      maxChars: 1500,
+      minChars: 0,
+      priorChars: 0,
+      outputChars: 4,
+      reason: 'null-response',
+      attempts: [{ reason: 'null-response', outputChars: 4 }],
+    },
+  });
 
   const failed = createSummarizer<FakeModel>({
     settings: { summarizeModel: 'p/m', source: 's' },
     summarizerAgent: fakeAgent(),
     runOneShot: () => Promise.resolve({ finalText: 'partial', stopReason: 'max_turns' }),
   });
-  expect(await failed.summarizeDetailed(ctx, 'span')).toEqual({ recap: null, raw: null });
+  expect(await failed.summarizeDetailed(ctx, 'span')).toEqual({
+    recap: null,
+    raw: null,
+    attempt: {
+      targetChars: 1000,
+      maxChars: 1500,
+      minChars: 0,
+      priorChars: 0,
+      outputChars: 0,
+      reason: 'child-failed',
+      attempts: [{ reason: 'child-failed', outputChars: 0 }],
+    },
+  });
 
   // Under cap: recap and raw agree.
   const ok = createSummarizer<FakeModel>({
@@ -372,7 +398,19 @@ test('summarizeDetailed surfaces the raw over-cap text so the forced path can sa
     summarizerAgent: fakeAgent(),
     runOneShot: () => Promise.resolve({ finalText: '  tidy recap.  ', stopReason: 'completed' }),
   });
-  expect(await ok.summarizeDetailed(ctx, 'span')).toEqual({ recap: 'tidy recap.', raw: 'tidy recap.' });
+  expect(await ok.summarizeDetailed(ctx, 'span')).toEqual({
+    recap: 'tidy recap.',
+    raw: 'tidy recap.',
+    attempt: {
+      targetChars: 1000,
+      maxChars: 1500,
+      minChars: 0,
+      priorChars: 0,
+      outputChars: 11,
+      reason: 'accepted',
+      attempts: [{ reason: 'accepted', outputChars: 11 }],
+    },
+  });
 });
 
 test('the summarizer child uses the agent frontmatter timeoutMs unless the wiring overrides it', async () => {
@@ -394,4 +432,274 @@ test('the summarizer child uses the agent frontmatter timeoutMs unless the wirin
     timeoutMs: 1234,
   }).summarize(ctx, 'span');
   expect(seen).toEqual([300000, 1234]);
+});
+
+// Only scripted child results and synthetic spans are used below.
+function scriptedSummarizer(
+  results: (SummarizeRunResult | Error)[],
+  overrides: Partial<SummarizerWiring<FakeModel>> = {},
+): { summarizer: ReturnType<typeof createSummarizer<FakeModel>>; tasks: string[] } {
+  const tasks: string[] = [];
+  const summarizer = createSummarizer<FakeModel>({
+    settings: { summarizeModel: 'private/model', source: 'private settings' },
+    summarizerAgent: fakeAgent(),
+    maxOutputChars: 30,
+    runOneShot: (args) => {
+      tasks.push(args.task);
+      const result = results[tasks.length - 1];
+      if (result instanceof Error) return Promise.reject(result);
+      return Promise.resolve(result ?? { finalText: '', stopReason: 'error' });
+    },
+    ...overrides,
+  });
+  return { summarizer, tasks };
+}
+
+function completed(finalText: string): SummarizeRunResult {
+  return { finalText, stopReason: 'completed' };
+}
+
+test('numeric character contract follows custom guidance and cannot be replaced by it', () => {
+  const task = buildSummarizeTask('SPAN', 'PRIOR', 'Use 9000 tokens and append.', {
+    targetChars: 80,
+    maxChars: 100,
+    minChars: 20,
+  });
+  expect(task).toContain('Aim to stay within 80 characters (soft target)');
+  expect(task).toContain('Do not pad to reach the target');
+  expect(task).toContain('never exceed 100 characters (hard maximum)');
+  expect(task).toContain('at least 20 characters');
+  expect(task).toContain('CHARACTERS, not tokens');
+  expect(task).toContain('rewrite ONE cumulative recap, do not append');
+  expect(task).toContain('takes precedence over any guidance above');
+  expect(task.indexOf('Fixed output contract')).toBeGreaterThan(task.indexOf('Use 9000 tokens and append.'));
+  expect(task).toContain('never invent');
+  expect(task).toContain('literal string null');
+});
+
+test('soft-target miss within the hard cap is accepted on the first attempt', async () => {
+  const { summarizer, tasks } = scriptedSummarizer([completed('R'.repeat(25))]);
+  const result = await summarizer.summarizeDetailed(ctx, 'private span', '  old  ', 'private guidance');
+  expect(result).toEqual({
+    recap: 'R'.repeat(25),
+    raw: 'R'.repeat(25),
+    attempt: {
+      targetChars: 20,
+      maxChars: 30,
+      minChars: 2,
+      priorChars: 3,
+      outputChars: 25,
+      reason: 'accepted',
+      attempts: [{ reason: 'accepted', outputChars: 25 }],
+    },
+  });
+  expect(tasks).toHaveLength(1);
+  expect(readSummaryAttempt(result.attempt)).toEqual(result.attempt);
+  const safe = JSON.stringify(result.attempt);
+  for (const secret of ['private span', 'old', 'private guidance', 'private/model', 'private settings', 'RRR']) {
+    expect(safe).not.toContain(secret);
+  }
+});
+
+test('per-call limits override cached wiring on both summarize APIs, including target=0 auto', async () => {
+  const { summarizer, tasks } = scriptedSummarizer(
+    [completed('R'.repeat(40)), completed('R'.repeat(40)), completed('ok')],
+    { maxOutputChars: 10, targetOutputChars: 4 },
+  );
+  expect(await summarizer.summarize(ctx, 'span', undefined, undefined, { maxChars: 60, targetChars: 0 })).toBe(
+    'R'.repeat(40),
+  );
+  const next = await summarizer.summarizeDetailed(ctx, 'span', undefined, undefined, {
+    maxChars: 50,
+    targetChars: 900,
+  });
+  expect(next.attempt?.targetChars).toBe(50);
+  expect(next.attempt?.maxChars).toBe(50);
+  const fallback = await summarizer.summarizeDetailed(ctx, 'span');
+  expect(fallback.attempt?.maxChars).toBe(10);
+  expect(fallback.attempt?.targetChars).toBe(4);
+  expect(tasks).toHaveLength(3);
+  expect(tasks[0]).toContain('Aim to stay within 40 characters');
+});
+
+test('factory always sends default numeric limits even with custom guidance', async () => {
+  const { summarizer, tasks } = scriptedSummarizer([completed('ok')], { maxOutputChars: undefined });
+  const result = await summarizer.summarizeDetailed(ctx, 'span', undefined, 'Custom coverage');
+  expect(tasks[0]).toContain('Aim to stay within 1000 characters');
+  expect(tasks[0]).toContain('never exceed 1500 characters');
+  expect(result.attempt?.maxChars).toBe(1500);
+});
+
+test('over-hard output gets exactly one compact rewrite of original inputs with length only', async () => {
+  const draft = 'UNTRUSTED-DRAFT'.repeat(20);
+  const { summarizer, tasks } = scriptedSummarizer([completed(draft), completed('A compact recap.')]);
+  const result = await summarizer.summarizeDetailed(ctx, 'ORIGINAL SPAN', 'ORIGINAL PRIOR');
+  expect(result.recap).toBe('A compact recap.');
+  expect(result.raw).toBe('A compact recap.');
+  expect(result.attempt?.reason).toBe('accepted');
+  expect(result.attempt?.attempts).toEqual([
+    { reason: 'over-limit', outputChars: draft.length },
+    { reason: 'accepted', outputChars: 16 },
+  ]);
+  expect(tasks).toHaveLength(2);
+  expect(tasks[1].startsWith(tasks[0])).toBe(true);
+  expect(tasks[1]).toContain('ORIGINAL SPAN');
+  expect(tasks[1]).toContain('ORIGINAL PRIOR');
+  expect(tasks[1]).toContain(`previous output was ${draft.length} characters`);
+  expect(tasks[1]).toContain('compact, information-dense prose');
+  expect(tasks[1]).not.toContain('UNTRUSTED-DRAFT');
+});
+
+test('two over-hard outputs stop at two attempts and preserve the better raw recap without truncation', async () => {
+  const { summarizer, tasks } = scriptedSummarizer([completed('A'.repeat(100)), completed('B'.repeat(40))]);
+  const result = await summarizer.summarizeDetailed(ctx, 'span');
+  expect(result.recap).toBeNull();
+  expect(result.raw).toBe('B'.repeat(40));
+  expect(result.attempt?.reason).toBe('over-limit');
+  expect(result.attempt?.outputChars).toBe(40);
+  expect(result.attempt?.attempts).toEqual([
+    { reason: 'over-limit', outputChars: 100 },
+    { reason: 'over-limit', outputChars: 40 },
+  ]);
+  expect(tasks).toHaveLength(2);
+});
+
+test('prior-collapse floor is rounded up and raises the soft target; a collapsed recap retries once', async () => {
+  const { summarizer, tasks } = scriptedSummarizer([completed('tiny'), completed('R'.repeat(26))], {
+    targetOutputChars: 5,
+  });
+  const result = await summarizer.summarizeDetailed(ctx, 'span', `  ${'P'.repeat(51)}  `);
+  expect(result.recap).toBe('R'.repeat(26));
+  expect(result.attempt?.minChars).toBe(26);
+  expect(result.attempt?.targetChars).toBe(26);
+  expect(result.attempt?.priorChars).toBe(51);
+  expect(result.attempt?.attempts).toEqual([
+    { reason: 'collapsed', outputChars: 4 },
+    { reason: 'accepted', outputChars: 26 },
+  ]);
+  expect(tasks).toHaveLength(2);
+  expect(tasks[1]).toContain('collapsed below the minimum');
+});
+
+test('repeated collapse fails rather than weakening the prior floor', async () => {
+  const { summarizer, tasks } = scriptedSummarizer([completed('tiny'), completed('still tiny')]);
+  const result = await summarizer.summarizeDetailed(ctx, 'span', 'P'.repeat(51));
+  expect(result.recap).toBeNull();
+  expect(result.raw).toBe('still tiny');
+  expect(result.attempt?.reason).toBe('collapsed');
+  expect(result.attempt?.attempts).toHaveLength(2);
+  expect(tasks).toHaveLength(2);
+});
+
+test.each([
+  [completed(''), 'no-output', 0],
+  [completed('   '), 'no-output', 0],
+  [completed('  null  '), 'null-response', 4],
+  [{ finalText: 'private partial', stopReason: 'aborted' }, 'cancelled', 0],
+  [{ finalText: 'private partial', stopReason: 'error', errorMessage: 'private provider error' }, 'child-failed', 0],
+  [new Error('private thrown error'), 'child-failed', 0],
+] as const)('no retry on non-sizing failure %#', async (first, reason, outputChars) => {
+  const { summarizer, tasks } = scriptedSummarizer([first]);
+  const result = await summarizer.summarizeDetailed(ctx, 'span');
+  expect(result.recap).toBeNull();
+  expect(result.raw).toBeNull();
+  expect(result.attempt?.reason).toBe(reason);
+  expect(result.attempt?.attempts).toEqual([{ reason, outputChars }]);
+  expect(tasks).toHaveLength(1);
+  expect(JSON.stringify(result.attempt)).not.toContain('private');
+});
+
+test.each([
+  completed(''),
+  completed('null'),
+  new Error('private error'),
+  { finalText: 'private partial', stopReason: 'aborted' },
+])('rewrite failure %# retains the first nonempty raw output for forced salvage', async (second) => {
+  const draft = 'R'.repeat(45);
+  const { summarizer, tasks } = scriptedSummarizer([completed(draft), second]);
+  const result = await summarizer.summarizeDetailed(ctx, 'span');
+  expect(result.recap).toBeNull();
+  expect(result.raw).toBe(draft);
+  expect(result.attempt?.attempts).toHaveLength(2);
+  expect(readSummaryAttempt(result.attempt)).toEqual(result.attempt);
+  expect(tasks).toHaveLength(2);
+});
+
+test('disabled, empty, conflicting and unavailable-model cases never spawn', async () => {
+  const disabled = scriptedSummarizer([], { settings: null });
+  const empty = scriptedSummarizer([]);
+  const conflict = scriptedSummarizer([]);
+  const unavailable = scriptedSummarizer([]);
+  const results = [
+    await disabled.summarizer.summarizeDetailed(ctx, 'span'),
+    await empty.summarizer.summarizeDetailed(ctx, '   '),
+    await conflict.summarizer.summarizeDetailed(ctx, 'span', 'P'.repeat(61)),
+    await unavailable.summarizer.summarizeDetailed(
+      {
+        ...ctx,
+        modelRegistry: { find: () => undefined, authStorage: {} },
+      },
+      'span',
+    ),
+  ];
+  expect(results.map((result) => result.attempt?.reason)).toEqual([
+    'disabled',
+    'empty-span',
+    'constraints-conflict',
+    'model-unavailable',
+  ]);
+  for (const result of results) {
+    expect(result.recap).toBeNull();
+    expect(result.raw).toBeNull();
+    expect(result.attempt?.attempts).toEqual([]);
+    expect(readSummaryAttempt(result.attempt)).toEqual(result.attempt);
+  }
+  expect(results[2].attempt?.minChars).toBe(31);
+  expect(results[2].attempt?.maxChars).toBe(30);
+  for (const script of [disabled, empty, conflict, unavailable]) expect(script.tasks).toHaveLength(0);
+});
+
+test('pre-aborted signal never spawns and an abort during the first run never issues a retry', async () => {
+  const controller = new AbortController();
+  controller.abort();
+  const before = scriptedSummarizer([]);
+  const pre = await before.summarizer.summarizeDetailed({ ...ctx, signal: controller.signal }, 'span');
+  expect(pre.attempt?.reason).toBe('cancelled');
+  expect(pre.attempt?.attempts).toEqual([]);
+  expect(before.tasks).toHaveLength(0);
+
+  const during = new AbortController();
+  let runs = 0;
+  const { summarizer } = scriptedSummarizer([], {
+    runOneShot: () => {
+      runs++;
+      during.abort();
+      return Promise.resolve(completed('R'.repeat(100)));
+    },
+  });
+  const result = await summarizer.summarizeDetailed({ ...ctx, signal: during.signal }, 'span');
+  expect(result.recap).toBeNull();
+  expect(result.attempt?.reason).toBe('cancelled');
+  expect(result.attempt?.attempts).toEqual([{ reason: 'cancelled', outputChars: 0 }]);
+  expect(runs).toBe(1);
+});
+
+test('hard-cap and prior-floor equality are accepted without a retry', async () => {
+  const { summarizer, tasks } = scriptedSummarizer([completed('R'.repeat(30))]);
+  const result = await summarizer.summarizeDetailed(ctx, 'span', 'P'.repeat(60));
+  expect(result.recap).toBe('R'.repeat(30));
+  expect(result.attempt?.minChars).toBe(30);
+  expect(result.attempt?.targetChars).toBe(30);
+  expect(tasks).toHaveLength(1);
+});
+
+test('a collapsed rewrite does not replace an over-cap draft that the forced path can salvage', async () => {
+  const { summarizer, tasks } = scriptedSummarizer([completed('R'.repeat(45)), completed('T'.repeat(20))]);
+  const result = await summarizer.summarizeDetailed(ctx, 'span', 'P'.repeat(51));
+  expect(result.recap).toBeNull();
+  expect(result.raw).toBe('R'.repeat(45));
+  expect(result.attempt?.reason).toBe('collapsed');
+  expect(result.attempt?.outputChars).toBe(20);
+  expect(clampSummary(result.raw!, 30)).toBe('R'.repeat(30));
+  expect(tasks).toHaveLength(2);
 });

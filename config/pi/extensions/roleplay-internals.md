@@ -584,7 +584,10 @@ Context window and scene memory:
 - [`pinned-window.ts`](../../../lib/node/pi/roleplay/pinned-window.ts) - `pinnedKeys`, `isPinned`, `restorePinnedHead`,
   and `projectSceneMemory` (historical head before recap/timeline/continuation).
 - [`request-report.ts`](../../../lib/node/pi/roleplay/request-report.ts) - `captureRoleplayRequest`,
-  `readRoleplayRequestMetadata`, `formatRoleplayRequest`, and `associateRoleplayRequestUsage`.
+  `readRoleplayRequestMetadata`, `readRoleplayRecapAttempt`, `formatRoleplayRequest`, and
+  `associateRoleplayRequestUsage`.
+- [`budget-status.ts`](../../../lib/node/pi/roleplay/budget-status.ts) - content-free full-prompt target outcome and
+  reason codes; physical fit is distinct from meeting the advisory token target.
 - [`extraction-jobs.ts`](../../../lib/node/pi/roleplay/extraction-jobs.ts) - `createExtractionJob`,
   `updateExtractionStage`, `scanExtractionJobs`, `pendingExtractionJobs`, `resolveExtractionSpan`,
   `extractionJobMetadata`, and `formatExtractionJobs`.
@@ -598,7 +601,10 @@ Context window and scene memory:
 - [`fact-branch.ts`](../../../lib/node/pi/roleplay/fact-branch.ts) - `planFactReconcile`: which captured notes the
   active branch keeps or removes after resume / fork / `/tree`.
 - [`summarize.ts`](../../../lib/node/pi/roleplay/summarize.ts) - span rendering, `planSummarization`, settings,
-  `validateSummary` / `clampSummary`, and the `createSummarizer` adapter.
+  `validateSummary` / `clampSummary`, and the `createSummarizer` adapter with explicit soft/hard character bounds and at
+  most one compact rewrite for sizing failures.
+- [`summary-attempt.ts`](../../../lib/node/pi/roleplay/summary-attempt.ts) - `resolveSummaryLimits`, fixed rejection
+  reasons, and strict `readSummaryAttempt` metadata validation without recap text.
 - [`capture.ts`](../../../lib/node/pi/roleplay/capture.ts) - fact-extraction task + tolerant `parseFactCandidates`.
 - [`timeline.ts`](../../../lib/node/pi/roleplay/timeline.ts) - beat-extraction task, `parseTimelineBeats`,
   `dedupeNewBeats`, `appendBeatBody`, `capBeatLog`, `splitBeatLogHalves`, `renderTimelineBlock`. Array recovery uses

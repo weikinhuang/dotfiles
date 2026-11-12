@@ -53,7 +53,9 @@ export interface RoleplayConfig {
   relationshipBaseline: number;
   /** Minimum evicted messages before auto-summarization fires (Phase 7B). */
   summarizeMinMessages: number;
-  /** Soft cap on a generated auto-summary record body, in characters (Phase 7B). */
+  /** Advisory recap target in characters; 0 derives a target within summarizeMaxChars. */
+  summarizeTargetChars: number;
+  /** Hard ceiling on a generated auto-summary record body, in characters. */
   summarizeMaxChars: number;
   /** Enable the multi-turn repetition / anti-slop nudge (additive `context` injection). */
   repetitionEnabled: boolean;
@@ -126,6 +128,7 @@ export const DEFAULT_CONFIG: RoleplayConfig = {
   relationshipDecayPerDay: 1,
   relationshipBaseline: 50,
   summarizeMinMessages: 4,
+  summarizeTargetChars: 0,
   summarizeMaxChars: 1500,
   repetitionEnabled: true,
   repetitionNgram: 5,
@@ -251,6 +254,10 @@ export function coerceConfigLayer(raw: unknown): Partial<RoleplayConfig> {
   }
   if (typeof v.summarizeMinMessages === 'number' && Number.isFinite(v.summarizeMinMessages)) {
     out.summarizeMinMessages = Math.max(1, Math.floor(v.summarizeMinMessages));
+  }
+  if (typeof v.summarizeTargetChars === 'number' && Number.isFinite(v.summarizeTargetChars)) {
+    out.summarizeTargetChars =
+      v.summarizeTargetChars <= 0 ? 0 : Math.max(MIN_SUMMARY_CHARS, Math.floor(v.summarizeTargetChars));
   }
   if (typeof v.summarizeMaxChars === 'number' && Number.isFinite(v.summarizeMaxChars)) {
     out.summarizeMaxChars = Math.max(MIN_SUMMARY_CHARS, Math.floor(v.summarizeMaxChars));

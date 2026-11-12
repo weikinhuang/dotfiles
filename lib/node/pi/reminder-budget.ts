@@ -122,6 +122,8 @@ export interface ReminderLimitResult {
   floorAnchor?: string;
   fits: boolean;
   projectedChars: number;
+  /** Physical fit does not imply the advisory full-input target was met. */
+  softTarget?: { targetTokens: number; estimatedInputTokens: number; outcome: 'met' | 'unmet' };
 }
 
 /** Bound the final projection, not just its raw transcript. Trial windows have no capture side effects. */
@@ -157,6 +159,17 @@ export function limitReminderContext(params: {
   const fitTarget = Math.max(1, windowTokens - reserve);
   const softTarget = params.promptTokenTarget && params.promptTokenTarget > 0 ? params.promptTokenTarget : Infinity;
   const softFitTarget = Number.isFinite(softTarget) ? Math.max(1, Math.floor(softTarget * 0.9)) : Infinity;
+  const finish = (result: ReminderLimitResult): ReminderLimitResult =>
+    Number.isFinite(softTarget)
+      ? {
+          ...result,
+          softTarget: {
+            targetTokens: softTarget,
+            estimatedInputTokens: Math.ceil(result.projectedChars / cpt),
+            outcome: result.projectedChars / cpt <= softTarget ? 'met' : 'unmet',
+          },
+        }
+      : result;
   const protectedKeys = params.protectedKeys ?? new Set<string>();
   const protectedMessage = (message: ReminderMessage): boolean =>
     reminderMessageKeys(message).some((key) => protectedKeys.has(key));
@@ -171,7 +184,7 @@ export function limitReminderContext(params: {
   let measured = tokensOf(preview(selected));
   let projectedChars = measured.chars;
   if (measured.tokens <= hardLimit && measured.chars / cpt <= softTarget)
-    return { messages: selected, fits: true, projectedChars, ...(held >= 0 ? { floorAnchor } : {}) };
+    return finish({ messages: selected, fits: true, projectedChars, ...(held >= 0 ? { floorAnchor } : {}) });
   // Cut only at whole real user turns, or at the actual custom trigger. Never
   // count replayed instruction messages as new turns or discard startup guides.
   const boundaries = messages
@@ -210,11 +223,11 @@ export function limitReminderContext(params: {
   }
   // A large mandatory head may make the preferred reserve impossible. Do not
   // erase every earlier scene turn when a larger suffix already fits safely.
-  if (hardFit) return hardFit;
-  return {
+  if (hardFit) return finish(hardFit);
+  return finish({
     messages: selected,
     fits: measured.tokens <= hardLimit,
     projectedChars,
     ...(selectedAnchor ? { floorAnchor: selectedAnchor } : floorAnchor && held >= 0 ? { floorAnchor } : {}),
-  };
+  });
 }

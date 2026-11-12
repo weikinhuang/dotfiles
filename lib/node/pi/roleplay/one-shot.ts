@@ -129,6 +129,8 @@ export interface OneShotContext<M> {
   signal?: AbortSignal;
 }
 
+export type OneShotFailureReason = 'model-unavailable' | 'child-failed' | 'cancelled';
+
 export interface OneShotAdapterWiring<M> {
   agent: AgentDef;
   /** One-shot spawner. Usually `runOneShotAgent` wrapped. */
@@ -139,6 +141,8 @@ export interface OneShotAdapterWiring<M> {
   label: string;
   /** Optional diagnostic sink - non-fatal errors are reported here. */
   log?: (level: 'info' | 'warn', message: string) => void;
+  /** Content-free failure signal; callback errors never affect the run. */
+  onFailure?: (reason: OneShotFailureReason) => void;
 }
 
 export interface OneShotSubagentAdapter<M> {
@@ -165,9 +169,18 @@ function report(
 }
 
 export function createOneShotSubagentAdapter<M>(wiring: OneShotAdapterWiring<M>): OneShotSubagentAdapter<M> {
+  const fail = (reason: OneShotFailureReason): null => {
+    try {
+      wiring.onFailure?.(reason);
+    } catch {
+      /* swallow - diagnostics never break the adapter */
+    }
+    return null;
+  };
   return {
     async run(ctx, task, override) {
       if (task.trim().length === 0) return null;
+      if (ctx.signal?.aborted) return fail('cancelled');
 
       const resolution = resolveChildModel({
         override,
@@ -177,12 +190,13 @@ export function createOneShotSubagentAdapter<M>(wiring: OneShotAdapterWiring<M>)
       });
       if (!resolution.ok) {
         report(wiring.log, 'info', `${wiring.label} model resolution failed: ${resolution.error}`);
-        return null;
+        return fail('model-unavailable');
       }
 
       // A thinking-level suffix on the model override (e.g. `:off`)
       // overrides the agent def's own thinkingLevel for this run.
       const runAgent = agentWithResolvedThinking(wiring.agent, resolution.thinkingLevel);
+      if (ctx.signal?.aborted) return fail('cancelled');
 
       let result: OneShotRunResult;
       try {
@@ -197,16 +211,17 @@ export function createOneShotSubagentAdapter<M>(wiring: OneShotAdapterWiring<M>)
         });
       } catch (e) {
         report(wiring.log, 'info', `${wiring.label} spawn error: ${e instanceof Error ? e.message : String(e)}`);
-        return null;
+        return fail(ctx.signal?.aborted ? 'cancelled' : 'child-failed');
       }
 
+      if (ctx.signal?.aborted || result.stopReason === 'aborted') return fail('cancelled');
       if (result.stopReason !== 'completed') {
         report(
           wiring.log,
           'info',
           `${wiring.label} stop=${result.stopReason}: ${result.errorMessage ?? '(no message)'}`,
         );
-        return null;
+        return fail('child-failed');
       }
 
       return result.finalText;

@@ -10,6 +10,7 @@ import {
   captureRoleplayRequest,
   formatRoleplayRequest,
   readRoleplayRequestMetadata,
+  readRoleplayRecapAttempt,
   roleplayGenerationOptions,
   type CaptureRoleplayRequestInput,
   type RoleplayRequestCategory,
@@ -58,6 +59,45 @@ test('configuration provenance and provider options cross fixed allowlists only'
     }),
   ).toEqual({ temperature: 0.8, max_tokens: 1200 });
   expect(() => formatRoleplayRequest(report.metadata, {} as never, { section: 'system', content: true })).not.toThrow();
+});
+
+test('request reports retain bounded recap and budget outcomes but never audit prose or error strings', () => {
+  const attempt = readRoleplayRecapAttempt({
+    ts: 100,
+    mode: 'budget',
+    cast: 'PRIVATE_CAST',
+    coveredFrom: 0,
+    coveredTo: 4,
+    applied: false,
+    forced: false,
+    candidate: 'PRIVATE_DRAFT',
+    recap: 'PRIVATE_RECAP',
+    rawCandidateChars: 6500,
+    error: 'PRIVATE_ERROR',
+    attempt: {
+      targetChars: 4000,
+      maxChars: 6000,
+      minChars: 1300,
+      priorChars: 2600,
+      outputChars: 6100,
+      reason: 'over-limit',
+      attempts: [
+        { reason: 'over-limit', outputChars: 6500 },
+        { reason: 'over-limit', outputChars: 6100 },
+      ],
+    },
+  });
+  expect(attempt).not.toBeNull();
+  const report = capture({
+    lastRecapAttempt: attempt ?? undefined,
+    budget: { targetTokens: 70000, estimatedInputTokens: 74183, outcome: 'unmet', reason: 'recap-rejected' },
+  });
+  expect(readRoleplayRequestMetadata(report.metadata)?.lastRecapAttempt).toEqual(attempt);
+  expect(readRoleplayRequestMetadata(report.metadata)?.budget).toEqual(report.metadata.budget);
+  expect(formatRoleplayRequest(report.metadata)).toContain('over-limit');
+  expect(formatRoleplayRequest(report.metadata)).toContain('reason=recap-rejected');
+  expect(formatRoleplayRequest(report.metadata, report.content, { json: true })).not.toContain('PRIVATE');
+  expect(readRoleplayRecapAttempt({ ...attempt, reason: 'PRIVATE_REASON' })).toBeNull();
 });
 
 function secretFixture(): { messages: ReminderMessage[]; user: ReminderMessage } {

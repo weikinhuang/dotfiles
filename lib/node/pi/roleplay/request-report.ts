@@ -7,6 +7,8 @@ import { truncate } from '../shared.ts';
 import { isRecord } from '../shared/guards.ts';
 import { promptInputTokens, RECAP_PREFIX, TIMELINE_PREFIX } from './context-window.ts';
 import { escapeRoleplayReportText } from './report-text.ts';
+import { readRoleplayBudgetStatus, type RoleplayBudgetStatus } from './budget-status.ts';
+import { readSummaryAttempt, type SummaryAttemptMetadata } from './summary-attempt.ts';
 
 const CATEGORIES = [
   'system',
@@ -25,6 +27,18 @@ const SECTIONS = [...CATEGORIES, 'head', 'tail'] as const;
 export type RoleplayRequestSectionName = (typeof SECTIONS)[number];
 const OUTCOMES = ['projected', 'attempted', 'completed', 'failed', 'aborted'] as const;
 const REQUEST_KINDS = ['narrative', 'continuation'] as const;
+const RECAP_MODES = ['sync', 'async', 'compact', 'budget'] as const;
+
+/** Last branch-owned attempt as it existed when the request was captured. */
+export interface RoleplayRecapAttempt extends SummaryAttemptMetadata {
+  at: number;
+  mode: (typeof RECAP_MODES)[number];
+  coveredFrom: number;
+  coveredTo: number;
+  applied: boolean;
+  forced: boolean;
+  rawChars: number;
+}
 
 /** Caller-associated request facts, independent of context-window state. */
 export interface RoleplayRequestFacts {
@@ -32,6 +46,8 @@ export interface RoleplayRequestFacts {
   requestKind?: (typeof REQUEST_KINDS)[number];
   createdAt?: number;
   estimatedInputTokens?: number;
+  budget?: RoleplayBudgetStatus;
+  lastRecapAttempt?: RoleplayRecapAttempt;
 }
 const ROLES = ['system', 'user', 'assistant', 'custom', 'tool', 'toolResult', 'other'] as const;
 export type RoleplayRequestRole = (typeof ROLES)[number];
@@ -42,6 +58,8 @@ const CONFIG_KEYS = [
   'loreCharBudget',
   'recapStride',
   'recapMaxAdvance',
+  'summarizeTargetChars',
+  'summarizeMaxChars',
   'summarizeEnabled',
   'contextWindowEnabled',
   'depthLoreInlineTail',
@@ -160,6 +178,46 @@ function ordinal(value: unknown): number | null {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
 }
 
+/** Accept an enriched recap audit or its already-safe exported snapshot. */
+export function readRoleplayRecapAttempt(value: unknown): RoleplayRecapAttempt | null {
+  if (!isRecord(value)) return null;
+  const attempt = readSummaryAttempt(
+    value.attempt ?? {
+      targetChars: value.targetChars,
+      maxChars: value.maxChars,
+      minChars: value.minChars,
+      priorChars: value.priorChars,
+      outputChars: value.outputChars,
+      reason: value.reason,
+      attempts: value.attempts,
+    },
+  );
+  const at = ordinal(value.ts ?? value.at);
+  const from = ordinal(value.coveredFrom);
+  const to = ordinal(value.coveredTo);
+  if (
+    !attempt ||
+    at === null ||
+    from === null ||
+    to === null ||
+    to < from ||
+    !RECAP_MODES.includes(value.mode as (typeof RECAP_MODES)[number]) ||
+    typeof value.applied !== 'boolean' ||
+    typeof value.forced !== 'boolean'
+  )
+    return null;
+  return {
+    ...attempt,
+    at,
+    mode: value.mode as (typeof RECAP_MODES)[number],
+    coveredFrom: from,
+    coveredTo: to,
+    applied: value.applied,
+    forced: value.forced,
+    rawChars: ordinal(value.rawCandidateChars ?? value.rawChars) ?? attempt.outputChars,
+  };
+}
+
 function safeConfig(value: unknown): RoleplayRequestConfig {
   const result: RoleplayRequestConfig = {};
   if (!isRecord(value)) return result;
@@ -209,6 +267,8 @@ function textMetadata(input?: CaptureRoleplayRequestInput['recap']): RoleplayReq
 
 function safeFacts(value: unknown): RoleplayRequestFacts {
   if (!isRecord(value)) return {};
+  const budget = readRoleplayBudgetStatus(value.budget);
+  const recapAttempt = readRoleplayRecapAttempt(value.lastRecapAttempt);
   return {
     ...(OUTCOMES.includes(value.outcome as NonNullable<RoleplayRequestFacts['outcome']>)
       ? { outcome: value.outcome as RoleplayRequestFacts['outcome'] }
@@ -222,6 +282,8 @@ function safeFacts(value: unknown): RoleplayRequestFacts {
     ...(ordinal(value.estimatedInputTokens) !== null
       ? { estimatedInputTokens: value.estimatedInputTokens as number }
       : {}),
+    ...(budget ? { budget } : {}),
+    ...(recapAttempt ? { lastRecapAttempt: recapAttempt } : {}),
   };
 }
 
@@ -679,7 +741,7 @@ export function formatRoleplayRequest(
     `Conversation tail: ${safe.tail ? `#${safe.tail.ordinal} scene turn ${safe.tail.sceneTurn ?? 'unavailable'}` : 'unavailable'}`,
     `Recap: ${safe.recap.available ? `${safe.recap.chars} chars` : 'unavailable'}; timeline: ${safe.timeline.available ? `${safe.timeline.chars} chars` : 'unavailable'}`,
     ...(safe.provider || safe.model
-      ? [`Model: ${safe.provider ?? 'unavailable'} / ${safe.model ?? 'unavailable'}`]
+      ? [`Model: ${safe.provider ?? 'unavailable'} / ${safe.model ?? '(unavailable or omitted for privacy)'}`]
       : []),
     ...(safe.outcome || safe.requestKind
       ? [`Request: ${safe.requestKind ?? 'unavailable'}; outcome=${safe.outcome ?? 'unavailable'}`]
@@ -690,6 +752,19 @@ export function formatRoleplayRequest(
       : []),
     ...(safe.reportedInputTokens !== undefined
       ? [`Reported input tokens: ${safe.reportedInputTokens} (associated with this request)`]
+      : []),
+    ...(safe.budget
+      ? [
+          `Prompt target (estimated): ${safe.budget.outcome}; target=${safe.budget.targetTokens}, estimated=${safe.budget.estimatedInputTokens}, reason=${safe.budget.reason}`,
+        ]
+      : []),
+    ...(safe.lastRecapAttempt
+      ? [
+          `Last recap attempt: ${safe.lastRecapAttempt.reason}; target=${safe.lastRecapAttempt.targetChars}, hard=${safe.lastRecapAttempt.maxChars}, minimum=${safe.lastRecapAttempt.minChars} chars; raw=${safe.lastRecapAttempt.rawChars}, output=${safe.lastRecapAttempt.outputChars}; attempts=${safe.lastRecapAttempt.attempts.length}; applied=${safe.lastRecapAttempt.applied}, forced=${safe.lastRecapAttempt.forced}; at=${safe.lastRecapAttempt.at}`,
+          ...safe.lastRecapAttempt.attempts.map(
+            (attempt, index) => `  attempt ${index + 1}: ${attempt.reason}, output=${attempt.outputChars} chars`,
+          ),
+        ]
       : []),
     ...(safe.reportedCacheReadTokens !== undefined
       ? [`Reported cache: read=${safe.reportedCacheReadTokens}, write=${safe.reportedCacheWriteTokens ?? 'unknown'}`]

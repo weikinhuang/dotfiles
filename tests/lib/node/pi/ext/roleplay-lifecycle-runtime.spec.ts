@@ -37,7 +37,9 @@ const summary = vi.hoisted(() => ({
         ctx: { signal?: AbortSignal },
         span: string,
         prior?: string,
-      ) => Promise<{ recap: string | null; raw: string | null }>
+        guidance?: string,
+        outputLimits?: { maxChars?: number; targetChars?: number },
+      ) => Promise<summarizeModule.SummarizeResult>
     >(),
 }));
 const events = vi.hoisted(() => ({ enabled: false, generate: vi.fn<() => Promise<string | null>>() }));
@@ -355,6 +357,90 @@ test('roleplay: a rejected soft-target recap keeps physically fitting history in
   expect(h.abort).not.toHaveBeenCalled();
 });
 
+test('roleplay: an unchanged above-target fallback is visible without dropping the protected input', async () => {
+  const h = await harness({ promptTokenTarget: 1024, pinSceneOpener: true });
+  const marker = 'PRIVATE_PROTECTED_INPUT';
+  await h.start(marker);
+  expect(await h.request([user(marker + 'x'.repeat(8000), 1)])).toContain(marker);
+  expect(summary.detailed).not.toHaveBeenCalled();
+  expect(h.abort).not.toHaveBeenCalled();
+  expect(h.notify.mock.calls.some(([text]) => text.includes('no-feasible-tail'))).toBe(true);
+  await h.command('request --json');
+  const report = JSON.parse(String(h.notify.mock.calls.at(-1)?.[0])) as Record<string, unknown>;
+  expect(report.budget).toMatchObject({ outcome: 'unmet', targetTokens: 1024, reason: 'no-feasible-tail' });
+  expect(JSON.stringify(report)).not.toContain(marker);
+});
+
+test('roleplay: rejected sizing reports safe attempt details and says the soft fallback proceeds', async () => {
+  const h = await harness({
+    keepTurns: 50,
+    promptTokenTarget: 1500,
+    summarizeTargetChars: 4000,
+    summarizeMaxChars: 6000,
+  });
+  summary.detailed.mockResolvedValue({
+    recap: null,
+    raw: 'PRIVATE_DRAFT'.padEnd(6500, 'D'),
+    attempt: {
+      targetChars: 4000,
+      maxChars: 6000,
+      minChars: 0,
+      priorChars: 0,
+      outputChars: 6500,
+      reason: 'over-limit',
+      attempts: [
+        { reason: 'over-limit', outputChars: 7000 },
+        { reason: 'over-limit', outputChars: 6500 },
+      ],
+    },
+  });
+  await h.start('LATEST_ACTION');
+  const out = await h.request([user('PRIVATE_HISTORY ' + 'detail '.repeat(1800), 1), user('LATEST_ACTION', 2)]);
+  expect(out).toContain('PRIVATE_HISTORY');
+  expect(h.abort).not.toHaveBeenCalled();
+  const warning = h.notify.mock.calls.find(([text]) => text.includes('soft prompt target'))?.[0];
+  expect(warning).toContain('over-limit');
+  expect(warning).not.toContain('request paused');
+  await h.command('debug --json');
+  const raw = String(h.notify.mock.calls.at(-1)?.[0]);
+  const report = JSON.parse(raw) as { request: Record<string, unknown> };
+  expect(report.request.budget).toMatchObject({ outcome: 'unmet', reason: 'recap-rejected' });
+  expect(report.request.lastRecapAttempt).toMatchObject({ reason: 'over-limit', maxChars: 6000, outputChars: 6500 });
+  expect(raw).not.toContain('PRIVATE');
+});
+
+test('roleplay: per-call recap limits are explicit and a valid recap may use the advisory headroom', async () => {
+  const h = await harness({
+    keepTurns: 50,
+    promptTokenTarget: 1500,
+    summarizeTargetChars: 4000,
+    summarizeMaxChars: 6000,
+  });
+  const recap = 'R'.repeat(4500);
+  summary.detailed.mockResolvedValue({
+    recap,
+    raw: recap,
+    attempt: {
+      targetChars: 4000,
+      maxChars: 6000,
+      minChars: 0,
+      priorChars: 0,
+      outputChars: 4500,
+      reason: 'accepted',
+      attempts: [{ reason: 'accepted', outputChars: 4500 }],
+    },
+  });
+  await h.start('LATEST_ACTION');
+  expect(await h.request([user('OLD ' + 'detail '.repeat(1800), 1), user('LATEST_ACTION', 2)])).toContain(
+    'LATEST_ACTION',
+  );
+  expect(summary.detailed.mock.calls[0][4]).toEqual({ targetChars: 4000, maxChars: 6000 });
+  await h.command('request --json');
+  const report = JSON.parse(String(h.notify.mock.calls.at(-1)?.[0])) as Record<string, unknown>;
+  expect(report.lastRecapAttempt).toMatchObject({ reason: 'accepted', outputChars: 4500 });
+  expect(report.budget).toMatchObject({ outcome: 'met', reason: 'none' });
+});
+
 test('roleplay: request/debug defaults are content-free and content persistence is explicit', async () => {
   const h = await harness();
   const marker = 'PRIVATE_ROLEPLAY_MARKER';
@@ -393,11 +479,15 @@ test('roleplay: scene reset cannot resurrect pending diagnostics, but the origin
   };
   await lateHooks();
   expect(h.stored).toHaveLength(afterBoundary);
-  for (const command of ['request --snippets', 'debug --json']) {
-    await h.command(command);
-    expect(h.notify.mock.calls.at(-1)?.[0]).toContain('No captured request');
-    expect(h.notify.mock.calls.at(-1)?.[0]).not.toContain('OLD_TRANSIENT_SCENE_TEXT');
-  }
+  await h.command('request --snippets');
+  expect(h.notify.mock.calls.at(-1)?.[0]).toContain('No captured request');
+  expect(h.notify.mock.calls.at(-1)?.[0]).not.toContain('OLD_TRANSIENT_SCENE_TEXT');
+  await h.command('debug --json');
+  expect(JSON.parse(String(h.notify.mock.calls.at(-1)?.[0]))).toMatchObject({
+    request: null,
+    requestAvailability: 'not-captured',
+  });
+  expect(h.notify.mock.calls.at(-1)?.[0]).not.toContain('OLD_TRANSIENT_SCENE_TEXT');
   await h.start('NEW_SCENE_TEXT');
   await h.request([user('NEW_SCENE_TEXT', 2)]);
   await lateHooks();
@@ -412,6 +502,43 @@ test('roleplay: scene reset cannot resurrect pending diagnostics, but the origin
   expect(JSON.parse(String(h.notify.mock.calls.at(-1)?.[0]))).toMatchObject({ turnOrdinal: 1 });
   await h.command('request --snippets');
   expect(h.notify.mock.calls.at(-1)?.[0]).not.toContain('OLD_TRANSIENT_SCENE_TEXT');
+});
+
+test('roleplay: debug can diagnose a recorded recap failure before any provider request is captured', async () => {
+  const h = await harness();
+  await h.start('UNSENT_PRIVATE_TEXT');
+  h.stored.push({
+    type: 'custom',
+    customType: 'roleplay-context-recap',
+    data: {
+      ts: 100,
+      cast: 'cast-a',
+      mode: 'budget',
+      coveredFrom: 0,
+      coveredTo: 4,
+      applied: false,
+      forced: false,
+      candidate: 'PRIVATE_DRAFT',
+      rawCandidateChars: 6500,
+      attempt: {
+        targetChars: 4000,
+        maxChars: 6000,
+        minChars: 0,
+        priorChars: 0,
+        outputChars: 6500,
+        reason: 'over-limit',
+        attempts: [{ reason: 'over-limit', outputChars: 6500 }],
+      },
+    },
+  });
+  await h.command('debug --json');
+  const raw = String(h.notify.mock.calls.at(-1)?.[0]);
+  const report = JSON.parse(raw) as Record<string, unknown>;
+  expect(report).toMatchObject({ request: null, requestAvailability: 'not-captured' });
+  expect(report.lastRecapAttempt).toMatchObject({ reason: 'over-limit', maxChars: 6000 });
+  expect(report.findings).not.toContain('no-uncovered-aged-history');
+  expect(raw).not.toContain('PRIVATE');
+  expect(summary.detailed).not.toHaveBeenCalled();
 });
 
 test('roleplay: diagnostics without windowing leave the input-token estimate unknown', async () => {

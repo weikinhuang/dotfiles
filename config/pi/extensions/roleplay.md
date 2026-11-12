@@ -393,7 +393,10 @@ to `0` (off); positive values have a 1024-token floor. When reduction is needed,
 hysteresis to avoid cutting on every turn. Physical context-window and output-reserve checks remain independent.
 Mandatory context, a protected opener/latest input, or unavailable/rejected recap work can prevent meeting the target:
 if the physical window fits, the request may safely overshoot while preserving uncovered history. Physical overflow
-still aborts when preservation cannot make it fit. No target setting authorizes uncovered-history loss.
+still aborts when preservation cannot make it fit. No target setting authorizes uncovered-history loss. Request metadata
+records `budget.outcome` (`met` or `unmet`), its estimated input size and a fixed reason code. Even an unchanged,
+physically fitting projection reports an unmet target when no retained tail can meet it. Warnings may be deduplicated;
+absence of a repeated warning is not evidence that the target was achieved.
 
 `/roleplay budget set N` and `/roleplay budget off` override the file setting on the selected scene/branch.
 `/roleplay opener pin [reply]` and `/roleplay opener unpin` override opener retention there; `opener show` reports safe
@@ -411,6 +414,16 @@ summarizer. Before processing, it performs the same branch-owned memory hydratio
 persisting inherited timeline bases and seeding carry-over facts once; with no aged span it adds no recap. The recap
 runs synchronously on the session model, or asynchronously when a distinct `summarizeModel` is configured (override with
 `recapAsync` / `PI_ROLEPLAY_RECAP_ASYNC`).
+
+**Recap size.** `summarizeTargetChars` is advisory; `summarizeMaxChars` is the hard character ceiling. A target of `0`
+(default) derives a target at two thirds of the hard cap. The target is clamped within the hard cap and raised to the
+existing half-prior continuity floor when feasible. Both numeric bounds and that minimum are sent explicitly to the
+summarizer. Valid prose above the target but within the hard ceiling is accepted without a sizing retry. An over-limit
+or collapsed response gets one compact rewrite from the same original span and prior recap, not an appended draft or
+blind truncation. Empty/null responses, child failures and cancellation do not trigger a retry. Conflicting bounds (for
+example lowering the hard cap below half the existing recap) are reported without a model call. No failed sizing attempt
+advances coverage unless the legacy normal-roll lag circuit-breaker explicitly salvages a usable candidate. Token-budget
+recaps do not bypass the guard.
 
 **Persistence.** Each roll stamps the recap and its exact coverage on the session branch, so resume, fork, and tree
 navigation continue the right recap. Each roll also refreshes the per-cast carry-over `summary/auto.md`. A genuinely new
@@ -631,6 +644,14 @@ rather than reporting zero. Scene/cast resets clear transient request text and i
 association; late hooks cannot append an old scene's report to the new scene. Historical reports remain on their
 original branch.
 
+Request metadata also snapshots the last branch-owned recap attempt: soft/hard/minimum character bounds, prior/raw/final
+lengths, at most two attempt outcomes, timestamp, coverage and applied/forced flags. Fixed reasons distinguish
+`over-limit`, `collapsed`, `null-response`, `model-unavailable`, `child-failed` and cancellation without exporting model
+prose or provider error strings. Older reports without these fields remain readable. Debug includes the current budget
+and latest recap attempt even when selected request metadata predates them or no provider request has been captured
+(`request: null`). A missing model ID can mean it was omitted by the privacy allowlist; it is not itself proof that
+model resolution failed.
+
 Text requires an explicit opt-in:
 
 ```text
@@ -745,7 +766,8 @@ project file can undo a user-level `true` / `false`.
   "relationshipDecayPerDay": 1, // affinity points drifted toward baseline per idle day (default 1, >= 0)
   "relationshipBaseline": 50, // neutral resting affinity (default 50, 0-100)
   "summarizeMinMessages": 4, // min messages in a span before a recap or extraction runs (default 4, >= 1)
-  "summarizeMaxChars": 1500, // cap on a recap body (default 1500, floor 200)
+  "summarizeTargetChars": 0, // advisory recap target; 0 = auto within hard cap (default 0, positive floor 200)
+  "summarizeMaxChars": 1500, // hard recap character ceiling, not tokens (default 1500, floor 200)
   "repetitionEnabled": true, // multi-turn repetition nudge (default true)
   "repetitionNgram": 5, // word-n-gram length compared across replies (default 5, 2-12)
   "repetitionWindow": 6, // recent assistant replies scanned (default 6, 1-50)
@@ -782,7 +804,8 @@ and provider usage. The 60000-token target is soft and must still fit the model'
   "promptTokenTarget": 60000,
   "keepTurns": 12,
   "recapChunk": 4,
-  "summarizeMaxChars": 3000,
+  "summarizeTargetChars": 4000, // aim here; valid prose may use the headroom below
+  "summarizeMaxChars": 6000, // hard ceiling; does not increase automatically as the scene grows
   "loreCharBudget": 3000,
   "recapAsync": null,
   "pinSceneOpener": false, // optional: true to retain the historical scene opener

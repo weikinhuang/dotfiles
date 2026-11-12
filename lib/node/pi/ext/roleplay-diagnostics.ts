@@ -8,6 +8,7 @@ import {
   captureRoleplayRequest,
   formatRoleplayRequest,
   readRoleplayRequestMetadata,
+  readRoleplayRecapAttempt,
   roleplayGenerationOptions,
   roleplayModelIdentity,
   type FormatRoleplayRequestOptions,
@@ -17,6 +18,7 @@ import {
 import { extractionJobMetadata, scanExtractionJobs } from '../roleplay/extraction-jobs.ts';
 import { readRoleplayPolicyOverrides, type EffectiveRoleplayPolicy } from '../roleplay/retention-policy.ts';
 import type { ContextWindowReadoutSnapshot } from '../roleplay/context-readout.ts';
+import type { RoleplayBudgetStatus } from '../roleplay/budget-status.ts';
 import { isRecord } from '../shared/guards.ts';
 
 export const ROLEPLAY_REQUEST_ENTRY = 'roleplay-request';
@@ -31,6 +33,7 @@ interface DiagnosticSource {
   coverage: () => number;
   policy: (ctx: ExtensionContext) => EffectiveRoleplayPolicy;
   window: () => ContextWindowReadoutSnapshot | null;
+  budget?: () => RoleplayBudgetStatus | null;
   recapModel: (ctx: ExtensionContext) => { provider?: string; id?: string } | undefined;
   recapAsync: (ctx: ExtensionContext) => boolean;
   config?: () => ReturnType<typeof loadRoleplayConfigWithSources>;
@@ -54,6 +57,13 @@ function reportEntries(ctx: ExtensionContext, cast: string): RoleplayRequestMeta
     const metadata = readRoleplayRequestMetadata(entry.data.metadata);
     return metadata ? [metadata] : [];
   });
+}
+
+function latestRecapAttempt(ctx: ExtensionContext, cast: string): ReturnType<typeof readRoleplayRecapAttempt> {
+  const entry = branch(ctx).findLast(
+    (item) => item.customType === 'roleplay-context-recap' && isRecord(item.data) && item.data.cast === cast,
+  );
+  return readRoleplayRecapAttempt(entry?.data);
 }
 
 /** Pi-coupled observation only. Never returns a changed payload or injects reports into context. */
@@ -130,6 +140,8 @@ export function createRoleplayDiagnostics(
       requestKind: requestOrdinal === 1 ? 'narrative' : 'continuation',
       createdAt: Date.now(),
       estimatedInputTokens: source.window()?.estSentPromptTokens,
+      budget: source.budget?.() ?? undefined,
+      ...(latestRecapAttempt(ctx, cast) ? { lastRecapAttempt: latestRecapAttempt(ctx, cast)! } : {}),
       origin: users.at(-1) ? reminderMessageAnchor(users.at(-1)!) : undefined,
       recap: { text: source.recap(), coveredFrom: 0, coveredTo: source.coverage() },
       timeline: { text: source.timeline() },
@@ -148,6 +160,8 @@ export function createRoleplayDiagnostics(
         loreCharBudget: cfg.loreCharBudget,
         recapStride: cfg.recapStride,
         recapMaxAdvance: cfg.recapMaxAdvance,
+        summarizeTargetChars: cfg.summarizeTargetChars,
+        summarizeMaxChars: cfg.summarizeMaxChars,
         depthLoreInlineTail: cfg.depthLoreInlineTail,
         recapAsync: cfg.recapAsync,
         promptTokenTarget: policy.target,
@@ -284,7 +298,7 @@ export function createRoleplayDiagnostics(
           (selectedTurn === undefined || item.turnOrdinal === selectedTurn) &&
           (selectedRequest === undefined || item.requestOrdinal === selectedRequest),
       );
-    if (!metadata) {
+    if (!metadata && verb === 'request') {
       ctx.ui.notify(
         'No captured request on this scene branch. Send a normal turn first; earlier requests cannot be reconstructed exactly.',
         'info',
@@ -292,6 +306,7 @@ export function createRoleplayDiagnostics(
       return true;
     }
     const same =
+      metadata !== undefined &&
       latest?.cast === cast &&
       latest.metadata.turnOrdinal === metadata.turnOrdinal &&
       latest.metadata.requestOrdinal === metadata.requestOrdinal;
@@ -302,6 +317,7 @@ export function createRoleplayDiagnostics(
         entry.data.cast === cast &&
         isRecord(entry.data.content) &&
         isRecord(entry.data.metadata) &&
+        metadata !== undefined &&
         entry.data.metadata.turnOrdinal === metadata.turnOrdinal &&
         entry.data.metadata.requestOrdinal === metadata.requestOrdinal,
     );
@@ -332,9 +348,13 @@ export function createRoleplayDiagnostics(
             .some((other) => other.turnOrdinal === item.turnOrdinal && other.requestOrdinal === item.requestOrdinal),
       )
       .slice(-10);
+    const window = source.window();
+    const currentBudget = source.budget?.() ?? null;
+    const selectedBudget = metadata?.budget ?? currentBudget;
     const info = {
       version: 1,
       captureStage: 'sanitized-pi-projection',
+      requestAvailability: metadata ? 'captured' : 'not-captured',
       request: readRoleplayRequestMetadata(metadata),
       config: safeConfig,
       sources,
@@ -350,10 +370,12 @@ export function createRoleplayDiagnostics(
             : 'auto-shared-provider',
       usageAssociation: ambiguousUsage
         ? 'unavailable-overlapping-captures'
-        : metadata.reportedInputTokens !== undefined
+        : metadata?.reportedInputTokens !== undefined
           ? 'associated'
           : 'not-reported',
-      window: source.window(),
+      window,
+      currentBudget,
+      lastRecapAttempt: latestRecapAttempt(ctx, cast),
       jobs: extractionJobMetadata(scanExtractionJobs(branch(ctx), cast, { restore: !awaitingUsage })),
       recentRequests: snapshots.map((item) => ({
         turn: item.turnOrdinal,
@@ -362,14 +384,19 @@ export function createRoleplayDiagnostics(
         reportedInputTokens: item.reportedInputTokens ?? null,
       })),
       findings: [
-        ...(source.policy(ctx).target > 0 &&
-        metadata.totals.requestChars / (source.window()?.charsPerToken ?? 4) > source.policy(ctx).target
+        ...((
+          selectedBudget
+            ? selectedBudget.outcome === 'unmet'
+            : metadata &&
+              source.policy(ctx).target > 0 &&
+              metadata.totals.requestChars / (window?.charsPerToken ?? 4) > source.policy(ctx).target
+        )
           ? ['soft-target-exceeded']
           : []),
-        ...(metadata.totals.reminderChars > metadata.totals.conversationChars
+        ...(metadata && metadata.totals.reminderChars > metadata.totals.conversationChars
           ? ['reminders-dominate-conversation']
           : []),
-        ...(source.window()?.natural === source.window()?.recapCutoff ? ['no-uncovered-aged-history'] : []),
+        ...(window && window.natural === window.recapCutoff ? ['no-uncovered-aged-history'] : []),
       ],
     };
     ctx.ui.notify(
