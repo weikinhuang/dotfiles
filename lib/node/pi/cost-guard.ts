@@ -17,15 +17,16 @@ function threshold(raw: string | undefined, fallback: number, maximum = Infinity
   return Number.isFinite(value) && value >= 0 && value <= maximum ? value : fallback;
 }
 
-export function costGuardConfig(env: Record<string, string | undefined>): CostGuardConfig {
-  const rawMilestones = env.PI_COST_GUARD_MILESTONES;
+/** Resolve thresholds from `${prefix}WINDOW`-style keys; other hosts pass their own prefix (or `''` for a raw bag). */
+export function costGuardConfig(env: Record<string, string | undefined>, prefix = 'PI_COST_GUARD_'): CostGuardConfig {
+  const rawMilestones = env[`${prefix}MILESTONES`];
   const milestones = rawMilestones?.split(',').map((value) => Number(value.trim()));
   return {
-    window: Math.min(100, Math.max(2, parsePositiveInt(env.PI_COST_GUARD_WINDOW, 4))),
-    readTolerance: threshold(env.PI_COST_GUARD_READ_TOLERANCE, 0.02, 1),
-    writeContextRatio: threshold(env.PI_COST_GUARD_WRITE_CONTEXT_RATIO, 0.5, 1),
-    writeCostRatio: threshold(env.PI_COST_GUARD_WRITE_COST_RATIO, 0.7, 1),
-    callDollars: threshold(env.PI_COST_GUARD_CALL_DOLLARS, 0.25),
+    window: Math.min(100, Math.max(2, parsePositiveInt(env[`${prefix}WINDOW`], 4))),
+    readTolerance: threshold(env[`${prefix}READ_TOLERANCE`], 0.02, 1),
+    writeContextRatio: threshold(env[`${prefix}WRITE_CONTEXT_RATIO`], 0.5, 1),
+    writeCostRatio: threshold(env[`${prefix}WRITE_COST_RATIO`], 0.7, 1),
+    callDollars: threshold(env[`${prefix}CALL_DOLLARS`], 0.25),
     milestones:
       rawMilestones === 'none'
         ? []

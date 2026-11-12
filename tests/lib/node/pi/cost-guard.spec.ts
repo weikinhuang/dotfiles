@@ -102,6 +102,13 @@ test('thresholds validate and individual conditions can be disabled', () => {
   expect(observeCostSample(createCostGuardState(), bad(0), custom, 'model')).toEqual([]);
 });
 
+test('config keys honor a custom prefix for other hosts', () => {
+  expect(costGuardConfig({ WINDOW: '6', CALL_DOLLARS: '1', PI_COST_GUARD_WINDOW: '9' }, '')).toMatchObject({
+    window: 6,
+    callDollars: 1,
+  });
+});
+
 test('usage parsing ignores nonfinite/negative fields and excludes output from prompt size', () => {
   expect(
     costSample({ input: 2, output: 90000, cacheRead: 3, cacheWrite: 5, cost: { total: 0.2, cacheWrite: 0.1 } }),
