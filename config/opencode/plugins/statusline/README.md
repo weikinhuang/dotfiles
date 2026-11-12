@@ -86,7 +86,7 @@ The default segment list is every id except `tokens`. Booleans accept `true` / `
 - Counts and ratios cover the current session only; subagent sessions are not summed (native cost is).
 - The native-footer mirror follows opencode 2.2.7's `promptFooterLayout`; a later layout change can make the budget
   drift, which degrades to truncation.
-- opencode watches only the plugin entry file; restart opencode after editing the `lib/node/` helpers.
+- Restart opencode after editing the `lib/node/` helpers; helper hot reload is not reliable.
 
 ## Live test
 

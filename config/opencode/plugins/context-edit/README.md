@@ -98,7 +98,7 @@ and rewrites `<debugFile>.last.txt` with one line per outgoing part, which shows
 - Large text pasted into a user message is not a candidate; only tool output and images are.
 - Two identical image attachments with the same mention in one message are deduplicated by opencode, which can shift the
   media ordinal of later images in that message.
-- opencode watches only the plugin entry files; restart opencode after editing the `lib/node/` helpers.
+- Restart opencode after editing the `lib/node/` helpers; helper hot reload is not reliable.
 
 ## Live test
 

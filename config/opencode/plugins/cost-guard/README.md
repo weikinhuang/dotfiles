@@ -84,7 +84,7 @@ out-of-range values fall back to the default (the pi validation rules). Booleans
 - Title and `generate` usage after the replay are not observed (opencode records them through an internal event that
   never reaches plugins).
 - The TUI only shows events while connected; RPC events are live-only, but the `status` call on render catches up.
-- opencode watches only the plugin entry files; restart opencode after editing the `lib/node/` helpers.
+- Restart opencode after editing the `lib/node/` helpers; helper hot reload is not reliable.
 
 ## Live test
 

@@ -67,7 +67,7 @@ Booleans accept `true` / `false` or the dotenv `1` / `0`, `yes` / `no`, `on` / `
   notifications instead.
 - Each execution is timed separately. When a background subagent's report wakes the root session, that wake-up is a new
   execution, so a long task split across wake-ups may not reach `minSeconds` in any single one.
-- opencode watches only the plugin entry file; restart opencode after editing the `lib/node/` helpers.
+- Restart opencode after editing the `lib/node/` helpers; helper hot reload is not reliable.
 
 ## Live test
 

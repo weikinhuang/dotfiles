@@ -56,8 +56,9 @@ tweaks through `<config dir>/env` (see [Profiles](../README.md#profiles)). Optio
 server part: a TUI part's `context.options` was empty in testing, so hand TUI settings over through RPC from the server
 part.
 
-opencode watches only each plugin's entry file. After editing a helper under `lib/node/`, restart opencode
-(`opencode service restart` for the background service).
+opencode hot-reloads a plugin when its entry changes and logs watchers on its imports too, but reloads of `lib/node/`
+helpers have not been reliable. After editing a helper, restart opencode (`opencode service restart` for the background
+service).
 
 ## Runtime resolution
 
@@ -90,8 +91,7 @@ opencode runs plugins in its embedded Bun runtime, which transpiles TypeScript a
 - `opencode serve` and `--server` need `OPENCODE_PASSWORD`, and the client's cwd picks the location to boot.
 - One user turn can span several root executions (subagent reports wake the session); each has its own `started` /
   terminal pair, and a terminal event may repeat, so dedupe per execution.
-- Harness: `send` echoes the prompt into the pane, so anchor `wait` patterns (for example `'^ +DONE1'`). `start` returns
-  before the TUI is ready; `wait` for the prompt placeholder before the first `send`.
+- Harness: `send` echoes the prompt into the pane, so anchor `wait` patterns (for example `'^ +DONE1'`).
 
 ## Live testing
 
@@ -110,8 +110,13 @@ service, but sessions still land in the default opencode database, which also ho
 ./dev/opencode-plugin-smoke.sh wait demo '^ +READY' 90
 ./dev/opencode-plugin-smoke.sh capture demo 15
 cat "$(./dev/opencode-plugin-smoke.sh dir demo)/stub-quick-toast.log"
+
+# Relaunch in the same scratch dir (same plugins, options, stubs, env) and reopen the last session.
+./dev/opencode-plugin-smoke.sh restart demo --continue
 ./dev/opencode-plugin-smoke.sh stop demo
 ```
+
+`start` and `restart` return once the TUI has rendered its prompt, so the first `send` is not lost.
 
 The default model is `github-copilot/claude-haiku-5.5` (override with `-m`). The TUI runs with highlights and native
 attention notifications off (`--cli-config` overrides that). Run `./dev/opencode-plugin-smoke.sh --help` for every

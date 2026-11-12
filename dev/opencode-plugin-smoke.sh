@@ -26,6 +26,10 @@ Commands:
   capture NAME [LINES]          last LINES (default 20) non-blank pane lines
   wait NAME REGEX [SECONDS]     poll the pane until REGEX (grep -E) appears
                                 (default 90s); exit 1 on timeout
+  restart NAME [OPENCODE_ARG]...
+                                relaunch the TUI in the kept scratch dir with
+                                the same plugins, options, stubs, and env;
+                                extra args go to opencode (e.g. --continue)
   dir NAME                      print the scratch directory
   stop NAME [--keep]            kill the tmux session and remove the scratch
                                 directory (kept with --keep)
@@ -164,22 +168,53 @@ function opencode_env() {
   [[ ${#EXTRA_ENV[@]} -eq 0 ]] || printf '%s\n' "${EXTRA_ENV[@]}"
 }
 
-function cmd_start() {
-  parse_setup_args "$@"
-  local dir opencode_bin width height
-  dir="$(scratch_dir "${NAME}")"
+# Boot the TUI in tmux from the launch file `start` wrote: line 1 is the pane
+# size, the rest is the opencode environment. Extra args go to opencode.
+function launch_tui() {
+  local name="$1" dir="$2" opencode_bin size waited=0
+  shift 2
   opencode_bin="$(command -v opencode)" || die "opencode not on PATH"
-  tmux has-session -t "${NAME}" 2>/dev/null && die "tmux session ${NAME} already exists"
-  prepare_scratch "${dir}"
-  width="${SIZE%x*}"
-  height="${SIZE#*x}"
-  local -a env_args
-  mapfile -t env_args < <(opencode_env "${dir}")
+  tmux has-session -t "${name}" 2>/dev/null && die "tmux session ${name} already exists"
+  [[ -f "${dir}/.smoke-launch" ]] || die "no launch file in ${dir}; run: $0 start"
+  local -a launch
+  mapfile -t launch <"${dir}/.smoke-launch"
+  size="${launch[0]}"
   # Keep the pane open after opencode exits so the exit status stays readable.
   # shellcheck disable=SC2016 # expanded by the inner bash
-  tmux new-session -d -s "${NAME}" -x "${width}" -y "${height}" -c "${dir}" -- \
-    env "${env_args[@]}" bash -c '"$0" --standalone; echo "[opencode exited: $?]"; read -r _' "${opencode_bin}"
+  tmux new-session -d -s "${name}" -x "${size%x*}" -y "${size#*x}" -c "${dir}" -- \
+    env "${launch[@]:1}" bash -c '"$0" --standalone "${@}"; echo "[opencode exited: $?]"; read -r _' \
+    "${opencode_bin}" "$@"
+  # The first `send` is lost if it arrives before the prompt renders.
+  until tmux capture-pane -t "${name}" -p | grep -q 'ctrl+p'; do
+    if [[ ${waited} -ge 30 ]]; then
+      echo "opencode-plugin-smoke: TUI not ready after 30s; check: $0 capture ${name}" >&2
+      break
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+}
+
+function cmd_start() {
+  parse_setup_args "$@"
+  local dir
+  dir="$(scratch_dir "${NAME}")"
+  tmux has-session -t "${NAME}" 2>/dev/null && die "tmux session ${NAME} already exists"
+  prepare_scratch "${dir}"
+  { echo "${SIZE}" && opencode_env "${dir}"; } >"${dir}/.smoke-launch"
+  launch_tui "${NAME}" "${dir}"
   echo "started tmux session ${NAME} in ${dir}"
+}
+
+function cmd_restart() {
+  [[ $# -ge 1 ]] || die "usage: restart NAME [OPENCODE_ARG]..."
+  local name="$1" dir
+  shift
+  dir="$(scratch_dir "${name}")"
+  [[ -d "${dir}" ]] || die "${dir} does not exist; run: $0 start -n ${name} PLUGIN..."
+  tmux kill-session -t "${name}" 2>/dev/null || true
+  launch_tui "${name}" "${dir}" "$@"
+  echo "restarted tmux session ${name} in ${dir}"
 }
 
 function cmd_check() {
@@ -273,6 +308,7 @@ function main() {
       exit 0
       ;;
     start) cmd_start "$@" ;;
+    restart) cmd_restart "$@" ;;
     check) cmd_check "$@" ;;
     send) cmd_send "$@" ;;
     keys) cmd_keys "$@" ;;
