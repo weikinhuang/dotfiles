@@ -25,6 +25,7 @@ import {
 import { createLruMemo, type LruMemo } from '../pi/secret-redactor/memo.ts';
 import { type RedactHit, type RedactorConfig, redactText, rehydrateText } from '../pi/secret-redactor/redact.ts';
 import { type SecretEntry, SecretStore } from '../pi/secret-redactor/store.ts';
+import { defaultAskRuleIndex, type PermissionRuleLike } from './permission-rules.ts';
 import { createOptionReader, type EnvBag, type PluginOptionBag } from './plugin-options.ts';
 import { collectStrings, mapStrings, type RedactableRequest, redactModelRequest } from './secret-redactor-request.ts';
 
@@ -133,30 +134,12 @@ export function buildUnredactPermission(entries: readonly SecretEntry[], tool: s
   return { action: UNREDACT_ACTION, resources, save: [...resources], metadata: { tool, secrets: [...resources] } };
 }
 
-/** Structural slice of opencode `Permission.Rule`. */
-export interface PermissionRuleLike {
-  action: string;
-  resource: string;
-  effect: string;
-}
-
 /**
- * Where to insert `{ action: secret_unredact, resource: *, effect: ask }`
- * into an agent's rules, or `undefined` when it is already there.
- *
- * opencode's base policy starts with `* * allow`, so a custom action is
- * allowed unless something asks. The rule goes right after that leading
- * wildcard and before every configured rule, so user `allow` / `deny`
- * rules for `secret_unredact` (and saved "Allow always" approvals, which
- * are evaluated last) still win, and agents that later deny everything
- * (explore, title) still deny.
+ * Where to insert `{ action: secret_unredact, resource: *, effect: ask }` into an agent's rules, or `undefined` when
+ * it is already there. See `defaultAskRuleIndex`.
  */
 export function unredactAskRuleIndex(rules: readonly PermissionRuleLike[]): number | undefined {
-  const base = rules.findIndex((r) => r.action === '*' && r.resource === '*' && r.effect === 'allow');
-  const at = base === -1 ? 0 : base + 1;
-  const existing = rules[at];
-  if (existing?.action === UNREDACT_ACTION && existing.resource === '*' && existing.effect === 'ask') return undefined;
-  return at;
+  return defaultAskRuleIndex(rules, UNREDACT_ACTION);
 }
 
 /** Per-secret state shown by the status view. */

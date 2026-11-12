@@ -42,6 +42,7 @@ import {
   restoreDirectives,
 } from '../../../../lib/node/opencode/context-edit.ts';
 import { createDirectiveStore } from '../../../../lib/node/opencode/context-edit-store.ts';
+import { defaultAskRuleIndex } from '../../../../lib/node/opencode/permission-rules.ts';
 import type { ContextEditState } from '../../../../lib/node/pi/context-edit/directive.ts';
 import { ContextEditRpc } from './rpc.ts';
 
@@ -162,7 +163,7 @@ export default Plugin.define({
           isCollapse ? { one: 'tool pair', many: 'tool pairs' } : { one: 'image', many: 'images' },
         );
         if (plan.kind === 'none') return { content: plan.message };
-        // Native rules decide: `"context_edit": "allow"` (or per-tool patterns) skips the prompt, "deny" blocks.
+        // Native rules decide: a `context_edit` allow rule (or per-tool pattern) skips the prompt, "deny" blocks.
         await ctx.permission.assert({
           sessionID: context.sessionID,
           agent: context.agent,
@@ -191,6 +192,17 @@ export default Plugin.define({
         });
         return { content: reply };
       };
+
+      // opencode's base policy allows unknown actions; make context_edit ask unless a rule says otherwise.
+      await ctx.agent.transform((editor) => {
+        for (const agent of editor.list()) {
+          editor.update(agent.id, (draft) => {
+            const at = defaultAskRuleIndex(draft.permissions, CONTEXT_EDIT_PERMISSION);
+            if (at !== undefined)
+              draft.permissions.splice(at, 0, { action: CONTEXT_EDIT_PERMISSION, resource: '*', effect: 'ask' });
+          });
+        }
+      });
 
       await ctx.tool.transform((editor) => {
         editor.add({

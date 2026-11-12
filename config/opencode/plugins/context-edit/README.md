@@ -58,16 +58,16 @@ drop_image({ drop?: number[], keepRecent?: number, summary?: string, reason?: st
 - The most recent `tailGuard` candidates (default 1) are protected; a guarded ordinal is refused and reported.
 - `drop_image`'s `summary` becomes the placeholder caption, so the model keeps a referent for the image.
 - Each call runs `ctx.permission.assert` with action `context_edit` and the tool name as the resource (and saved
-  pattern), so native permission rules apply. With no matching rule opencode asks; the default build agent's rules may
-  already allow it. opencode's prompt for a custom action shows only `Call tool context_edit`, so the TUI part also
-  shows a toast listing the resolved items while the prompt is open.
+  pattern), so native permission rules apply. opencode's base policy (`* * allow`) would let a custom action through, so
+  the plugin inserts `context_edit * ask` right after that base rule in every agent; configured rules and saved "Allow
+  always" approvals still win. opencode's prompt for a custom action shows only `Call tool context_edit`, so the TUI
+  part also shows a toast listing the resolved items while the prompt is open.
+
+To skip the prompt for one tool:
 
 ```jsonc
 {
-  "permissions": [
-    { "action": "context_edit", "resource": "*", "effect": "ask" },
-    { "action": "context_edit", "resource": "drop_image", "effect": "allow" },
-  ],
+  "permissions": [{ "action": "context_edit", "resource": "drop_image", "effect": "allow" }],
 }
 ```
 
@@ -115,5 +115,4 @@ tail -1 "$D/debug.log"; grep -c ZEBRA "$D/debug.log.last.txt"   # bytesAfter dro
 ```
 
 For `collapse_output` / `drop_image`, ask the model to call the tool with `drop: [2]` after two tool calls (or two
-`read`s of image files). Add an `ask` rule for `context_edit` to the scratch `.opencode/opencode.jsonc` to see the
-permission prompt.
+`read`s of image files). The permission prompt appears by default.
