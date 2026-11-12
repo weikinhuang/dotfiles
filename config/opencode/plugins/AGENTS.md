@@ -45,6 +45,7 @@ Authoring conventions for opencode v2 plugins in this directory. User-facing ins
   Rethrow a decline from `permission.assert` unchanged.
 - **Events:** `for await (const e of ctx.event.subscribe({ types, signal }))`, aborted in the cleanup `setup` returns.
   The stream is already scoped to the plugin's location. Root vs subagent: `session-tree.ts` (`parentID` walk, cached).
+- **Durable context:** `ctx.session.instructions.entry.put` from the `prompt` hook (cache-stable; see `memory`).
 - **Storage:** `ctx.storage.get/set/remove/scan` holds durable JSON per plugin (server); `context.storage.store` /
   `memory` in TUI parts.
 - **RPC (server <-> TUI, verified):** `rpc.ts` exports `Rpc.define({ id, methods, events })` from `@opencode/plugin/rpc`

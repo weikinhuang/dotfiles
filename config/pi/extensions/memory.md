@@ -255,7 +255,9 @@ Edit [`extensions/memory.ts`](./memory.ts) or the helpers under
 [`lib/node/pi/memory-paths.ts`](../../../lib/node/pi/memory-paths.ts) /
 [`lib/node/pi/memory-prompt.ts`](../../../lib/node/pi/memory-prompt.ts) /
 [`lib/node/pi/memory-capture.ts`](../../../lib/node/pi/memory-capture.ts) /
-[`lib/node/pi/memory/delivery.ts`](../../../lib/node/pi/memory/delivery.ts) and run `/reload`.
+[`lib/node/pi/memory/delivery.ts`](../../../lib/node/pi/memory/delivery.ts) /
+[`lib/node/pi/memory/actions.ts`](../../../lib/node/pi/memory/actions.ts) and run `/reload`. The tool actions are shared
+with the opencode [`memory`](../../opencode/plugins/memory/README.md) plugin, which uses the same store.
 
 Companion skill: [`skills/memory-first/SKILL.md`](../skills/memory-first/SKILL.md) - when to save, when NOT to save, and
 how to structure bodies for each type.

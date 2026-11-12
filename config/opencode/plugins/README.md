@@ -11,6 +11,7 @@ loads directly as TypeScript; there is no build step. Authoring conventions for 
 | ------------------------------------------------ | ---------------- | ----------------------------------------------------------------------------------------------------------------- |
 | [`context-edit`](./context-edit/README.md)       | server, tui, rpc | Reversible overlay that collapses tool output and drops images: `/context-edit`, `collapse_output`, `drop_image`. |
 | [`cost-guard`](./cost-guard/README.md)           | server, tui, rpc | Local-only cache-rewrite and spend warnings as TUI toasts and a status slot (pi `cost-guard`).                    |
+| [`memory`](./memory/README.md)                   | server, tui, rpc | Cross-session memory tool and index sharing pi's `~/.pi/agent/memory` store; `/memory` reports (pi `memory`).     |
 | [`notify`](./notify/README.md)                   | server           | `notify` tool plus a turn-end desktop notification via `quick-toast` (pi `notify`).                               |
 | [`secret-redactor`](./secret-redactor/README.md) | server, tui, rpc | Redact secrets from model requests; approval-gated rehydration into tool calls (pi `secret-redactor`).            |
 | [`statusline`](./statusline/README.md)           | tui              | Git flags, worktree, cache-hit ratio, tool count, and session id in the prompt footer (pi `statusline`).          |
@@ -91,6 +92,11 @@ opencode runs plugins in its embedded Bun runtime, which transpiles TypeScript a
 - `opencode serve` and `--server` need `OPENCODE_PASSWORD`, and the client's cwd picks the location to boot.
 - One user turn can span several root executions (subagent reports wake the session); each has its own `started` /
   terminal pair, and a terminal event may repeat, so dedupe per execution.
+- `ctx.session.instructions.entry`: a put from the `prompt` hook lands in that prompt's first request (a new session's
+  baseline); a put from the `context` hook is announced only at the next step boundary (per source). A changed entry is
+  replayed as its full new value, a removal as "no longer applies", and an unchanged put is a no-op. Forks copy the
+  entries.
+- `context` hook `event.tools` is keyed by tool name; deleting a key hides that tool for the request (subagent gating).
 - Harness: `send` echoes the prompt into the pane, so anchor `wait` patterns (for example `'^ +DONE1'`).
 
 ## Live testing
