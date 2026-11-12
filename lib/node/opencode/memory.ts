@@ -44,6 +44,8 @@ export interface OpencodeMemoryConfig {
   readOnlyReason: string | undefined;
   maxInjectedChars: number;
   staleDays: number;
+  /** Append one JSON line per index sync / failure. */
+  debugFile: string | undefined;
 }
 
 function parsePositiveInteger(raw: unknown): number | undefined {
@@ -74,6 +76,7 @@ export function resolveOpencodeMemoryConfig(
       read.get('maxInjectedChars', parsePositiveInteger) ?? DEFAULT_MAX_INDEX_CHARS,
     ),
     staleDays: read.get('staleDays', parsePositiveInteger) ?? DEFAULT_STALE_DAYS,
+    debugFile: read.optionalString('debugFile'),
   };
 }
 

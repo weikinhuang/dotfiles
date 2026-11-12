@@ -58,6 +58,7 @@ test('resolveOpencodeMemoryConfig: defaults to pi’s store root', () => {
     readOnlyReason: undefined,
     maxInjectedChars: 6000,
     staleDays: 30,
+    debugFile: undefined,
   });
   expect(resolveOpencodeMemoryConfig(undefined, { PI_CODING_AGENT_DIR: '/agent' }, HOME).root).toBe('/agent/memory');
   expect(resolveOpencodeMemoryConfig(undefined, { PI_MEMORY_ROOT: '~/mem' }, HOME).root).toBe('/home/u/mem');
