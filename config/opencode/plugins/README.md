@@ -70,6 +70,29 @@ opencode runs plugins in its embedded Bun runtime, which transpiles TypeScript a
   what `node_modules` holds. The repo pins `@opencode/plugin` to the local opencode version for type-checking only.
 - TUI parts import `@opencode/plugin/tui`, `solid-js`, and `@opentui/*`; opencode resolves those at runtime as well.
 
+## Runtime gotchas (opencode 2.2.7)
+
+- No `@types/bun`: use `import.meta.dirname`, not `import.meta.dir`.
+- `@opencode/plugin` and `effect` are always the host's copies; other bare deps resolve from the repo `node_modules`.
+- The server watches the entry and its imports, but restart opencode if a `lib/node/` helper change does not take.
+- TUI parts do not receive `opencode.jsonc` options (use env vars); `opencode plugin list` shows only package plugins.
+- A TUI `keymap.layer` needs `mode: "global"`; the default `base` layer is not active inside a session.
+- Footer slots (`prompt.footer.status`): keep contributions content-sized. `flexGrow` permanently truncates the native
+  location label. Measure the row with an absolutely positioned probe
+  (`position="absolute" left={0} right={0} height={0} onSizeChange`); terminal width is not the budget. Theme colors are
+  `RGBA` from `@opentui/core`.
+- opencode's prompt for a custom action only says `Call tool <action>` (metadata is not shown); surface details with a
+  TUI toast on `permission.asked`. Shell permission runs after `tool.execute.before`, so it sees rewritten input.
+- `ctx.session.context` returns only history since the latest compaction; there is no full message-list API.
+  `Session.Info.cost` excludes child sessions. `session.usage.recorded` (title / generate usage) never reaches plugins.
+- Per-call usage arrives on `session.step.ended` (`cost` + `tokens`, after the step's tools settle); the model is on
+  `session.step.started`, keyed by `assistantMessageID`.
+- `opencode serve` and `--server` need `OPENCODE_PASSWORD`, and the client's cwd picks the location to boot.
+- One user turn can span several root executions (subagent reports wake the session); each has its own `started` /
+  terminal pair, and a terminal event may repeat, so dedupe per execution.
+- Harness: `send` echoes the prompt into the pane, so anchor `wait` patterns (for example `'^ +DONE1'`). `start` returns
+  before the TUI is ready; `wait` for the prompt placeholder before the first `send`.
+
 ## Live testing
 
 [`dev/opencode-plugin-smoke.sh`](../../../dev/opencode-plugin-smoke.sh) builds a scratch project under
