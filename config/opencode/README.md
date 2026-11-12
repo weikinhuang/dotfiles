@@ -8,8 +8,8 @@ Configuration and custom tooling for [opencode](https://opencode.ai) v2.
 - [`cli-baseline.json`](#cli-baselinejson) - mirrors `~/.config/opencode/cli.json` (TUI settings).
 - [`session-usage.ts`](#session-usagets) - CLI that reads the opencode SQLite database and summarizes session token /
   tool usage.
-- [`plugins/`](./plugins/README.md) - opencode v2 plugins (ports of pi extensions), installed by symlinking into
-  `~/.config/opencode/plugins/`.
+- [`plugins/`](./plugins/README.md) - opencode v2 plugins (ports of pi extensions), symlinked one by one into
+  `~/.config/opencode/plugins/` by [`plugins/install.sh`](./plugins/install.sh).
 
 The shell wrapper and completion live in [`plugins/30-opencode.sh`](../../plugins/30-opencode.sh).
 

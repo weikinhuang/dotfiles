@@ -35,13 +35,22 @@ specs under [`tests/lib/node/opencode/`](../../../tests/lib/node/opencode/).
 
 ## Install
 
-Symlink a plugin directory into the global plugin directory; opencode discovers direct `.ts` / `.js` files and immediate
-subdirectories there and in every project's `.opencode/plugins/`:
+opencode discovers direct `.ts` / `.js` files and immediate subdirectories in `<config dir>/plugins/` (and `plugin/`)
+and in every project's `.opencode/plugins/`. [`install.sh`](./install.sh) symlinks each plugin into the global plugins
+directory one link at a time, so other plugins can live beside them:
 
 ```bash
-mkdir -p ~/.config/opencode/plugins
-ln -s ~/.dotfiles/config/opencode/plugins/notify ~/.config/opencode/plugins/notify
+~/.dotfiles/config/opencode/plugins/install.sh                  # every plugin
+~/.dotfiles/config/opencode/plugins/install.sh notify memory    # just these
+~/.dotfiles/config/opencode/plugins/install.sh --list           # installed / not installed
+~/.dotfiles/config/opencode/plugins/install.sh --uninstall notify
+~/.dotfiles/config/opencode/plugins/install.sh -p work          # the `opencode -u work` profile
+opencode service restart                                        # pick up the change
 ```
+
+The default target is `${OPENCODE_CONFIG_DIR:-${XDG_CONFIG_HOME:-~/.config}/opencode}/plugins` (`--dir` overrides it).
+The script never replaces a real file or directory, replaces a symlink that points elsewhere only with `--force`, and
+`--uninstall` removes only links that point into this repo.
 
 Discovered plugins get empty options. To pass options, also add an entry for the same directory to
 `~/.config/opencode/opencode.jsonc`; relative paths resolve from that file, and the plugin still loads once:
