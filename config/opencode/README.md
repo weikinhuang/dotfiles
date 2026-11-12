@@ -8,6 +8,8 @@ Configuration and custom tooling for [opencode](https://opencode.ai) v2.
 - [`cli-baseline.json`](#cli-baselinejson) - mirrors `~/.config/opencode/cli.json` (TUI settings).
 - [`session-usage.ts`](#session-usagets) - CLI that reads the opencode SQLite database and summarizes session token /
   tool usage.
+- [`plugins/`](./plugins/README.md) - opencode v2 plugins (ports of pi extensions), installed by symlinking into
+  `~/.config/opencode/plugins/`.
 
 The shell wrapper and completion live in [`plugins/30-opencode.sh`](../../plugins/30-opencode.sh).
 
@@ -27,7 +29,8 @@ profile, the target is `<profile dir>/opencode.jsonc` (see [Profiles](#profiles)
      `git status *` also matches the bare `git status`. Keep both lists in sync when adding entries.
   3. `read` denies for `*.env`, `*.env.*`, and `*.envrc` come last, mirroring Claude's `Read(./.env*)` denies.
 - `model` and `providers` are intentionally absent: they are per-machine, so set them in the live file only.
-- MCP servers and npm plugins are out of scope for now and are not part of the baseline.
+- MCP servers and npm plugins are out of scope for now and are not part of the baseline. Options for the repo's own
+  [plugins](./plugins/README.md#install) go in a `plugins` entry in the live file.
 
 Check what opencode actually loaded with `opencode debug config` (merged sources) and `opencode debug agents` (each
 agent's effective permission list).

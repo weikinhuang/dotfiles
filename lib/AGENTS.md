@@ -21,6 +21,7 @@ See root [AGENTS.md](../AGENTS.md) for repo-wide conventions; this file only doc
 | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | [`node/pi/`](./node/pi/)                                 | Pure helpers backing pi extensions; import policy in [`node/pi/AGENTS.md`](./node/pi/AGENTS.md).        |
 | [`node/pi/ext/`](./node/pi/ext/)                         | The carve-out: shared extension helpers that import `@earendil-works/*` (pi-tui widgets, dialog flows). |
+| [`node/opencode/`](./node/opencode/)                     | Pure helpers for opencode plugins ([AGENTS.md](../config/opencode/plugins/AGENTS.md)).                  |
 | [`node/ai-tooling/`](./node/ai-tooling/)                 | Shared CLI harness (arg parsing, output rendering, JSONL loaders) used by every `session-usage.ts`.     |
 | [`node/clipboard-server.ts`](./node/clipboard-server.ts) | Node implementation of the `clipboard-server` bin script.                                               |
 

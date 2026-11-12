@@ -21,7 +21,7 @@ See [README.md](./README.md) for the full per-directory table; high-level groupi
 | [`claude/`](./claude/)                                                                                               | Claude Code config + custom statusline + session-usage CLI ([AGENTS.md](./claude/AGENTS.md)).                                            |
 | [`codex/`](./codex/)                                                                                                 | Codex CLI config + session-usage CLI.                                                                                                    |
 | [`copilot/`](./copilot/)                                                                                             | GitHub Copilot CLI config + permission rules + session-usage CLI.                                                                        |
-| [`opencode/`](./opencode/)                                                                                           | opencode config + session-usage CLI.                                                                                                     |
+| [`opencode/`](./opencode/)                                                                                           | opencode config + session-usage CLI + plugins ([AGENTS.md](./opencode/plugins/AGENTS.md)).                                               |
 | [`pi/`](./pi/README.md)                                                                                              | pi config: extensions, skills, subagent defs, themes, session-usage CLI.                                                                 |
 
 ## Key patterns
