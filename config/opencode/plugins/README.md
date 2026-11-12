@@ -7,11 +7,12 @@ loads directly as TypeScript; there is no build step. Authoring conventions for 
 
 ## Plugins
 
-| Plugin                                 | Parts            | Description                                                                                              |
-| -------------------------------------- | ---------------- | -------------------------------------------------------------------------------------------------------- |
-| [`cost-guard`](./cost-guard/README.md) | server, tui, rpc | Local-only cache-rewrite and spend warnings as TUI toasts and a status slot (pi `cost-guard`).           |
-| [`notify`](./notify/README.md)         | server           | `notify` tool plus a turn-end desktop notification via `quick-toast` (pi `notify`).                      |
-| [`statusline`](./statusline/README.md) | tui              | Git flags, worktree, cache-hit ratio, tool count, and session id in the prompt footer (pi `statusline`). |
+| Plugin                                           | Parts            | Description                                                                                              |
+| ------------------------------------------------ | ---------------- | -------------------------------------------------------------------------------------------------------- |
+| [`cost-guard`](./cost-guard/README.md)           | server, tui, rpc | Local-only cache-rewrite and spend warnings as TUI toasts and a status slot (pi `cost-guard`).           |
+| [`notify`](./notify/README.md)                   | server           | `notify` tool plus a turn-end desktop notification via `quick-toast` (pi `notify`).                      |
+| [`secret-redactor`](./secret-redactor/README.md) | server, tui, rpc | Redact secrets from model requests; approval-gated rehydration into tool calls (pi `secret-redactor`).   |
+| [`statusline`](./statusline/README.md)           | tui              | Git flags, worktree, cache-hit ratio, tool count, and session id in the prompt footer (pi `statusline`). |
 
 ## Layout
 
