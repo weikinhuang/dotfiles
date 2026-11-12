@@ -86,3 +86,15 @@ describe('textPlaceholder + collapsePlaceholder (unchanged)', () => {
     expect(countLines('one\ntwo')).toBe(2);
   });
 });
+
+describe('custom marker', () => {
+  const OTHER = '⟨context-edit⟩';
+  test('every builder accepts a host marker and isPlaceholder checks it', () => {
+    const collapsed = collapsePlaceholder('bash', 'done', OTHER);
+    expect(collapsed).toBe(`${OTHER} [TOOL CALLED bash] - done`);
+    expect(imagePlaceholder({ approxBytes: 2048, marker: OTHER })).toBe(`${OTHER} [IMAGE REMOVED · ~2.0KB]`);
+    expect(textPlaceholder('x', undefined, OTHER).startsWith(OTHER)).toBe(true);
+    expect(isPlaceholder(collapsed, OTHER)).toBe(true);
+    expect(isPlaceholder(collapsed)).toBe(false);
+  });
+});

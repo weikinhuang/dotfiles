@@ -152,3 +152,21 @@ describe('reduceBranch', () => {
     expect(reduceBranch(branch, CUSTOM_TYPE).directives).toHaveLength(0);
   });
 });
+
+describe('labels and messageId targets', () => {
+  test('addTrim / addCollapse persist an optional label that survives the shape check', () => {
+    const target: Target = { by: 'messageId', messageId: 'msg_1', partIndex: 0 };
+    const t = addTrim(emptyState(), target, undefined, 1, 'cap', 'image');
+    assertOk(t);
+    const c = addCollapse(t.state, 'call_1', 'done', 2, 'result bash');
+    assertOk(c);
+    expect(c.state.directives.map((d) => (d.kind === 'edit' ? undefined : d.label))).toEqual(['image', 'result bash']);
+    expect(isContextEditStateShape(JSON.parse(JSON.stringify(c.state)))).toBe(true);
+  });
+  test('rejects a non-string label and an empty messageId', () => {
+    const base = { kind: 'collapse', id: 1, toolCallId: 'c', createdAt: 1 };
+    expect(isContextEditStateShape({ nextId: 2, directives: [{ ...base, label: 3 }] })).toBe(false);
+    const trim = { kind: 'trim', id: 1, createdAt: 1, target: { by: 'messageId', messageId: '' } };
+    expect(isContextEditStateShape({ nextId: 2, directives: [trim] })).toBe(false);
+  });
+});

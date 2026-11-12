@@ -13,7 +13,9 @@
 import { byteLen, formatCompactBytes } from '../shared/bytes.ts';
 import { collapseWhitespace } from '../shared/strings.ts';
 
-const MARKER = '⟨pi-context-edit⟩';
+/** Default marker prefix; hosts other than pi pass their own via the optional `marker` params. */
+export const PI_CONTEXT_EDIT_MARKER = '⟨pi-context-edit⟩';
+const MARKER = PI_CONTEXT_EDIT_MARKER;
 
 function withReason(base: string, reason: string | undefined): string {
   const r = reason?.trim();
@@ -45,6 +47,8 @@ export interface ImagePlaceholderOptions {
   /** Pixel dimensions, rendered inside as `W×H` when both are positive. */
   width?: number;
   height?: number;
+  /** Marker prefix (default {@link PI_CONTEXT_EDIT_MARKER}). */
+  marker?: string;
 }
 
 /**
@@ -72,7 +76,7 @@ function cleanCaption(description: string | undefined): string {
  * the same placeholder every turn and never breaks prefix caching.
  */
 export function imagePlaceholder(options: ImagePlaceholderOptions = {}): string {
-  const { reason, approxBytes, description, width, height } = options;
+  const { reason, approxBytes, description, width, height, marker = MARKER } = options;
   const segments = ['IMAGE REMOVED'];
   if (width && height && width > 0 && height > 0) {
     segments.push(`${Math.floor(width)}×${Math.floor(height)}`);
@@ -82,24 +86,24 @@ export function imagePlaceholder(options: ImagePlaceholderOptions = {}): string 
   }
   const caption = cleanCaption(description);
   if (caption) segments.push(`"${caption}"`);
-  return `${MARKER} ${withReason(`[${segments.join(' · ')}]`, reason)}`;
+  return `${marker} ${withReason(`[${segments.join(' · ')}]`, reason)}`;
 }
 
 /** Placeholder for a trimmed text part - notes how much was dropped. */
-export function textPlaceholder(original: string, reason: string | undefined): string {
+export function textPlaceholder(original: string, reason: string | undefined, marker = MARKER): string {
   const lines = countLines(original);
   const bytes = byteLen(original);
   const stat = `${lines} line${lines === 1 ? '' : 's'}, ${formatCompactBytes(bytes)}`;
-  return `${MARKER} ${withReason(`[CONTENT TRIMMED - ${stat}]`, reason)}`;
+  return `${marker} ${withReason(`[CONTENT TRIMMED - ${stat}]`, reason)}`;
 }
 
 /** Placeholder for a collapsed tool call + result pair. */
-export function collapsePlaceholder(toolName: string | undefined, reason: string | undefined): string {
+export function collapsePlaceholder(toolName: string | undefined, reason: string | undefined, marker = MARKER): string {
   const name = toolName?.trim() ? ` ${toolName.trim()}` : '';
-  return `${MARKER} ${withReason(`[TOOL CALLED${name}]`, reason)}`;
+  return `${marker} ${withReason(`[TOOL CALLED${name}]`, reason)}`;
 }
 
 /** True when `text` is one of our placeholders - lets `enumerate` skip already-overlaid parts. */
-export function isPlaceholder(text: string): boolean {
-  return text.startsWith(MARKER);
+export function isPlaceholder(text: string, marker = MARKER): boolean {
+  return text.startsWith(marker);
 }

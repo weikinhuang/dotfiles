@@ -25,6 +25,7 @@
 
 import { DENY_WITH_FEEDBACK, type PromptEntry } from '../approval-prompt.ts';
 import { type Candidate, candidateLabel } from './enumerate.ts';
+import { targetKey } from './target.ts';
 import { trimOrUndefined } from '../shared/strings.ts';
 
 /** Default tail-guard: never drop the single most-recent matching candidate. */
@@ -89,11 +90,16 @@ export function byRecency(candidates: readonly Candidate[]): RankedCandidate[] {
   return withIndex.map(({ candidate }, idx) => ({ candidate, ordinal: idx + 1 }));
 }
 
-/** Stable identity for de-duping resolved candidates across `drop` + `keepRecent`. */
+/**
+ * Stable identity for de-duping resolved candidates across `drop` + `keepRecent`.
+ * Part-scoped targets (several images in one tool result) stay distinct.
+ */
 function candidateKey(c: Candidate): string {
+  if (c.target?.partIndex !== undefined) return targetKey(c.target);
   if (c.toolCallId) return `tc:${c.toolCallId}`;
   if (c.target?.by === 'toolCallId') return `tc:${c.target.toolCallId}`;
   if (c.target?.by === 'message') return `msg:${c.target.role}:${c.target.timestamp}:${c.target.occurrence ?? 0}`;
+  if (c.target) return targetKey(c.target);
   return `id:${c.id}`;
 }
 

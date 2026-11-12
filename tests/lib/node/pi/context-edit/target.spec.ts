@@ -101,3 +101,23 @@ describe('findToolCall', () => {
     expect(findToolCall([userMsg('go', 1)], 'missing')).toBeNull();
   });
 });
+
+describe('messageId targets', () => {
+  const withIds: LooseMessage[] = [
+    { role: 'user', content: 'a', id: 'msg_1' },
+    { role: 'user', content: 'b', id: 'msg_2' },
+  ];
+  test('resolve by the message id, carrying partIndex', () => {
+    expect(resolveTarget(withIds, { by: 'messageId', messageId: 'msg_2', partIndex: 1 })).toEqual({
+      messageIndex: 1,
+      partIndex: 1,
+    });
+  });
+  test('are stale when no message carries the id (pi messages have none)', () => {
+    expect(resolveTarget([userMsg('a', 1)], { by: 'messageId', messageId: 'msg_1' })).toBeNull();
+  });
+  test('key distinctly from other schemes and by partIndex', () => {
+    expect(targetKey({ by: 'messageId', messageId: 'msg_1' })).toBe('mid:msg_1:*');
+    expect(targetKey({ by: 'messageId', messageId: 'msg_1', partIndex: 0 })).toBe('mid:msg_1:0');
+  });
+});

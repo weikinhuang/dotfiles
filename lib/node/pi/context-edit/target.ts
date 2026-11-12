@@ -18,6 +18,10 @@
  *     collision is disambiguated by `occurrence` (the Nth message with
  *     that exact role+timestamp, in branch order).
  *
+ *   - `messageId` - hosts whose messages carry a stable `id` (opencode)
+ *     key on it directly. `partIndex` is host-defined (opencode: the Nth
+ *     media part). pi messages have no `id`, so these never resolve there.
+ *
  * Targets are resolved fresh every turn against the live message list,
  * so a directive whose target no longer matches (compaction dropped it,
  * a branch switched away) simply becomes a no-op the caller can report
@@ -58,7 +62,8 @@ export interface LooseMessage {
 
 export type Target =
   | { by: 'toolCallId'; toolCallId: string; partIndex?: number }
-  | { by: 'message'; role: 'user' | 'assistant'; timestamp: number; partIndex?: number; occurrence?: number };
+  | { by: 'message'; role: 'user' | 'assistant'; timestamp: number; partIndex?: number; occurrence?: number }
+  | { by: 'messageId'; messageId: string; partIndex?: number };
 
 /**
  * Canonical string for a target, used for equality (e.g. marking a
@@ -69,6 +74,9 @@ export type Target =
 export function targetKey(target: Target): string {
   if (target.by === 'toolCallId') {
     return `tc:${target.toolCallId}:${target.partIndex ?? '*'}`;
+  }
+  if (target.by === 'messageId') {
+    return `mid:${target.messageId}:${target.partIndex ?? '*'}`;
   }
   return `msg:${target.role}:${target.timestamp}:${target.occurrence ?? 0}:${target.partIndex ?? '*'}`;
 }
@@ -131,11 +139,25 @@ function resolveToolResultTarget(
   return null;
 }
 
+/** Resolve a `messageId`-addressed target to the message whose `id` matches. */
+function resolveMessageIdTarget(
+  messages: readonly LooseMessage[],
+  target: Extract<Target, { by: 'messageId' }>,
+): ResolvedTarget | null {
+  const i = messages.findIndex((m) => m.id === target.messageId);
+  return i === -1 ? null : { messageIndex: i, partIndex: target.partIndex };
+}
+
 /** Resolve any target to a `{ messageIndex, partIndex? }`, or null when it no longer matches. */
 export function resolveTarget(messages: readonly LooseMessage[], target: Target): ResolvedTarget | null {
-  return target.by === 'toolCallId'
-    ? resolveToolResultTarget(messages, target)
-    : resolveMessageTarget(messages, target);
+  switch (target.by) {
+    case 'toolCallId':
+      return resolveToolResultTarget(messages, target);
+    case 'messageId':
+      return resolveMessageIdTarget(messages, target);
+    case 'message':
+      return resolveMessageTarget(messages, target);
+  }
 }
 
 /**

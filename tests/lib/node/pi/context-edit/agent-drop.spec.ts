@@ -156,3 +156,21 @@ describe('nonInteractiveDropDefault', () => {
     expect(nonInteractiveDropDefault('yes')).toBe('deny');
   });
 });
+
+describe('resolveRecencyTargets: part-scoped images', () => {
+  test('keeps several images of one tool result distinct', () => {
+    const cands: Candidate[] = [0, 1, 2].map((p) => ({
+      id: `img${p + 1}`,
+      seq: p,
+      kind: 'image' as const,
+      target: { by: 'toolCallId' as const, toolCallId: 'same', partIndex: p },
+      toolCallId: 'same',
+      bytes: 10,
+      lines: 0,
+      snippet: 'image',
+      search: 'image',
+    }));
+    const r = resolveRecencyTargets(cands, { keepRecent: 1 });
+    expect(r.selected.map((s) => s.candidate.target?.partIndex)).toEqual([1, 0]);
+  });
+});
