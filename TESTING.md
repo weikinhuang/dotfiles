@@ -183,7 +183,13 @@ scripts. Bats files are formatted with `shfmt -ln bats` and also checked by Shel
 
 ```bash
 ./dev/lint-shell.sh
+./dev/lint-shell.sh dotenv/bin/git-sync tests/dotenv/bin/git-sync.bats  # only these files
 ```
+
+The pre-commit hook passes every staged file; the script keeps only tracked shell and bats files and exits early when
+none remain. `shellcheck` and `shfmt` run locally when they match the pinned versions and fall back to their Docker
+images otherwise. `LINT_SHELL_JOBS` (default: number of CPUs, at most 8) sets how many shellcheck processes or
+containers run at once.
 
 ## Docker Image
 
