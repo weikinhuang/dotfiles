@@ -50,7 +50,15 @@ fi
 # packages and the repo is bind-mounted at runtime.
 docker build "${BUILD_FLAGS[@]}" - <"${DOCKERFILE}"
 
-exec docker run --rm \
-  -v "${REPO_ROOT}:/dotfiles:ro" \
+DOCKER_ARGS=(--rm -v "${REPO_ROOT}:/dotfiles:ro")
+# A linked worktree's .git file points at the main repository's git dir by
+# absolute host path; mount it at that same path so git inside the container
+# still finds the repository.
+GIT_COMMON_DIR="$(git -C "${REPO_ROOT}" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+if [[ -n "${GIT_COMMON_DIR}" && "${GIT_COMMON_DIR}" != "${REPO_ROOT}/.git" ]]; then
+  DOCKER_ARGS+=(-v "${GIT_COMMON_DIR}:${GIT_COMMON_DIR}:ro")
+fi
+
+exec docker run "${DOCKER_ARGS[@]}" \
   "${IMAGE_NAME}" \
   bash /dotfiles/dev/test-bats.sh "${TEST_ARGS[@]}"
