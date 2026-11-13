@@ -2,4 +2,6 @@
 
 [ -n "$CI" ] && exit 0
 
-npx lint-staged
+# husky puts node_modules/.bin on PATH, so skip npx's ~0.6s startup.
+# --continue-on-error reports every failing task instead of killing the rest.
+exec lint-staged --continue-on-error
