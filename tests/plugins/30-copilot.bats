@@ -17,6 +17,9 @@ printf 'COPILOT_HOME=%s\n' "${COPILOT_HOME:-}"
 printf 'COPILOT_PROFILE_NAME=%s\n' "${COPILOT_PROFILE_NAME:-}"
 printf 'COPILOT_SKILLS_DIRS=%s\n' "${COPILOT_SKILLS_DIRS:-}"
 printf 'GH_HOST=%s\n' "${GH_HOST:-}"
+printf 'GIT_CONFIG_COUNT=%s\n' "${GIT_CONFIG_COUNT:-}"
+printf 'GIT_CONFIG_KEY_0=%s\n' "${GIT_CONFIG_KEY_0:-}"
+printf 'GIT_CONFIG_VALUE_0=%s\n' "${GIT_CONFIG_VALUE_0:-}"
 printf 'ARGS:\n'
 printf '%s\n' "$@"
 EOF
@@ -242,4 +245,36 @@ EOF
   _dot_copilot
 
   [ "${COMPREPLY[*]}" = "native-called" ]
+}
+
+@test "30-copilot: sources the shared config/agents/env" {
+  source "${REPO_ROOT}/plugins/30-copilot.sh"
+
+  run copilot hello
+  assert_success
+  assert_line 'GIT_CONFIG_COUNT=1'
+  assert_line 'GIT_CONFIG_KEY_0=core.fsmonitor'
+  assert_line 'GIT_CONFIG_VALUE_0=false'
+}
+
+@test "30-copilot: profile env overrides the shared env" {
+  mkdir -p "${HOME}/.copilot"
+  printf 'export GIT_CONFIG_VALUE_0=true\n' >"${HOME}/.copilot/env"
+  source "${REPO_ROOT}/plugins/30-copilot.sh"
+
+  run copilot hello
+  assert_success
+  assert_line 'GIT_CONFIG_COUNT=1'
+  assert_line 'GIT_CONFIG_VALUE_0=true'
+}
+
+@test "30-copilot: missing shared env is skipped" {
+  export DOTFILES__ROOT="${BATS_TEST_TMPDIR}/empty-root"
+  mkdir -p "${DOTFILES__ROOT}"
+  source "${REPO_ROOT}/plugins/30-copilot.sh"
+
+  run copilot hello
+  assert_success
+  assert_line 'GIT_CONFIG_COUNT='
+  assert_line 'hello'
 }

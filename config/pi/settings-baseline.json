@@ -1,9 +1,10 @@
 {
   "defaultThinkingLevel": "high",
   "enableInstallTelemetry": false,
+  "hideThinkingBlock": false,
   "quietStartup": true,
   "theme": "solarized-dark",
   "extensions": ["~/.dotfiles/config/pi/extensions"],
-  "skills": ["~/.dotfiles/config/pi/skills"],
+  "skills": ["~/.dotfiles/config/pi/skills", "~/.dotfiles/config/agents/skills"],
   "themes": ["~/.dotfiles/config/pi/themes"]
 }

@@ -15,18 +15,25 @@ The shell wrapper and completion live in [`plugins/30-opencode.sh`](../../plugin
 
 ## `opencode.jsonc`
 
-Reference settings on the v2 schema (`https://opencode.ai/config.json`). Copy or merge it into
-`~/.config/opencode/opencode.jsonc` by hand, the same way the Claude Code and Codex baselines are installed; for a named
-profile, the target is `<profile dir>/opencode.jsonc` (see [Profiles](#profiles)).
+Reference settings on the v2 schema (`https://opencode.ai/config.json`). `config/agents/sync.ts apply` installs it as
+`~/.config/opencode/opencode.jsonc` (`OPENCODE_CONFIG_DIR` when set, so pointing it at `<profile dir>` covers a named
+profile, see [Profiles](#profiles)). When the live file does not exist, the baseline is copied verbatim, comments
+included. When it exists, the baseline is merged in (baseline keys win, the `permissions` array is replaced whole, other
+live keys such as `model` and `providers` are kept) and the result is written as plain JSON, so comments in the live
+file are lost; `diff` warns about that first. See
+[`config/agents/README.md`](../agents/README.md#installing-into-the-harness-homes). The same command links
+`<config dir>/AGENTS.md` to the shared [`config/agents/instructions.md`](../agents/instructions.md).
 
 - `share: "disabled"` and `update: "notify"` keep sessions local and leave upgrades to `npm`.
 - `permissions` is an ordered rule list where the last matching rule wins. opencode appends these rules after every
   built-in agent's own rules, so they override the built-in "allow everything" default:
   1. `shell` asks for every command by default.
-  2. The read-only command allowlist mirrors `permissions.allow` in
-     [`config/claude/settings-baseline.json`](../claude/settings-baseline.json) (`Bash(git status *)` becomes
-     `{ "action": "shell", "resource": "git status *", "effect": "allow" }`). A pattern ending in space-star such as
-     `git status *` also matches the bare `git status`. Keep both lists in sync when adding entries.
+  2. The command allowlist between the `BEGIN GENERATED shell-permissions` / `END GENERATED shell-permissions` markers
+     is generated from the `shared` tier of the canonical list,
+     [`config/agents/shell-permissions.jsonc`](../agents/shell-permissions.jsonc), by `config/agents/sync.ts generate`
+     (see [`config/agents/README.md`](../agents/README.md)); edit the canonical list, not this region. `git status *`
+     becomes `{ "action": "shell", "resource": "git status *", "effect": "allow" }`; a pattern ending in space-star also
+     matches the bare `git status`. Each entry's `except` globs follow as `ask` rules, so they override the allows.
   3. `read` denies for `*.env`, `*.env.*`, and `*.envrc` come last, mirroring Claude's `Read(./.env*)` denies.
 - `model` and `providers` are intentionally absent: they are per-machine, so set them in the live file only.
 - MCP servers and npm plugins are out of scope for now and are not part of the baseline. Options for the repo's own
@@ -38,7 +45,7 @@ agent's effective permission list).
 ## `cli-baseline.json`
 
 TUI settings on the v2 CLI schema (`https://opencode.ai/v2/cli.json`): the Solarized theme in dark mode, matching the
-Codex and pi themes. Copy it to `<config dir>/cli.json`.
+Codex and pi themes. `config/agents/sync.ts apply` copies or merges it into `<config dir>/cli.json` the same way.
 
 ## Profiles
 

@@ -14,6 +14,7 @@ reference on each area.
 | [`personas/`](./personas/README.md)                                | Persona overlay definitions discovered by [`extensions/persona.ts`](./extensions/persona.ts). `/persona <name>` activates a named persona (planner, chat, knowledge-base, journal, …) for the parent session, scoping tools and writes.                                                                            |
 | [`themes/`](./themes)                                              | JSON themes (e.g. [`solarized-dark.json`](./themes/solarized-dark.json), [`solarized-light.json`](./themes/solarized-light.json)) loadable by name.                                                                                                                                                                |
 | [`settings-baseline.json`](#settings-baselinejson)                 | Reference baseline for `~/.pi/agent/settings.json`. Wires up `extensions` / `skills` / `agents` / `themes`.                                                                                                                                                                                                        |
+| [`append-system.md`](./append-system.md)                           | pi-only tool rules (read / edit / search), linked as `~/.pi/agent/APPEND_SYSTEM.md` by `config/agents/sync.ts apply`; `~/.pi/agent/AGENTS.md` links to the shared [`config/agents/instructions.md`](../agents/instructions.md).                                                                                    |
 | [`presets.json`](./presets.json)                                   | Named bundles of provider/model/thinking-level/extension toggles, consumed by [`extensions/preset.ts`](./extensions/preset.ts) and `/preset`.                                                                                                                                                                      |
 | [`models-example.json`](./models-example.json)                     | Example custom-model definitions (OpenAI-compatible endpoints, local llama-cpp, etc.).                                                                                                                                                                                                                             |
 | [`bash-permissions-example.json`](./bash-permissions-example.json) | Baseline read-only allowlist for the [`bash-permissions`](./extensions/bash-permissions.md) extension. Copy to `~/.pi/agent/bash-permissions.json` or `<repo>/.pi/bash-permissions.json`. Covered by [`tests/config/pi/bash-permissions-example.spec.ts`](../../tests/config/pi/bash-permissions-example.spec.ts). |
@@ -34,8 +35,11 @@ the full list of resource directories pi scans - the settings entries are additi
 
 ## `settings-baseline.json`
 
-Reference baseline config for pi. Copy (or merge) into `~/.pi/agent/settings.json` - pi manages a few runtime-only keys
-there (e.g. `lastChangelogVersion`) that are intentionally omitted from the baseline.
+Reference baseline config for pi. `config/agents/sync.ts apply` merges it into `~/.pi/agent/settings.json`
+(`PI_CODING_AGENT_DIR` when set): baseline keys win and every other live key is kept, including the runtime-only and
+per-machine keys pi manages there (e.g. `lastChangelogVersion`, `defaultProvider`, `defaultModel`) that are
+intentionally omitted from the baseline. See
+[`config/agents/README.md`](../agents/README.md#installing-into-the-harness-homes).
 
 The `extensions` / `skills` / `agents` / `themes` arrays are what wire the directories in this repo into pi; everything
 else is preference (default provider/model, default thinking level, theme selection, telemetry opt-out).

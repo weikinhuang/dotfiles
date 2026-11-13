@@ -285,10 +285,6 @@ describe('bash-permissions-example: cd / pushd / popd', () => {
 
 describe('bash-permissions-example: shell builtins', () => {
   test.each([
-    'set',
-    'set -e',
-    'set -euo pipefail',
-    'set +e',
     'shopt',
     'shopt -s nullglob',
     'alias',
@@ -305,22 +301,33 @@ describe('bash-permissions-example: shell builtins', () => {
     '(( 1 + 2 == 3 ))',
     '(( x > 0 ))',
     '(( COUNT++ ))',
-    // for / select / case - args aren't commands, so they need their own
-    // allow rule (`for*` / `select*` / `case*`).
-    'for f in *.ts',
-    'for i in 1 2 3',
-    'select opt in a b c',
-    'case "$x" in',
   ])('allows: %s', (cmd) => {
     expect(allowed(cmd)).toBe(true);
   });
 
+  test.each([
+    // Dropped from every harness by the shared-allowlist review: `set` /
+    // `env` / `printenv` dump variables (secrets included), and `for` /
+    // `select` / `case` headers now hit the approval prompt.
+    'set',
+    'set -e',
+    'env',
+    'printenv',
+    'printenv HOME',
+    'for f in *.ts',
+    'select opt in a b c',
+    'case "$x" in',
+    'docker inspect my-container',
+  ])('does not allow: %s', (cmd) => {
+    expect(allowed(cmd)).toBe(false);
+  });
+
   test('trailing `# comment` slips through `*` allow rules (documented behavior)', () => {
-    // `set*` is token-aware prefix, so a trailing comment is just more
+    // `shopt*` is token-aware prefix, so a trailing comment is just more
     // args to the matcher. Bash evaluates identically either way.
     // Use an exact rule if you want comments rejected (but you lose the
-    // flexibility that makes `set*` practical here).
-    expect(allowed('set -e # strict mode')).toBe(true);
+    // flexibility that makes `shopt*` practical here).
+    expect(allowed('shopt -s nullglob # globbing')).toBe(true);
     expect(allowed('ls # list files')).toBe(true);
   });
 });
@@ -407,10 +414,51 @@ describe('bash-permissions-example: text processing', () => {
   test.each([
     // Deliberately-excluded tools (see the comment block in the example file).
     ['awk {print} foo', 'awk has system()'],
-    ['yq -i .a=1 foo.yaml', 'yq -i writes in place'],
     ['xargs rm', 'xargs is a universal exec pipe'],
     ['less foo', 'less can shell out via !cmd'],
   ])('rejects excluded tool: %s  (%s)', (cmd) => {
+    expect(allowed(cmd)).toBe(false);
+  });
+
+  test.each(['yq', 'yq .a foo.yaml', 'yq -o json . foo.yaml', 'yq -P --indent 4 . foo.yaml', 'yq -I 2 . foo.yaml'])(
+    'yq read-only form allowed: %s',
+    (cmd) => {
+      expect(allowed(cmd)).toBe(true);
+    },
+  );
+
+  test.each([
+    ['yq -i .a=1 foo.yaml', '-i writes in place'],
+    ['yq .a=1 -i foo.yaml', '-i after the expression'],
+    ['yq -Pi .a=1 foo.yaml', '-i bundled with -P'],
+    ['yq --inplace .a=1 foo.yaml', '--inplace'],
+  ])('yq in-place edit rejected: %s  (%s)', (cmd) => {
+    expect(allowed(cmd)).toBe(false);
+  });
+});
+
+describe('bash-permissions-example: kubectl', () => {
+  test.each([
+    'kubectl get pods',
+    'kubectl get pods -n kube-system -o json',
+    'kubectl get deploy,svc -A',
+    'kubectl get configmap my-config -o yaml',
+    'kubectl describe pod foo',
+    'kubectl describe secret foo',
+    'kubectl logs foo -c bar --tail 50',
+  ])('allows read-only: %s', (cmd) => {
+    expect(allowed(cmd)).toBe(true);
+  });
+
+  test.each([
+    'kubectl get secret',
+    'kubectl get secrets -A',
+    'kubectl get -n auth secret db -o yaml',
+    'kubectl get pods,secrets',
+    'kubectl get secret/db -o json',
+    'kubectl delete pod foo',
+    'kubectl exec foo -- sh',
+  ])('does not allow: %s', (cmd) => {
     expect(allowed(cmd)).toBe(false);
   });
 });
@@ -468,7 +516,6 @@ describe('bash-permissions-example: control-flow compounds', () => {
     // Benign loops / conditionals whose inner commands are in the allowlist.
     'if [[ -f foo ]]; then echo found; fi',
     'while [[ -f foo ]]; do echo wait; done',
-    'for f in *.ts; do echo $f; done',
     'if true; then echo yes; else echo no; fi',
   ])('allows benign: %s', (cmd) => {
     const decisions = run(cmd);
@@ -494,6 +541,13 @@ describe('bash-permissions-example: control-flow compounds', () => {
       decisions.some((d) => d.kind === 'block'),
       `${cmd} should surface a block`,
     ).toBe(true);
+  });
+
+  test('a `for` loop header prompts (no `for*` allow rule)', () => {
+    const decisions = run('for f in *.ts; do echo $f; done');
+
+    expect(decisions.some((d) => d.kind === 'prompt')).toBe(true);
+    expect(decisions.some((d) => d.kind === 'block')).toBe(false);
   });
 });
 
@@ -567,13 +621,10 @@ describe('bash-permissions-example: readonly spot-checks', () => {
     'docker ps -a',
     'docker images',
     'docker logs my-container',
-    'docker inspect my-container',
     'docker version',
     'docker info',
     // env / identity
     'echo hello',
-    'printenv',
-    'env',
     'date',
     'uname -a',
     'whoami',
@@ -688,7 +739,6 @@ describe('bash-permissions-example: glab', () => {
     'glab mr view 42',
     'glab mr list --state opened',
     'glab mr diff 42',
-    'glab mr checkout 42',
     'glab issue view 1',
     'glab issue list',
     'glab ci view 12345',

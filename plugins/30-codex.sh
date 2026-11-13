@@ -47,6 +47,11 @@ codex() {
     if [[ -n "${profile}" ]]; then
       export CODEX_HOME="${profile_dir}"
     fi
+    # Shared harness env first, so the profile env below can override it.
+    if [[ -r "${DOTFILES__ROOT}/.dotfiles/config/agents/env" ]]; then
+      # shellcheck disable=SC1091
+      source "${DOTFILES__ROOT}/.dotfiles/config/agents/env"
+    fi
     if [[ -f "${profile_dir}/env" ]]; then
       # shellcheck disable=SC1091
       source "${profile_dir}/env"

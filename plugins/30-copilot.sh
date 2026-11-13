@@ -57,6 +57,11 @@ copilot() {
     if [[ "${profile_dir}" != "${HOME}/.copilot" && -d "${HOME}/.agents/skills" ]]; then
       export COPILOT_SKILLS_DIRS="${HOME}/.agents/skills${COPILOT_SKILLS_DIRS:+,${COPILOT_SKILLS_DIRS}}"
     fi
+    # Shared harness env first, so the profile env below can override it.
+    if [[ -r "${DOTFILES__ROOT}/.dotfiles/config/agents/env" ]]; then
+      # shellcheck disable=SC1091
+      source "${DOTFILES__ROOT}/.dotfiles/config/agents/env"
+    fi
     if [[ -f "${profile_dir}/env" ]]; then
       # shellcheck disable=SC1091
       source "${profile_dir}/env"

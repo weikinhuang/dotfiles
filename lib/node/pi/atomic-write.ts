@@ -48,11 +48,13 @@ let writeCounter = 0;
  *
  * `body` accepts both strings and Buffers; strings are encoded as UTF-8
  * by `writeFileSync`'s default behavior, matching prior call sites.
+ * `mode` (subject to the umask) sets the permissions of the new file,
+ * e.g. to keep a `0600` config file private across the rewrite.
  */
-export function atomicWriteFile(path: string, body: string | Buffer): void {
+export function atomicWriteFile(path: string, body: string | Buffer, mode?: number): void {
   ensureDirSync(dirname(path));
   const tmp = `${path}.tmp-${process.pid}-${Date.now()}-${++writeCounter}`;
-  writeFileSync(tmp, body);
+  writeFileSync(tmp, body, mode === undefined ? undefined : { mode });
   renameSync(tmp, path);
 }
 

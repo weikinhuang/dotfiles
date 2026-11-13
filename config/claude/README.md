@@ -10,9 +10,12 @@ Configuration, personal instructions, and custom tooling for [Claude Code](https
   usage.
 - [`settings-baseline.json`](#settings-baselinejson) - mirrors `~/.claude/settings.json`.
 - [`settings-local.json`](#settings-localjson) - mirrors `~/.claude/settings.json`.
-- [`CLAUDE-local.md`](./CLAUDE-local.md) - personal, workspace-level instructions appended to Claude Code's `CLAUDE.md`
-  context (tool preferences, response style). Not consumed by this repo's dotfiles directly - Claude Code picks it up
-  when symlinked to `~/.claude/CLAUDE.md` (or similar).
+- [`global-claude.md`](./global-claude.md) - global instructions, linked as `~/.claude/CLAUDE.md` by
+  `config/agents/sync.ts apply`. It `@`-imports the shared core
+  ([`config/agents/instructions.md`](../agents/instructions.md)); Claude-only rules go below the import.
+- [`CLAUDE-local.md`](./CLAUDE-local.md) - personal, workspace-level instructions for the local-LLM profile (tool
+  preferences, response style). Not part of the shared layer and not installed by sync; link it as that profile's
+  `CLAUDE.md` by hand.
 
 ## `statusline-command.sh`
 
@@ -95,7 +98,28 @@ the same value as `last_context_tokens`.
 
 ## `settings-baseline.json`
 
-A reference baseline config for Claude Code.
+A reference baseline config for Claude Code. `config/agents/sync.ts apply` merges it into `~/.claude/settings.json`
+(`CLAUDE_CONFIG_DIR` when set): baseline keys win, every other live key is kept, and `diff` shows the changes first. See
+[`config/agents/README.md`](../agents/README.md#installing-into-the-harness-homes).
+
+`permissions.allow` and `permissions.ask` are generated from
+[`config/agents/shell-permissions.jsonc`](../agents/shell-permissions.jsonc) by `config/agents/sync.ts generate` (see
+[`config/agents/README.md`](../agents/README.md)); edit the canonical list, not this file. Every entry of both tiers
+becomes a `Bash(<glob>)` allow rule, and every `except` glob a `Bash(<glob>)` ask rule. The rest of the file, including
+the `Read(./.env*)` denies, is hand-written.
+
+JSON has no comments, so the risk notes attached to allowed entries live here:
+
+<!-- BEGIN GENERATED shell-permissions (config/agents/sync.ts generate); do not edit by hand -->
+
+- `find *`: `-exec`, `-execdir`, `-ok`, and `-okdir` run commands, `-delete` removes files, and `-fprint` / `-fprintf` /
+  `-fls` write files. Allowed outright for now; pi rejects those flags with a regex.
+- `sed *`: `-i` / `--in-place` edits files, and the `w` / `e` script commands write files / run commands. Allowed
+  outright for now; pi rejects `-i` / `--in-place` with a regex.
+- `yq *`: `-i` / `--inplace` edits files, so those forms ask. Bundled short flags such as `-Pi` are not caught outside
+  pi.
+
+<!-- END GENERATED shell-permissions -->
 
 ## `settings-local.json`
 

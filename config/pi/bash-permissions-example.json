@@ -156,7 +156,6 @@
     "glab mr view*",
     "glab mr list*",
     "glab mr diff*",
-    "glab mr checkout*",
     "glab issue view*",
     "glab issue list*",
     "glab ci view*",
@@ -201,10 +200,19 @@
     "docker image ls*",
     "docker container ls*",
     "docker logs*",
-    "docker inspect*",
     "docker version",
     "docker info",
     "docker stats --no-stream*",
+
+    // ── kubernetes: read-only queries ──────────────────────────────────────
+    // `kubectl get` is admitted via regex that rejects any `secret` /
+    // `secrets` resource (`get secret`, `get -n x secrets`,
+    // `get pods,secrets`, `get secret/foo`), since `-o yaml` / `-o json`
+    // print the base64-encoded values. `describe` only shows key names
+    // and sizes for secrets.
+    "re:^kubectl get(?!.*[\\s,/]secrets?\\b)(\\s.*)?$",
+    "kubectl describe*",
+    "kubectl logs*",
 
     // ── directory navigation ───────────────────────────────────────────────
     // Each `bash` tool call runs in its own subshell, so a bare `cd foo`
@@ -223,11 +231,13 @@
     "dirs*",
 
     // ── shell builtins / conditionals ─────────────────────────────────────────────
-    // `set`, `shopt`, `alias` toggle shell state that is scoped to the
+    // `shopt` and `alias` toggle shell state that is scoped to the
     // subshell pi spawns for this tool call - the state vanishes on
     // exit, so these can't be used to persist a surprise side effect
-    // across calls. `test` / `[` are pure predicate builtins.
-    "set*",
+    // across calls. `test` / `[` are pure predicate builtins. `set`
+    // is left out (bare `set` dumps every variable, including secrets),
+    // as are `for` / `select` / `case` (their first-token form matches
+    // no rule, so loops and case blocks hit the approval prompt).
     "shopt*",
     "alias",
     "alias -p",
@@ -241,25 +251,17 @@
     // on the `rm` side, not here).
     "[[*",
     "((*",
-    // Control-flow constructs whose args aren't executable commands
-    // (their bodies are - and those run through the gate independently
-    // after `decideSubcommand`'s control-flow-keyword strip peels off
-    // any leading `if`/`while`/`then`/…). `for VAR in LIST` / `select`
-    // / `case EXPR in` all need an explicit allow here because their
-    // first-token form isn't covered by any other rule.
-    "for*",
-    "select*",
-    "case*",
 
     // ── text processing (readonly stream transforms) ──────────────────────────────
     // Every tool here reads from stdin/argv and writes to stdout only -
-    // no in-place edits, no exec vectors. `sort` is the exception:
-    // `sort -o FILE` writes to FILE, so it's admitted via regex that
-    // rejects `-o`.
+    // no in-place edits, no exec vectors. `sort` and `yq` are the
+    // exceptions: `sort -o FILE` writes to FILE and `yq -i` /
+    // `--inplace` edits files, so both are admitted via regexes that
+    // reject those flags (`yq`'s also catches bundled short flags such
+    // as `-Pi`).
     //
     // Deliberately NOT in this list:
     //   awk    - `system()` and `| "cmd"` run shell commands
-    //   yq     - `-i` / `--inplace` writes files
     //   xargs  - universal pipe-to-arbitrary-command
     //   less / more  - interactive pagers that can execute `!cmd`
     //
@@ -270,6 +272,7 @@
     // containing `e` or `w` at your own risk.
     "re:^sed(?!.*\\s(-[a-zA-Z]*i[a-zA-Z]*|--in-place)\\b)(\\s.*)?$",
     "re:^sort(?!.*\\s(-o|--output)\\b)(\\s.*)?$",
+    "re:^yq(?!.*\\s(-[a-zA-Z]*i[a-zA-Z]*|--inplace)\\b)(\\s.*)?$",
     "cut*",
     "uniq*",
     "tr*",
@@ -285,6 +288,7 @@
     "diff*",
     "cmp*",
     "jq*",
+    "yamllint*",
 
     // ── hashing / encoding / binary inspection (stdout-only) ──────────────────────
     "md5sum*",
@@ -302,8 +306,6 @@
     // ── system / env info ──────────────────────────────────────────────────
     "echo*",
     "printf*",
-    "env",
-    "printenv*",
     "date*",
     "uname*",
     "whoami",

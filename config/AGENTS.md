@@ -18,6 +18,7 @@ See [README.md](./README.md) for the full per-directory table; high-level groupi
 | Path                                                                                                                 | Purpose                                                                                                                                  |
 | -------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | [`bat/`](./bat/), [`eza/`](./eza/), [`git/`](./git/), [`ripgrep/`](./ripgrep/), [`tmux/`](./tmux/), [`vim/`](./vim/) | Static config pointed at by the matching [`../plugins/`](../plugins/) shell plugin or installed by [`../bootstrap.sh`](../bootstrap.sh). |
+| [`agents/`](./agents/README.md)                                                                                      | Shared harness config (allowlist, instructions, env, skills) + `sync.ts generate` / `diff` / `apply`.                                    |
 | [`claude/`](./claude/)                                                                                               | Claude Code config + custom statusline + session-usage CLI ([AGENTS.md](./claude/AGENTS.md)).                                            |
 | [`codex/`](./codex/)                                                                                                 | Codex CLI config + session-usage CLI.                                                                                                    |
 | [`copilot/`](./copilot/)                                                                                             | GitHub Copilot CLI config + permission rules + session-usage CLI.                                                                        |
@@ -41,8 +42,12 @@ See [README.md](./README.md) for the full per-directory table; high-level groupi
   [`../lib/node/ai-tooling/`](../lib/node/ai-tooling). When adding a new flag or column, update all five in lockstep so
   the UX stays identical across providers. Specs live under [`../tests/config/*/`](../tests/config).
 - `settings-baseline.json` (or `config.toml`, `opencode.jsonc` / `cli-baseline.json`, copilot `tool-permissions`)
-  **mirrors** the live product file under `~/.<tool>/`. Keep runtime-only keys (e.g. `lastChangelogVersion`) out of the
+  **mirrors** the live product file under `~/.<tool>/`; `config/agents/sync.ts apply` merges it in (baseline keys win,
+  other live keys stay). Keep runtime-only and per-machine keys (e.g. `lastChangelogVersion`, `model`) out of the
   baseline.
+- The shell allowlists in the Claude, opencode, and Copilot baselines and `codex/dotfiles.rules` are generated from
+  [`agents/shell-permissions.jsonc`](./agents/shell-permissions.jsonc). Edit that list and run
+  `config/agents/sync.ts generate`; a spec fails when the committed files are stale.
 - Each subdir has its own [AGENTS.md](./claude/AGENTS.md) / [README.md](./pi/README.md) covering product-specific rules;
   update those when the product surface changes, not this file.
 

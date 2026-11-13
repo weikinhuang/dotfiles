@@ -48,6 +48,11 @@ pi() {
       export PI_CODING_AGENT_DIR="${profile_dir}"
       export PI_CODING_AGENT_PROFILE_NAME="${profile}"
     fi
+    # Shared harness env first, so the profile env below can override it.
+    if [[ -r "${DOTFILES__ROOT}/.dotfiles/config/agents/env" ]]; then
+      # shellcheck disable=SC1091
+      source "${DOTFILES__ROOT}/.dotfiles/config/agents/env"
+    fi
     if [[ -f "${profile_dir}/env" ]]; then
       # shellcheck disable=SC1091
       source "${profile_dir}/env"

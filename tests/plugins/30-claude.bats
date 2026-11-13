@@ -17,6 +17,9 @@ stub_claude_env_dump() {
 printf 'CLAUDE_CONFIG_DIR=%s\n' "${CLAUDE_CONFIG_DIR:-}"
 printf 'CLAUDE_CODE_PROFILE_NAME=%s\n' "${CLAUDE_CODE_PROFILE_NAME:-}"
 printf 'ANTHROPIC_BASE_URL=%s\n' "${ANTHROPIC_BASE_URL:-}"
+printf 'GIT_CONFIG_COUNT=%s\n' "${GIT_CONFIG_COUNT:-}"
+printf 'GIT_CONFIG_KEY_0=%s\n' "${GIT_CONFIG_KEY_0:-}"
+printf 'GIT_CONFIG_VALUE_0=%s\n' "${GIT_CONFIG_VALUE_0:-}"
 printf 'ARGS:\n'
 printf '%s\n' "$@"
 EOF
@@ -153,4 +156,36 @@ make_profile() {
   local reply
   reply="$(printf '%s\n' "${COMPREPLY[@]}" | sort | tr '\n' ' ')"
   [ "${reply}" = "personal work " ]
+}
+
+@test "30-claude: sources the shared config/agents/env" {
+  source "${REPO_ROOT}/plugins/30-claude.sh"
+
+  run claude hello
+  assert_success
+  assert_line 'GIT_CONFIG_COUNT=1'
+  assert_line 'GIT_CONFIG_KEY_0=core.fsmonitor'
+  assert_line 'GIT_CONFIG_VALUE_0=false'
+}
+
+@test "30-claude: profile env overrides the shared env" {
+  mkdir -p "${HOME}/.claude"
+  printf 'export GIT_CONFIG_VALUE_0=true\n' >"${HOME}/.claude/env"
+  source "${REPO_ROOT}/plugins/30-claude.sh"
+
+  run claude hello
+  assert_success
+  assert_line 'GIT_CONFIG_COUNT=1'
+  assert_line 'GIT_CONFIG_VALUE_0=true'
+}
+
+@test "30-claude: missing shared env is skipped" {
+  export DOTFILES__ROOT="${BATS_TEST_TMPDIR}/empty-root"
+  mkdir -p "${DOTFILES__ROOT}"
+  source "${REPO_ROOT}/plugins/30-claude.sh"
+
+  run claude hello
+  assert_success
+  assert_line 'GIT_CONFIG_COUNT='
+  assert_line 'hello'
 }

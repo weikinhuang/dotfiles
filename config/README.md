@@ -8,9 +8,10 @@ with their own `README.md` document custom tooling on top of the stock config.
 
 | Path                                | Consumer                                                                  | Notes                                                                                                                        |
 | ----------------------------------- | ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| [`agents/`](./agents/README.md)     | Every agent harness (Claude Code, Codex, Copilot, opencode, pi)           | Shell allowlist (`sync.ts generate`), shared instructions, env, and skills; `sync.ts apply` installs them.                   |
 | [`bat/`](./bat/)                    | `bat`                                                                     | `BAT_CONFIG_PATH` points here from [`plugins/30-bat.sh`](../plugins/30-bat.sh).                                              |
 | [`claude/`](./claude/README.md)     | [Claude Code](https://code.claude.com)                                    | Settings, custom statusline, session-usage CLI. See [`claude/AGENTS.md`](./claude/AGENTS.md) for edit rules.                 |
-| [`codex/`](./codex/README.md)       | [Codex CLI](https://github.com/openai/codex)                              | `config.toml` + session-usage CLI.                                                                                           |
+| [`codex/`](./codex/README.md)       | [Codex CLI](https://github.com/openai/codex)                              | `config.toml` + generated `dotfiles.rules` + session-usage CLI.                                                              |
 | [`copilot/`](./copilot/README.md)   | [GitHub Copilot CLI](https://github.com/github/copilot-cli)               | `settings.json` baseline + `tool-permissions` rules for the wrapper + session-usage CLI.                                     |
 | [`eza/`](./eza/)                    | `eza`                                                                     | Solarized theme files symlinked into `~/.config/eza/theme.yml` by [`plugins/10-eza.sh`](../plugins/10-eza.sh).               |
 | [`git/`](./git/)                    | `git`                                                                     | Split `.gitconfig` fragments and global ignore/attributes, installed by [`bootstrap.sh`](../bootstrap.sh).                   |
@@ -23,6 +24,7 @@ with their own `README.md` document custom tooling on top of the stock config.
 ## Related docs
 
 - [../AGENTS.md](../AGENTS.md) - root agent guide.
+- [agents/README.md](./agents/README.md) - shared harness config (allowlist, instructions, env, skills) and `sync.ts`.
 - [../REFERENCE.md](../REFERENCE.md) - "Tool defaults" table cross-referencing each config directory to the shell plugin
   that consumes it.
 - [pi/README.md](./pi/README.md) - pi config (deepest subtree - has its own extension / skill / agent indexes).

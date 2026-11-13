@@ -1,6 +1,23 @@
 {
   "banner": "never",
   "effortLevel": "high",
+  "footer": {
+    "showModelEffort": true,
+    "showDirectory": true,
+    "showBranch": true,
+    "showContextWindow": true,
+    "showQuota": true,
+    "showAiUsed": true,
+    "showAgent": true,
+    "showCodeChanges": true,
+    "showUsername": false,
+    "showSandbox": true,
+    "showYolo": false,
+    "showCiStatus": false,
+    "showSchedules": true,
+    "showPullRequest": true,
+    "showCustom": true
+  },
   "includeCoAuthoredBy": false,
   "memory": true,
   "showTipsOnStartup": false,

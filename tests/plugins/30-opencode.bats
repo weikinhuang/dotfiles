@@ -18,6 +18,9 @@ printf 'OPENCODE_DB=%s\n' "${OPENCODE_DB:-}"
 printf 'OPENCODE_PROFILE_NAME=%s\n' "${OPENCODE_PROFILE_NAME:-}"
 printf 'XDG_STATE_HOME=%s\n' "${XDG_STATE_HOME:-}"
 printf 'OPENAI_BASE_URL=%s\n' "${OPENAI_BASE_URL:-}"
+printf 'GIT_CONFIG_COUNT=%s\n' "${GIT_CONFIG_COUNT:-}"
+printf 'GIT_CONFIG_KEY_0=%s\n' "${GIT_CONFIG_KEY_0:-}"
+printf 'GIT_CONFIG_VALUE_0=%s\n' "${GIT_CONFIG_VALUE_0:-}"
 printf 'ARGS:\n'
 printf '%s\n' "$@"
 EOF
@@ -195,4 +198,36 @@ make_profile() {
   _dot_opencode
 
   [ "${COMPREPLY[*]}" = "native-called" ]
+}
+
+@test "30-opencode: sources the shared config/agents/env" {
+  source "${REPO_ROOT}/plugins/30-opencode.sh"
+
+  run opencode hello
+  assert_success
+  assert_line 'GIT_CONFIG_COUNT=1'
+  assert_line 'GIT_CONFIG_KEY_0=core.fsmonitor'
+  assert_line 'GIT_CONFIG_VALUE_0=false'
+}
+
+@test "30-opencode: profile env overrides the shared env" {
+  mkdir -p "${XDG_CONFIG_HOME}/opencode"
+  printf 'export GIT_CONFIG_VALUE_0=true\n' >"${XDG_CONFIG_HOME}/opencode/env"
+  source "${REPO_ROOT}/plugins/30-opencode.sh"
+
+  run opencode hello
+  assert_success
+  assert_line 'GIT_CONFIG_COUNT=1'
+  assert_line 'GIT_CONFIG_VALUE_0=true'
+}
+
+@test "30-opencode: missing shared env is skipped" {
+  export DOTFILES__ROOT="${BATS_TEST_TMPDIR}/empty-root"
+  mkdir -p "${DOTFILES__ROOT}"
+  source "${REPO_ROOT}/plugins/30-opencode.sh"
+
+  run opencode hello
+  assert_success
+  assert_line 'GIT_CONFIG_COUNT='
+  assert_line 'hello'
 }

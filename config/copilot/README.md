@@ -15,14 +15,17 @@ The shell wrapper and completion live in [`plugins/30-copilot.sh`](../../plugins
 
 ## `settings-baseline.json`
 
-Reference user settings. Copy or merge them into `~/.copilot/settings.json` by hand, the same way the Claude Code,
-Codex, and opencode baselines are installed; for a named profile the target is `<profile dir>/settings.json` (see
-[Profiles](#profiles)). `copilot config --list` shows the effective values, and `/settings` lists unknown keys under
-**Problems**.
+Reference user settings. `config/agents/sync.ts apply` merges them into `~/.copilot/settings.json` (`COPILOT_HOME` when
+set, so `COPILOT_HOME=<profile dir> config/agents/sync.ts apply --harness copilot` covers a named profile, see
+[Profiles](#profiles)): baseline keys win and every other live key is kept. `~/.copilot/config.json` is a different,
+app-managed file and is never touched. See
+[`config/agents/README.md`](../agents/README.md#installing-into-the-harness-homes). `copilot config --list` shows the
+effective values, and `/settings` lists unknown keys under **Problems**.
 
 - `includeCoAuthoredBy: false` drops the `Co-authored-by` commit trailer, like Claude's empty `attribution`.
 - `effortLevel: "high"` and `memory: true` match the Claude baseline's effort level and auto memory.
 - `terminalProgress: false`, `banner: "never"`, and `showTipsOnStartup: false` keep the TUI quiet.
+- `footer` picks the status bar segments: everything on except username, YOLO mode, and CI status.
 - `theme: "default"` follows the terminal palette; copilot has no Solarized or `auto` theme.
 - `model` is intentionally absent: it is per machine, so set it in the live file (or `/model`).
 - `autoUpdate` stays at its default (`true`). Updates land in the cache dir (`~/Library/Caches/copilot/pkg/` on macOS,
@@ -48,8 +51,9 @@ deny read(.env)         -> --deny-tool=read(.env)
 ```
 
 Blank lines and `#` comments are ignored. Any other verb, or a verb without a pattern, is an error and copilot does not
-start, so a typo cannot silently drop a deny rule. A missing file adds no flags. Copy this file to `~/.copilot/` (and to
-each profile dir) by hand.
+start, so a typo cannot silently drop a deny rule. A missing file adds no flags. `config/agents/sync.ts apply` links
+this file as `<COPILOT_HOME>/tool-permissions`, next to `copilot-instructions.md` linked to the shared
+[`config/agents/instructions.md`](../agents/instructions.md).
 
 ### How copilot matches shell rules
 
@@ -69,24 +73,31 @@ The identifier for any command shows up in `~/.copilot/session-state/<id>/events
 
 Deny rules always win, including over `--allow-all` / `--yolo` and saved approvals.
 
-### Port from the Claude allowlist
+### Generated from the canonical allowlist
 
-The rules mirror `permissions.allow` in [`config/claude/settings-baseline.json`](../claude/settings-baseline.json). Each
-Claude rule was run once against copilot 1.0.103 with no flags and sorted into:
+The `allow` rules between the `BEGIN GENERATED shell-permissions` / `END GENERATED shell-permissions` markers are
+generated from the `shared` tier of [`config/agents/shell-permissions.jsonc`](../agents/shell-permissions.jsonc) by
+`config/agents/sync.ts generate` (see [`config/agents/README.md`](../agents/README.md)). Entries with `except` globs
+(`yq`, `kubectl get`) are skipped (copilot has no ask-after-allow), and so are entries marked with a `copilot` skip
+reason. The reasons come from the original port of the Claude allowlist, where each Claude rule was run once against
+copilot 1.0.103 with no flags and sorted into:
 
-- **Already auto-approved** (72 rules, left out): copilot's built-in read-only tier runs them without asking, e.g.
-  `cat`, `grep`, `rg`, `ls`, `find`, `sed`, `head`, `tail`, `git status` / `log` / `diff` / `show`, and `gh pr view` /
-  `gh issue list` / `gh run view`. The tier judges each invocation, so `find -delete` or `sed -i` still ask, which is
-  stricter than Claude.
-- **Ported** (63 rules): the identifier equals the Claude rule's command words, so `Bash(jq *)` becomes `shell(jq:*)`
-  and `Bash(npm --version)` becomes `shell(npm --version)`.
-- **Dropped because copilot's rule would be broader** (48 rules, these keep asking): all `docker ...` rules (identifier
-  `docker`), all `glab ...` rules (identifiers such as `glab mr` would also allow `glab mr merge`), `gh config`,
-  `gh label`, `gh ruleset`, `gh run watch`, `gh secret`, `gh variable`, `git stash list` / `show`,
+- **Already auto-approved** (`"copilot": "readonly"`, left out): copilot's built-in read-only tier runs them without
+  asking, e.g. `cat`, `grep`, `rg`, `ls`, `find`, `sed`, `head`, `tail`, `git status` / `log` / `diff` / `show`, and
+  `gh pr view` / `gh issue list` / `gh run view`. The tier judges each invocation, so `find -delete` or `sed -i` still
+  ask, which is stricter than Claude.
+- **Ported** (no `copilot` key): the identifier equals the Claude rule's command words, so `Bash(jq *)` becomes
+  `shell(jq:*)` and `Bash(npm --version)` becomes `shell(npm --version)`.
+- **Dropped because copilot's rule would be broader** (`"copilot": "broader"`, these keep asking): all `docker ...`
+  rules (identifier `docker`), all `glab ...` rules (identifiers such as `glab mr` would also allow `glab mr merge`),
+  `gh config`, `gh label`, `gh ruleset`, `gh run watch`, `gh secret`, `gh variable`, `git stash list` / `show`,
   `git submodule status`, `git worktree list`, `npm config get` / `list`, `node --version` / `-v` (identifier `node`),
-  `command -v`, `env`, `alias`, `rev`, and `select`.
+  `command -v`, `alias`, and `rev`.
 
-Keep this file and the Claude list in sync when adding entries; check new identifiers the same way.
+When adding an entry to the canonical list, check its identifier the same way and set `copilot` accordingly. The
+`kubectl describe` / `kubectl logs`, `git branch --list`, and `git config --get` entries are marked `broader` without a
+check against copilot (the identifiers are `kubectl` or `git branch` / `git config` at best). The `extras` tier (`cp`,
+`mv`, `mkdir`, `touch`, `chmod`, `tee`, `npx oxlint`, `glab mr checkout`) is never emitted here.
 
 The three `read(...)` denies mirror Claude's `Read(./.env*)` denies. They block copilot's file tools for `.env`,
 `.env.*` (including `.env.example`), and `.envrc`. Shell reads such as `cat .env` go through the read-only tier and are

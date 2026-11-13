@@ -1,0 +1,11 @@
+# shellcheck shell=bash
+# Environment shared by every agent harness. The plugins/30-{claude,codex,copilot,opencode,pi}.sh wrappers source
+# this right before the harness's own <profile dir>/env, so a profile can still override anything here. Keep secrets
+# and per-machine values in the profile env, not here.
+# SPDX-License-Identifier: MIT
+
+# config/git/core.gitconfig.conf turns core.fsmonitor on; agent sandboxes cannot reach the fsmonitor daemon's IPC
+# socket and every git call logs "Operation not permitted" warnings, so harness sessions run git without it.
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0="core.fsmonitor"
+export GIT_CONFIG_VALUE_0="false"

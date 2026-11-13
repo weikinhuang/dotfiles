@@ -17,6 +17,9 @@ stub_pi_env_dump() {
 printf 'PI_CODING_AGENT_DIR=%s\n' "${PI_CODING_AGENT_DIR:-}"
 printf 'PI_CODING_AGENT_PROFILE_NAME=%s\n' "${PI_CODING_AGENT_PROFILE_NAME:-}"
 printf 'ANTHROPIC_API_KEY=%s\n' "${ANTHROPIC_API_KEY:-}"
+printf 'GIT_CONFIG_COUNT=%s\n' "${GIT_CONFIG_COUNT:-}"
+printf 'GIT_CONFIG_KEY_0=%s\n' "${GIT_CONFIG_KEY_0:-}"
+printf 'GIT_CONFIG_VALUE_0=%s\n' "${GIT_CONFIG_VALUE_0:-}"
 printf 'ARGS:\n'
 printf '%s\n' "$@"
 EOF
@@ -153,4 +156,36 @@ make_profile() {
   local reply
   reply="$(printf '%s\n' "${COMPREPLY[@]}" | sort | tr '\n' ' ')"
   [ "${reply}" = "personal work " ]
+}
+
+@test "30-pi: sources the shared config/agents/env" {
+  source "${REPO_ROOT}/plugins/30-pi.sh"
+
+  run pi hello
+  assert_success
+  assert_line 'GIT_CONFIG_COUNT=1'
+  assert_line 'GIT_CONFIG_KEY_0=core.fsmonitor'
+  assert_line 'GIT_CONFIG_VALUE_0=false'
+}
+
+@test "30-pi: profile env overrides the shared env" {
+  mkdir -p "${HOME}/.pi/agent"
+  printf 'export GIT_CONFIG_VALUE_0=true\n' >"${HOME}/.pi/agent/env"
+  source "${REPO_ROOT}/plugins/30-pi.sh"
+
+  run pi hello
+  assert_success
+  assert_line 'GIT_CONFIG_COUNT=1'
+  assert_line 'GIT_CONFIG_VALUE_0=true'
+}
+
+@test "30-pi: missing shared env is skipped" {
+  export DOTFILES__ROOT="${BATS_TEST_TMPDIR}/empty-root"
+  mkdir -p "${DOTFILES__ROOT}"
+  source "${REPO_ROOT}/plugins/30-pi.sh"
+
+  run pi hello
+  assert_success
+  assert_line 'GIT_CONFIG_COUNT='
+  assert_line 'hello'
 }

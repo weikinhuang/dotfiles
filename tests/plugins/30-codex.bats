@@ -13,6 +13,9 @@ stub_codex_env_dump() {
 #!/usr/bin/env bash
 printf 'CODEX_HOME=%s\n' "${CODEX_HOME:-}"
 printf 'OPENAI_BASE_URL=%s\n' "${OPENAI_BASE_URL:-}"
+printf 'GIT_CONFIG_COUNT=%s\n' "${GIT_CONFIG_COUNT:-}"
+printf 'GIT_CONFIG_KEY_0=%s\n' "${GIT_CONFIG_KEY_0:-}"
+printf 'GIT_CONFIG_VALUE_0=%s\n' "${GIT_CONFIG_VALUE_0:-}"
 printf 'ARGS:\n'
 printf '%s\n' "$@"
 EOF
@@ -146,4 +149,36 @@ make_profile() {
   local reply
   reply="$(printf '%s\n' "${COMPREPLY[@]}" | sort | tr '\n' ' ')"
   [ "${reply}" = "aws gcp " ]
+}
+
+@test "30-codex: sources the shared config/agents/env" {
+  source "${REPO_ROOT}/plugins/30-codex.sh"
+
+  run codex hello
+  assert_success
+  assert_line 'GIT_CONFIG_COUNT=1'
+  assert_line 'GIT_CONFIG_KEY_0=core.fsmonitor'
+  assert_line 'GIT_CONFIG_VALUE_0=false'
+}
+
+@test "30-codex: profile env overrides the shared env" {
+  mkdir -p "${HOME}/.codex"
+  printf 'export GIT_CONFIG_VALUE_0=true\n' >"${HOME}/.codex/env"
+  source "${REPO_ROOT}/plugins/30-codex.sh"
+
+  run codex hello
+  assert_success
+  assert_line 'GIT_CONFIG_COUNT=1'
+  assert_line 'GIT_CONFIG_VALUE_0=true'
+}
+
+@test "30-codex: missing shared env is skipped" {
+  export DOTFILES__ROOT="${BATS_TEST_TMPDIR}/empty-root"
+  mkdir -p "${DOTFILES__ROOT}"
+  source "${REPO_ROOT}/plugins/30-codex.sh"
+
+  run codex hello
+  assert_success
+  assert_line 'GIT_CONFIG_COUNT='
+  assert_line 'hello'
 }

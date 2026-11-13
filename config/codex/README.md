@@ -5,13 +5,39 @@ Configuration and custom tooling for the [Codex CLI](https://github.com/openai/c
 ## Files
 
 - [`config.toml`](#configtoml) - mirrors `~/.codex/config.toml`.
+- [`dotfiles.rules`](#dotfilesrules) - generated command-approval rules for `~/.codex/rules/`.
 - [`session-usage.ts`](#session-usagets) - CLI that walks `~/.codex/sessions/` and summarizes transcript token/tool
   usage.
 
 ## `config.toml`
 
-Reference Codex settings: default model, reasoning effort, file opener, `[features]` toggles, `[tui]` status-line layout
-and theme, and analytics/feedback opt-outs.
+Reference Codex settings: reasoning effort, file opener, `[features]` toggles, `[tui]` status-line layout and theme, and
+analytics/feedback opt-outs. `model` is intentionally absent: it is per machine, so set it in the live file only.
+
+`config/agents/sync.ts apply` merges it into `~/.codex/config.toml` (`CODEX_HOME` when set): baseline keys win, and
+every other key and table (`model`, `notify`, `[projects."<path>"]`, `[mcp_servers.*]`, `[desktop]`, `[marketplaces.*]`,
+`[plugins.*]`, `[notice.*]`, ...) is kept with the same values. The merged file is re-serialized, so comments in the
+live file are lost and inline tables become regular tables; Codex already rewrites the file the same way when it saves
+settings. When the live file does not exist yet, the baseline is copied verbatim. See
+[`config/agents/README.md`](../agents/README.md#installing-into-the-harness-homes).
+
+## `dotfiles.rules`
+
+Starlark `prefix_rule(...)` approvals generated from
+[`config/agents/shell-permissions.jsonc`](../agents/shell-permissions.jsonc) by `config/agents/sync.ts generate` (see
+[`config/agents/README.md`](../agents/README.md)); edit the canonical list, not this file. Both tiers are emitted. A
+prefix rule matches the leading argv tokens, so `git status *` becomes `["git", "status"]` and allows any arguments;
+entries with `except` globs (`yq`, `kubectl get`) and exact patterns a prefix would widen (`git remote`,
+`git remote -v`) are left out and keep asking. Check a command against it with
+`codex execpolicy check --rules config/codex/dotfiles.rules git status`.
+
+`config/agents/sync.ts apply` installs it as `~/.codex/rules/dotfiles.rules`. Codex loads every regular `*.rules` file
+in `rules/` but skips symlinks, so this one is a copy, not a link: rerun `apply` after `generate` changes it (`diff`
+reports a stale copy). Machine-local approvals stay in `~/.codex/rules/default.rules`, which Codex appends to when you
+approve a command.
+
+`~/.codex/AGENTS.md` is linked to the shared [`config/agents/instructions.md`](../agents/instructions.md) by the same
+command.
 
 ## `session-usage.ts`
 
