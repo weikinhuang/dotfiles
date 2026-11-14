@@ -10,6 +10,7 @@ loads directly as TypeScript; there is no build step. Authoring conventions for 
 | Plugin                                           | Parts            | Description                                                                                                       |
 | ------------------------------------------------ | ---------------- | ----------------------------------------------------------------------------------------------------------------- |
 | [`context-edit`](./context-edit/README.md)       | server, tui, rpc | Reversible overlay that collapses tool output and drops images: `/context-edit`, `collapse_output`, `drop_image`. |
+| [`copilot-web`](./copilot-web/README.md)         | server           | GitHub Copilot backend for the native `websearch` tool plus a `copilot_web_fetch` tool (pi `copilot-web`).        |
 | [`cost-guard`](./cost-guard/README.md)           | server, tui, rpc | Local-only cache-rewrite and spend warnings as TUI toasts and a status slot (pi `cost-guard`).                    |
 | [`memory`](./memory/README.md)                   | server, tui, rpc | Cross-session memory tool and index sharing pi's `~/.pi/agent/memory` store; `/memory` reports (pi `memory`).     |
 | [`notify`](./notify/README.md)                   | server           | `notify` tool plus a turn-end desktop notification via `quick-toast` (pi `notify`).                               |
