@@ -119,7 +119,7 @@ import {
 import { completePositional } from '../../../lib/node/pi/commands/complete.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { askForPermission, askForPermissionBatch } from '../../../lib/node/pi/bash/permission-prompts.ts';
-import { buildNoUiDenyReason } from '../../../lib/node/pi/bash-permissions/no-ui-reason.ts';
+import { buildNoUiDenyReason, buildNoUiOperatorHint } from '../../../lib/node/pi/bash-permissions/no-ui-reason.ts';
 import { writeJsonFile } from '../../../lib/node/pi/atomic-write.ts';
 import { loadJsoncConfigOrFallback } from '../../../lib/node/pi/jsonc.ts';
 import { envTruthy } from '../../../lib/node/pi/parse-env.ts';
@@ -236,6 +236,8 @@ export default function bashPermissions(pi: ExtensionAPI): void {
   let sessionAuto = false;
 
   const defaultFallback = process.env.PI_BASH_PERMISSIONS_DEFAULT === 'allow' ? 'allow' : 'deny';
+  // The no-UI operator hint goes to stderr once per load, not into the tool result.
+  let operatorHinted = false;
 
   const loadLayers = (cwd: string): { scope: Scope; rules: LoadedRules }[] => [
     { scope: 'session' as const, rules: sessionRules },
@@ -356,10 +358,11 @@ export default function bashPermissions(pi: ExtensionAPI): void {
       } else {
         if (defaultFallback === 'allow') return { allowed: true };
         recordDenied(...unknown);
-        return {
-          allowed: false,
-          reason: buildNoUiDenyReason(unknown, USER_RULES_PATH),
-        };
+        if (!operatorHinted) {
+          operatorHinted = true;
+          process.stderr.write(`${buildNoUiOperatorHint(USER_RULES_PATH)}\n`);
+        }
+        return { allowed: false, reason: buildNoUiDenyReason(unknown) };
       }
     }
 

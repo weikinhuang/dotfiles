@@ -96,12 +96,15 @@ deny). The hardcoded denylist and explicit deny rules apply to children regardle
 ### Non-interactive block message
 
 Without any approval UI, an unknown command is blocked with a reason built by
-[`buildNoUiDenyReason`](../../../lib/node/pi/bash-permissions/no-ui-reason.ts). It lists the commands, tells the model
-that the command and variations of it will be blocked again and must not be retried, and only then gives the
-`/bash-allow` / `PI_BASH_PERMISSIONS_DEFAULT` hint, labelled as being for the user. The earlier operator-only text read
-as "fix something and retry" to small models; one headless qwen3-8-27b run resubmitted the same blocked command ~270
-times. Repeated identical calls are also caught by [`loop-breaker`](./loop-breaker.md), which observes calls before this
-gate runs.
+[`buildNoUiDenyReason`](../../../lib/node/pi/bash-permissions/no-ui-reason.ts). It lists the commands and tells the
+model that the command and variations of it will be blocked again, must not be retried, and that the permission settings
+must not be changed. It names no rules file, slash command, or environment variable: an earlier version carried a
+labelled "(For the user: …)" hint, and a headless qwen3-6-35b-a3b run answered it with
+`export PI_BASH_PERMISSIONS_DEFAULT=allow` and `write` calls on the named rules file. The operator hint
+([`buildNoUiOperatorHint`](../../../lib/node/pi/bash-permissions/no-ui-reason.ts)) goes to stderr once per load instead.
+One headless qwen3-8-27b run against the original operator-only text resubmitted the same blocked command ~270 times.
+Repeated identical calls are also caught by [`loop-breaker`](./loop-breaker.md), which observes calls before this gate
+runs.
 
 ## Commands
 
