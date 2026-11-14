@@ -673,6 +673,9 @@ describe('bash-permissions-example: gh', () => {
     'gh api repos/foo/bar -H Accept:application/vnd.github+json',
     'gh api graphql',
     'gh api graphql -H X-Github-Next-Global-ID:1',
+    'gh api repos/foo/bar/pulls --paginate --jq .[].title',
+    'gh api -i repos/foo/my-fork',
+    "gh api 'repos/{owner}/{repo}/releases' -q '.[0].tag_name'",
   ])('allows `gh api` GET form: %s', (cmd) => {
     expect(allowed(cmd)).toBe(true);
   });
@@ -686,6 +689,19 @@ describe('bash-permissions-example: gh', () => {
     ['gh api repos/foo/bar -F draft=true', '-F field arg = mutation'],
     ['gh api repos/foo/bar --field title=foo', '--field = mutation'],
     ['gh api repos/foo/bar --raw-field body=foo', '--raw-field = mutation'],
+    ['gh api repos/foo/bar -XPOST', 'glued -X'],
+    ['gh api repos/foo/bar -X post', 'lowercase method'],
+    ['gh api repos/foo/bar -X GET -f q=x', 'any method flag prompts'],
+    ['gh api repos/foo/bar --method=POST', '--method='],
+    ['gh api repos/foo/bar -iXPOST', 'short cluster ending in X'],
+    ['gh api repos/foo/bar "-XPOST"', 'quoted flag'],
+    ['gh api repos/foo/bar -ftitle=x', 'glued -f'],
+    ['gh api repos/foo/bar -Fdraft=true', 'glued -F'],
+    ['gh api repos/foo/bar --field=title=x', '--field='],
+    ['gh api repos/foo/bar --input body.json', '--input body switches to POST'],
+    ['gh api graphql --input q.json', '--input graphql'],
+    ['gh api repos/foo/bar $FLAGS', 'variable expansion'],
+    ['gh api repos/foo/bar `cat flags`', 'backtick expansion'],
   ])('rejects `gh api` mutation form: %s  (%s)', (cmd) => {
     expect(allowed(cmd)).toBe(false);
   });
@@ -771,6 +787,10 @@ describe('bash-permissions-example: glab', () => {
     ['glab api projects/1 -f title=foo', '-f field arg = mutation'],
     ['glab api projects/1 -F body=foo', '-F field arg = mutation'],
     ['glab api projects/1 --field title=foo', '--field = mutation'],
+    ['glab api projects/1 -XPOST', 'glued -X'],
+    ['glab api projects/1 --method=DELETE', '--method='],
+    ['glab api projects/1 -ftitle=x', 'glued -f'],
+    ['glab api projects/1 $FLAGS', 'variable expansion'],
     ['glab api projects/1 --raw-field body=foo', '--raw-field = mutation'],
   ])('rejects `glab api` mutation form: %s  (%s)', (cmd) => {
     expect(allowed(cmd)).toBe(false);
