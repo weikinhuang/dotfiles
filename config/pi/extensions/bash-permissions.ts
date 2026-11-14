@@ -308,6 +308,7 @@ export default function bashPermissions(pi: ExtensionAPI): void {
     // flags that so the dialog can tell the user why.
     const unknown: string[] = [];
     const alwaysPromptReasons = new Map<string, string>();
+    const notes = new Map<string, string>();
     // Cross-extension vouch: when the active persona declares the
     // command in its `bashAllow`, treat it as session-allowed by the
     // user-author of the persona file. Mirrors the writeRoots vouch in
@@ -324,12 +325,15 @@ export default function bashPermissions(pi: ExtensionAPI): void {
         return { allowed: false, reason: `Blocked by ${decision.reason} (matched "${sub}")` };
       }
       if (decision.kind === 'prompt') {
-        if (!decision.reason) {
+        // A persona vouch is a prefix-style allow, so it does not cover a
+        // redirect write (decision.note) any more than a user prefix rule does.
+        if (!decision.reason && !decision.note) {
           const vouch = personaVouchBash({ command: sub, active: activePersona });
           if (vouch.vouched) continue;
         }
         unknown.push(sub);
         if (decision.reason) alwaysPromptReasons.set(sub, decision.reason);
+        if (decision.note) notes.set(sub, decision.note);
       }
     }
     if (unknown.length === 0) return { allowed: true };
@@ -365,6 +369,7 @@ export default function bashPermissions(pi: ExtensionAPI): void {
         askForPermissionBatch(promptCtx, trimmed, unknown, {
           auto: sessionAuto,
           alwaysPromptReasons,
+          notes,
           requester,
         }),
       );
@@ -385,6 +390,7 @@ export default function bashPermissions(pi: ExtensionAPI): void {
       askForPermission(promptCtx, sub, {
         auto: sessionAuto,
         alwaysPromptReason: alwaysPromptReasons.get(sub),
+        note: notes.get(sub),
         requester,
       }),
     );

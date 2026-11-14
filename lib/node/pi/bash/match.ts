@@ -26,6 +26,7 @@ import {
   commandTokens,
   expandForSafetyCheck,
   extractCommandSubstitutions,
+  findFileRedirects,
   maskQuotedRegions,
   peelCommandWrapper,
   splitCompound,
@@ -277,7 +278,20 @@ export function checkAlwaysPrompt(command: string): string | null {
 // Sub-command decision (combines hardcoded deny + user rules + auto mode)
 // ──────────────────────────────────────────────────────────────────────
 
-export type BashDecision = { kind: 'allow' } | { kind: 'block'; reason: string } | { kind: 'prompt'; reason?: string };
+/**
+ * `prompt.reason` is an always-prompt match (auto mode cannot skip it);
+ * `prompt.note` is informational context for the approval dialog, such
+ * as the file a redirect would write.
+ */
+export type BashDecision =
+  | { kind: 'allow' }
+  | { kind: 'block'; reason: string }
+  | { kind: 'prompt'; reason?: string; note?: string };
+
+/** Dialog note for a sub-command that writes files through redirects. */
+export function redirectNote(targets: readonly string[]): string {
+  return `writes ${targets.map((t) => `"${t}"`).join(', ')} via a shell redirect; allow rules without ">" do not cover it`;
+}
 
 export interface BashDecideOptions {
   /**
@@ -308,7 +322,12 @@ export interface BashDecideOptions {
  *      hardcoded denylist.
  *   1. Hardcoded denylist (never overridable).
  *   2. Explicit user/project/session deny rules (never overridable).
- *   3. Explicit user/project/session allow rules.
+ *   3. Explicit user/project/session allow rules. A sub-command that
+ *      writes a file through an output redirect (`> out`, `>> log`,
+ *      `&> f`; see {@link findFileRedirects}) is only covered by a rule
+ *      whose pattern itself contains `>` - an exact rule saved for the
+ *      full command, or a deliberate regex. Otherwise a read-only
+ *      prefix rule such as `jq*` would also approve `jq … > file`.
  *   4. Always-prompt list (sudo / doas / …): forces a prompt even
  *      when `auto` is set. Bypassed by an explicit allow rule above.
  *   5. Auto-allow (if enabled).
@@ -350,8 +369,10 @@ export function decideSubcommand(
     return { kind: 'block', reason: `${m.scope} deny rule: "${m.pattern}"` };
   }
 
-  // 3. Explicit allow rules.
-  if (m?.kind === 'allow') return { kind: 'allow' };
+  // 3. Explicit allow rules, unless the sub-command writes a file
+  //    through a redirect the rule does not mention.
+  const redirects = findFileRedirects(sub);
+  if (m?.kind === 'allow' && (redirects.length === 0 || m.pattern.includes('>'))) return { kind: 'allow' };
 
   // 4. Always-prompt list. Forces a prompt even when `auto` is on so
   //    sudo / doas / su can't be silently auto-approved.
@@ -362,7 +383,7 @@ export function decideSubcommand(
   if (options.auto) return { kind: 'allow' };
 
   // 6. Prompt.
-  return { kind: 'prompt' };
+  return redirects.length > 0 ? { kind: 'prompt', note: redirectNote(redirects) } : { kind: 'prompt' };
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -376,6 +397,7 @@ export {
   commandTokens,
   expandForSafetyCheck,
   extractCommandSubstitutions,
+  findFileRedirects,
   maskQuotedRegions,
   peelCommandWrapper,
   splitCompound,

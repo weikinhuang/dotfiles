@@ -53,6 +53,12 @@ export interface AskForPermissionExtras {
   auto?: boolean;
   /** Reason the always-prompt list forced this prompt (e.g. "sudo"). */
   alwaysPromptReason?: string;
+  /**
+   * Context shown under the command (e.g. the file a redirect writes).
+   * When set, only exact-match save options are offered, because a
+   * prefix rule would not cover the command (see `decideSubcommand`).
+   */
+  note?: string;
   /** Label identifying who is asking when routed to another session's
    *  UI (e.g. a subagent prompting the parent). Omit for same-session. */
   requester?: string;
@@ -67,6 +73,8 @@ export interface AskForPermissionBatchExtras {
    * reason.
    */
   alwaysPromptReasons?: Map<string, string>;
+  /** Map sub-command → informational note (e.g. the file a redirect writes). */
+  notes?: Map<string, string>;
   /** Label identifying who is asking when routed to another session's
    *  UI (e.g. a subagent prompting the parent). Omit for same-session. */
   requester?: string;
@@ -111,22 +119,25 @@ export function buildBashPermissionPrompt(
       decision: { kind: 'allow-project-exact' },
     },
   ];
-  if (twoToken) {
+  if (twoToken && !extras.note) {
     entries.push({
       label: `Always allow "${twoToken}" (project)`,
       decision: { kind: 'allow-project-two-token', pattern: twoToken },
     });
   }
-  entries.push({
-    label: `Always allow "${userPrefixPattern}" (user, all projects)`,
-    decision: { kind: 'allow-user-prefix', pattern: userPrefixPattern },
-  });
+  if (!extras.note) {
+    entries.push({
+      label: `Always allow "${userPrefixPattern}" (user, all projects)`,
+      decision: { kind: 'allow-user-prefix', pattern: userPrefixPattern },
+    });
+  }
   entries.push({ label: 'Deny', decision: { kind: 'deny' } });
   entries.push({ label: 'Deny with feedback…', decision: DENY_WITH_FEEDBACK });
 
   const displayCommand = compactForDialog(command);
   const header = extras.requester ? `⚠️  [${extras.requester}] Bash tool request:` : '⚠️  Bash tool request:';
   const titleLines: string[] = [header, '', `  ${displayCommand}`];
+  if (extras.note) titleLines.push(`  ↳ ${extras.note}`);
   if (extras.auto && extras.alwaysPromptReason) {
     titleLines.push('', `⚡ auto mode cannot skip this (${extras.alwaysPromptReason}).`);
   }
@@ -160,8 +171,10 @@ export function buildBashBatchPermissionPrompt(
   const hidden = unknown.length - visible.length;
   const summaryLines = visible.map((sub, idx) => {
     const reason = extras.alwaysPromptReasons?.get(sub);
+    const note = extras.notes?.get(sub);
     const marker = reason ? '  ⚡ ' : '  ';
-    return `${marker}${idx + 1}. ${compactForDialog(sub, 100)}${reason ? ` - ${reason}` : ''}`;
+    const suffix = reason ? ` - ${reason}` : note ? ` - ${note}` : '';
+    return `${marker}${idx + 1}. ${compactForDialog(sub, 100)}${suffix}`;
   });
   if (hidden > 0) summaryLines.push(`  … and ${hidden} more`);
   const summary = summaryLines.join('\n');

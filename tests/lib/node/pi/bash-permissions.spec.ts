@@ -16,6 +16,7 @@ import {
   decideSubcommand,
   expandForSafetyCheck,
   extractCommandSubstitutions,
+  findFileRedirects,
   maskQuotedRegions,
   matchesPattern,
   peelCommandWrapper,
@@ -1004,4 +1005,78 @@ test('decideSubcommand: auto off + sudo still prompts (no regression)', () => {
   expect(d.kind).toBe('prompt');
   // The reason is set either way - callers can use it regardless of auto.
   expect(d.reason).toMatch(/sudo/);
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// findFileRedirects + redirect-aware allow rules
+// ──────────────────────────────────────────────────────────────────────
+
+test.each([
+  ['jq . a.json > ./new_perms.json', ['./new_perms.json']],
+  ['echo x >> log.txt', ['log.txt']],
+  ['echo x >| out', ['out']],
+  ['cmd &> all.log', ['all.log']],
+  ['cmd &>> all.log', ['all.log']],
+  ['cmd 2> err.log', ['err.log']],
+  ['cmd 1>out 2>err', ['out', 'err']],
+  ['cmd >&file', ['file']],
+  ['cmd <> rw', ['rw']],
+  ['cat > "my file.txt" <<EOF\nhi > there\nEOF', ['my file.txt']],
+  ["echo hi > 'q.txt'", ['q.txt']],
+  ['echo x \\\\> real', ['real']],
+  ['printf x>glued', ['glued']],
+])('findFileRedirects: %s', (cmd, targets) => {
+  expect(findFileRedirects(cmd)).toEqual(targets);
+});
+
+test.each([
+  'cmd 2>&1',
+  'cmd >&2',
+  'cmd 2>&-',
+  'cmd > /dev/null 2>&1',
+  'cmd &>/dev/null',
+  'cmd > /dev/stderr',
+  'cmd > /dev/fd/3',
+  'echo "a > b"',
+  "echo 'a >> b'",
+  'echo a \\> b',
+  'diff <(a) >(tee x)',
+  'cat <<EOF\na > b\nEOF',
+  'ls -la',
+])('findFileRedirects: no file write in %s', (cmd) => {
+  expect(findFileRedirects(cmd)).toEqual([]);
+});
+
+test('decideSubcommand: a prefix allow rule does not cover a file redirect', () => {
+  const layers = emptyLayers();
+  layers[2].rules.allow.push('jq*');
+
+  expect(decideSubcommand('jq .allow a.json', layers).kind).toBe('allow');
+  expect(decideSubcommand('jq .allow a.json 2>/dev/null', layers).kind).toBe('allow');
+  const d = decideSubcommand('jq .allow a.json > ./new_perms.json 2>&1', layers);
+  expect(d).toEqual({ kind: 'prompt', note: expect.stringContaining('"./new_perms.json"') as unknown });
+});
+
+test('decideSubcommand: a rule that mentions ">" (exact or regex) covers the redirect', () => {
+  const layers = emptyLayers();
+  layers[0].rules.allow.push('npm test > out.log');
+  layers[2].rules.allow.push('re:^make \\S+ > build\\.log$');
+
+  expect(decideSubcommand('npm test > out.log', layers).kind).toBe('allow');
+  expect(decideSubcommand('make all > build.log', layers).kind).toBe('allow');
+  expect(decideSubcommand('npm test > other.log', layers).kind).toBe('prompt');
+});
+
+test('decideSubcommand: auto mode still allows redirects; deny rules still win', () => {
+  const layers = emptyLayers();
+  layers[2].rules.allow.push('echo*');
+  layers[1].rules.deny.push('echo secret*');
+
+  expect(decideSubcommand('echo x > out', layers, { auto: true }).kind).toBe('allow');
+  expect(decideSubcommand('echo secret > out', layers).kind).toBe('block');
+});
+
+test('decideSubcommand: unknown commands with a redirect carry the note', () => {
+  const d = decideSubcommand('tool run > result.txt', emptyLayers());
+  expect(d.kind === 'prompt' && d.note).toMatch(/writes "result\.txt" via a shell redirect/);
 });

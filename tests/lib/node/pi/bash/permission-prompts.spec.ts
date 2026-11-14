@@ -86,6 +86,21 @@ describe('askForPermission', () => {
     expect(prompt.feedback.placeholder).toContain('test script');
   });
 
+  test('a note is shown under the command and drops the prefix save options', () => {
+    const plain = buildBashPermissionPrompt('jq . a.json > out.json');
+    expect(plain.entries.some((e) => e.decision.kind === 'allow-user-prefix')).toBe(true);
+
+    const noted = buildBashPermissionPrompt('jq . a.json > out.json', {
+      note: 'writes "out.json" via a shell redirect',
+    });
+    expect(noted.title).toContain('  jq . a.json > out.json\n  ↳ writes "out.json" via a shell redirect');
+    const kinds = noted.entries.map((e) => e.decision.kind);
+    expect(kinds).not.toContain('allow-user-prefix');
+    expect(kinds).not.toContain('allow-project-two-token');
+    expect(kinds).toContain('allow-session-exact');
+    expect(kinds).toContain('allow-project-exact');
+  });
+
   test('prepends a [requester] header when a requester is supplied', () => {
     const single = buildBashPermissionPrompt('ls -la', { requester: 'subagent explore (sub_explore_1)' });
     expect(single.title).toContain('[subagent explore (sub_explore_1)] Bash tool request:');

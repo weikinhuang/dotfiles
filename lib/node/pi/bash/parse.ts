@@ -554,6 +554,74 @@ export function maskQuotedRegions(command: string): string {
 }
 
 // ──────────────────────────────────────────────────────────────────────
+// Output redirects
+// ──────────────────────────────────────────────────────────────────────
+
+/** Redirect targets that do not create or modify a file. */
+const NON_FILE_TARGET_RE = /^\/dev\/(?:null|stdout|stderr|tty|fd\/\d+)$/;
+
+/** Characters that end an unquoted redirect target word. */
+const TARGET_END_RE = /[\s;|&<>()]/;
+
+/** An odd run of backslashes before `i` escapes it (`\\>` is literal, `\\\\>` is a redirect). */
+function isEscaped(s: string, i: number): boolean {
+  let n = 0;
+  for (let k = i - 1; k >= 0 && s[k] === '\\'; k--) n++;
+  return n % 2 === 1;
+}
+
+function unquoteWord(word: string): string {
+  return word.replace(/^(['"])(.*)\1$/s, '$2').replace(/\\(.)/g, '$1');
+}
+
+/**
+ * Files `sub` writes through shell output redirection: `>`, `>>`, `>|`,
+ * `&>`, `&>>`, `n>`, `n>>`, `<>`, and `>&word` with a non-numeric word.
+ * Returns the (unquoted) target words in order.
+ *
+ * Not counted: fd duplication / close (`2>&1`, `>&2`, `>&-`), process
+ * substitution `>(…)` (its body is gated as its own sub-command),
+ * escaped `\>`, operators inside quotes or heredoc bodies (masked via
+ * {@link maskQuotedRegions}), and targets that do not touch a file
+ * (`/dev/null`, `/dev/stdout`, `/dev/stderr`, `/dev/tty`, `/dev/fd/N`).
+ *
+ * Known false positive: `>` used as a comparison inside `[[ … ]]` or
+ * `(( … ))` is reported as a redirect, so those commands prompt instead
+ * of auto-allowing - the safe direction.
+ */
+export function findFileRedirects(sub: string): string[] {
+  const masked = maskQuotedRegions(sub);
+  const targets: string[] = [];
+  let i = 0;
+  while (i < masked.length) {
+    if (masked[i] !== '>' || isEscaped(masked, i)) {
+      i++;
+      continue;
+    }
+    let j = i + 1;
+    if (masked[j] === '(') {
+      i = j;
+      continue;
+    }
+    if (masked[j] === '>' || masked[j] === '|') j++;
+    else if (masked[j] === '&') {
+      if (/[\d-]/.test(masked[j + 1] ?? '')) {
+        i = j + 1;
+        continue;
+      }
+      j++;
+    }
+    while (masked[j] === ' ' || masked[j] === '\t') j++;
+    let end = j;
+    while (end < masked.length && !TARGET_END_RE.test(masked[end] ?? '')) end++;
+    const target = unquoteWord(sub.slice(j, end));
+    if (target && !NON_FILE_TARGET_RE.test(target)) targets.push(target);
+    i = Math.max(end, i + 1);
+  }
+  return targets;
+}
+
+// ──────────────────────────────────────────────────────────────────────
 // Control-flow normalization
 // ──────────────────────────────────────────────────────────────────────
 
