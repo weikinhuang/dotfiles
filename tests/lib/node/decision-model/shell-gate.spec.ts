@@ -14,8 +14,26 @@ import {
   createShellDecider,
   decideShell,
   type ShellDeciderOptions,
+  sessionEntryFor,
   shellGuardReason,
 } from '../../../../lib/node/decision-model/shell-gate.ts';
+
+test('sessionEntryFor: only auto-allows get an entry; id and requester are optional', () => {
+  expect(sessionEntryFor({ verdict: 'allow', id: 'd1', reason: 'effect read_only, allowed p=0.97' })).toEqual({
+    kind: 'shell',
+    verdict: 'allow',
+    reason: 'effect read_only, allowed p=0.97',
+    id: 'd1',
+  });
+  expect(sessionEntryFor({ verdict: 'allow', reason: 'r' }, 'child-1')).toEqual({
+    kind: 'shell',
+    verdict: 'allow',
+    reason: 'r',
+    requesterSession: 'child-1',
+  });
+  expect(sessionEntryFor({ verdict: 'abstain', id: 'd2', reason: 'below threshold' })).toBeUndefined();
+  expect(sessionEntryFor({ verdict: 'off' })).toBeUndefined();
+});
 import { type FetchLike, type SystemOneAnswer } from '../../../../lib/node/decision-model/system-one.ts';
 
 type Effect = 'read_only' | 'workspace_write' | 'outside_write' | 'network_write' | 'destructive' | 'opaque';

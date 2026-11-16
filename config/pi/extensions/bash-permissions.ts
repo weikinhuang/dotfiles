@@ -120,7 +120,11 @@ import { completePositional } from '../../../lib/node/pi/commands/complete.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { askForPermission, askForPermissionBatch } from '../../../lib/node/pi/bash/permission-prompts.ts';
 import { DECISION_MODEL_CONFIG_FILE, DECISION_MODEL_LOG_FILE } from '../../../lib/node/decision-model/config.ts';
-import { createShellDecider } from '../../../lib/node/decision-model/shell-gate.ts';
+import {
+  createShellDecider,
+  DECISION_MODEL_ENTRY_TYPE,
+  sessionEntryFor,
+} from '../../../lib/node/decision-model/shell-gate.ts';
 import { trimOrUndefined } from '../../../lib/node/pi/shared.ts';
 import { buildNoUiDenyReason, buildNoUiOperatorHint } from '../../../lib/node/pi/bash-permissions/no-ui-reason.ts';
 import { writeJsonFile } from '../../../lib/node/pi/atomic-write.ts';
@@ -360,7 +364,12 @@ export default function bashPermissions(pi: ExtensionAPI): void {
       decider && alwaysPromptReasons.size === 0
         ? await decider.evaluate({ command: trimmed, unresolved: unknown, cwd: ctx.cwd, sessionId: ctx.sessionId })
         : undefined;
-    if (verdict?.verdict === 'allow') return { allowed: true };
+    if (verdict?.verdict === 'allow') {
+      // Leave a trail in the session (not sent to the LLM): this command ran without a prompt because of the model.
+      const entry = sessionEntryFor(verdict, ctx.sessionId);
+      if (entry) pi.appendEntry(DECISION_MODEL_ENTRY_TYPE, entry);
+      return { allowed: true };
+    }
     const settle = (d: BashGateDecision, fallback = false): BashGateDecision => {
       if (fallback) decider?.settle(verdict?.id, d.allowed ? 'default-allow' : 'default-deny');
       else decider?.settle(verdict?.id, d.allowed ? 'allow' : 'deny');

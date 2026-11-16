@@ -156,6 +156,14 @@ With `"log": true` (default) each consultation appends a JSONL record to `~/.pi/
 Pairs of `abstain` + `allow` resolutions are the commands a looser threshold would have cleared; inspect them with
 `jq 'select(.type=="decision")' ~/.pi/agent/decision-model.jsonl` before changing thresholds.
 
+### Session entry
+
+Each auto-allow also appends a custom `decision-model` entry to the pi session (`pi.appendEntry`, never sent to the
+LLM), so the transcript shows why a command ran without a prompt: `{ kind, verdict, reason, id, requesterSession }`.
+`id` joins it to the decision-log record (absent when logging is off); `requesterSession` is set when a subagent child
+made the call. Abstains get no entry, since they already surface as the normal prompt. The decision log stays the place
+to tune thresholds: it spans sessions and harnesses, and opencode plugins cannot write to the opencode session history.
+
 ## Commands
 
 - `/bash-allow <pattern>` - add an allow rule. Writes to project scope if `.pi/bash-permissions.json` or `.pi/` already

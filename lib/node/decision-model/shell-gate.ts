@@ -118,6 +118,36 @@ export interface ShellGateResult {
   reason?: string;
 }
 
+/** `customType` of the session entry a harness writes when the model auto-allows. */
+export const DECISION_MODEL_ENTRY_TYPE = 'decision-model';
+
+/**
+ * Session-log entry for an auto-allow, so the transcript shows why a command
+ * ran without a prompt. `id` joins it to the full record in the decision log
+ * (absent when logging is off). Carries no command text: the tool call in the
+ * same session already has it.
+ */
+export interface DecisionModelSessionEntry {
+  kind: 'shell';
+  verdict: 'allow';
+  reason: string;
+  id?: string;
+  /** Calling session when it differs from the one the entry is written to (a subagent child). */
+  requesterSession?: string;
+}
+
+/** Entry for an `allow` result, else `undefined` (abstains already surface as the normal prompt). */
+export function sessionEntryFor(
+  result: ShellGateResult,
+  requesterSession?: string,
+): DecisionModelSessionEntry | undefined {
+  if (result.verdict !== 'allow') return undefined;
+  const entry: DecisionModelSessionEntry = { kind: 'shell', verdict: 'allow', reason: result.reason ?? '' };
+  if (result.id) entry.id = result.id;
+  if (requesterSession) entry.requesterSession = requesterSession;
+  return entry;
+}
+
 /**
  * Apply `policy` to validated answers. Allows only when the allowed effect
  * classes together reach `threshold` and every risk flag stays at or below
