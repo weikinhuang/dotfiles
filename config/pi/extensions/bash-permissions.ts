@@ -119,6 +119,9 @@ import {
 import { completePositional } from '../../../lib/node/pi/commands/complete.ts';
 import { isHelpArg } from '../../../lib/node/pi/commands/help.ts';
 import { askForPermission, askForPermissionBatch } from '../../../lib/node/pi/bash/permission-prompts.ts';
+import { DECISION_MODEL_CONFIG_FILE, DECISION_MODEL_LOG_FILE } from '../../../lib/node/decision-model/config.ts';
+import { createShellDecider } from '../../../lib/node/decision-model/shell-gate.ts';
+import { trimOrUndefined } from '../../../lib/node/pi/shared.ts';
 import { buildNoUiDenyReason, buildNoUiOperatorHint } from '../../../lib/node/pi/bash-permissions/no-ui-reason.ts';
 import { writeJsonFile } from '../../../lib/node/pi/atomic-write.ts';
 import { loadJsoncConfigOrFallback } from '../../../lib/node/pi/jsonc.ts';
@@ -236,6 +239,17 @@ export default function bashPermissions(pi: ExtensionAPI): void {
   let sessionAuto = false;
 
   const defaultFallback = process.env.PI_BASH_PERMISSIONS_DEFAULT === 'allow' ? 'allow' : 'deny';
+
+  // Decision model (`decision-model.json`, user scope only): consulted for
+  // commands the rules would prompt for; it can only allow or abstain.
+  const decider = envTruthy(process.env.PI_DECISION_MODEL_DISABLED)
+    ? undefined
+    : createShellDecider({
+        harness: 'pi',
+        configPath: trimOrUndefined(process.env.PI_DECISION_MODEL_CONFIG) ?? piAgentPath(DECISION_MODEL_CONFIG_FILE),
+        defaultLogPath: piAgentPath(DECISION_MODEL_LOG_FILE),
+        warn: (message) => console.warn(`[bash-permissions] decision model: ${message}`),
+      });
   // The no-UI operator hint goes to stderr once per load, not into the tool result.
   let operatorHinted = false;
 
@@ -340,6 +354,19 @@ export default function bashPermissions(pi: ExtensionAPI): void {
     }
     if (unknown.length === 0) return { allowed: true };
 
+    // Rules first, then the decision model, then the normal prompt / default.
+    // Always-prompt commands (sudo, …) never reach the model.
+    const verdict =
+      decider && alwaysPromptReasons.size === 0
+        ? await decider.evaluate({ command: trimmed, unresolved: unknown, cwd: ctx.cwd, sessionId: ctx.sessionId })
+        : undefined;
+    if (verdict?.verdict === 'allow') return { allowed: true };
+    const settle = (d: BashGateDecision, fallback = false): BashGateDecision => {
+      if (fallback) decider?.settle(verdict?.id, d.allowed ? 'default-allow' : 'default-deny');
+      else decider?.settle(verdict?.id, d.allowed ? 'allow' : 'deny');
+      return d;
+    };
+
     // Determine the prompt target. When the calling session has no UI
     // of its own (a spawned subagent child), route the approval to the
     // parent's UI - labelled with which subagent is asking, serialized
@@ -356,13 +383,13 @@ export default function bashPermissions(pi: ExtensionAPI): void {
         requester = routed.requester;
         serialize = runSerialPrompt;
       } else {
-        if (defaultFallback === 'allow') return { allowed: true };
+        if (defaultFallback === 'allow') return settle({ allowed: true }, true);
         recordDenied(...unknown);
         if (!operatorHinted) {
           operatorHinted = true;
           process.stderr.write(`${buildNoUiOperatorHint(USER_RULES_PATH)}\n`);
         }
-        return { allowed: false, reason: buildNoUiDenyReason(unknown) };
+        return settle({ allowed: false, reason: buildNoUiDenyReason(unknown) }, true);
       }
     }
 
@@ -378,13 +405,13 @@ export default function bashPermissions(pi: ExtensionAPI): void {
       );
       if (batch.kind === 'deny') {
         recordDenied(...unknown);
-        return { allowed: false, reason: batch.feedback ?? 'Blocked by user' };
+        return settle({ allowed: false, reason: batch.feedback ?? 'Blocked by user' });
       }
       if (batch.kind === 'allow-all-session') {
         for (const sub of unknown) sessionRules.allow.push(sub);
       }
       // allow-all-once: no persistence.
-      return { allowed: true };
+      return settle({ allowed: true });
     }
 
     // Exactly one unknown → rich dialog with save-rule options.
@@ -399,7 +426,7 @@ export default function bashPermissions(pi: ExtensionAPI): void {
     );
     if (decision.kind === 'deny') {
       recordDenied(sub);
-      return { allowed: false, reason: decision.feedback ?? 'Blocked by user' };
+      return settle({ allowed: false, reason: decision.feedback ?? 'Blocked by user' });
     }
     switch (decision.kind) {
       case 'allow-once':
@@ -420,7 +447,7 @@ export default function bashPermissions(pi: ExtensionAPI): void {
         promptCtx.ui.notify(`Saved allow rule "${decision.pattern}" → ${USER_RULES_PATH}`, 'info');
         break;
     }
-    return { allowed: true };
+    return settle({ allowed: true });
   };
 
   // Publish the gate so sibling extensions (e.g. bg-bash) can route
@@ -505,6 +532,7 @@ export default function bashPermissions(pi: ExtensionAPI): void {
       }
       lines.push('');
       lines.push(`Auto mode: ${sessionAuto ? 'ON ⚡ (auto-allow this session)' : 'OFF'}`);
+      lines.push(`Decision model: ${decider ? decider.status() : 'off (PI_DECISION_MODEL_DISABLED)'}`);
       ctx.ui.notify(lines.join('\n'), 'info');
     },
   });

@@ -106,12 +106,62 @@ One headless qwen3-8-27b run against the original operator-only text resubmitted
 Repeated identical calls are also caught by [`loop-breaker`](./loop-breaker.md), which observes calls before this gate
 runs.
 
+## Decision model
+
+An optional layer between the rules and the prompt. When `~/.pi/agent/decision-model.json` configures a System One
+endpoint (TypeSafe Jev, Cloudflare Clef, a self-hosted deployment, or anything implementing `POST /v1/systemone`), every
+command the rules would prompt for is first sent to the decision model, which can only **allow** it or **abstain**:
+
+```text
+hardcoded deny / deny rules / allow rules / always-prompt  ->  decision model  ->  approval dialog / headless default
+```
+
+- Explicit allow and deny rules always win; the model never sees those commands.
+- Always-prompt commands (`sudo`, `doas`, …) and hardcoded-deny patterns never auto-allow, whatever the model says.
+- Abstaining means the dialog (or `PI_BASH_PERMISSIONS_DEFAULT` without a UI) runs exactly as it would without this
+  layer. The model abstains on any failure: missing or invalid config, unset key env var, timeout, HTTP error, a
+  response that does not match the spec, a command over `maxStateChars`, or an answer below the thresholds.
+- The same layer applies to `bg_bash` and subagent bash calls, since they route through this gate.
+
+The request asks three questions about the whole command (with the rule-unresolved sub-commands and cwd as context):
+
+| Question     | Type   | Allows when                                                                                                                                                                   |
+| ------------ | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `effect`     | choice | the summed probability of `shell.allowEffects` reaches `shell.threshold` (effects: `read_only`, `workspace_write`, `outside_write`, `network_write`, `destructive`, `opaque`) |
+| `secrets`    | noul   | probability it reads or sends credentials is at most `shell.maxRisk`                                                                                                          |
+| `obfuscated` | noul   | probability it hides what it does (eval, decoded payloads, `curl \| sh`) is at most `shell.maxRisk`                                                                           |
+
+Defaults: `allowEffects: ["read_only", "workspace_write"]`, `threshold: 0.9`, `maxRisk: 0.1`. Command text is run
+through the [`secret-redactor`](./secret-redactor.md) detectors before it is sent or logged.
+
+Config: copy [`../decision-model-example.json`](../decision-model-example.json) to `~/.pi/agent/decision-model.json`.
+The API key comes from the env var named by `provider.apiKeyEnv` when it has a value, else from a literal
+`provider.apiKey` in the file. The file is **user scope only**; a project `.pi/decision-model.json` is never read,
+because a cloned repo must not be able to point the gate at an endpoint that approves everything. The opencode
+[`decision-gate`](../../opencode/plugins/decision-gate/README.md) plugin reads the same shape. The file is re-read on
+every call, so edits apply immediately. Shared logic lives in
+[`lib/node/decision-model/`](../../../lib/node/decision-model/).
+
+### Decision log
+
+With `"log": true` (default) each consultation appends a JSONL record to `~/.pi/agent/decision-model.jsonl` (rotated to
+`.1` at 5 MiB):
+
+- `decision`: `id`, `harness`, `kind`, question-set version, session, cwd, redacted command, unresolved parts, provider
+  host, resolved model, `verdict` (`allow` / `abstain`), `reason`, latency, per-question answers with full probability
+  distributions, token usage, and the error kind / status on failures. Never the API key.
+- `resolution`: for an abstain, what happened next, joined by `id`: `allow` / `deny` from the dialog, or `default-allow`
+  / `default-deny` without a UI.
+
+Pairs of `abstain` + `allow` resolutions are the commands a looser threshold would have cleared; inspect them with
+`jq 'select(.type=="decision")' ~/.pi/agent/decision-model.jsonl` before changing thresholds.
+
 ## Commands
 
 - `/bash-allow <pattern>` - add an allow rule. Writes to project scope if `.pi/bash-permissions.json` or `.pi/` already
   exists in cwd, otherwise to user scope.
 - `/bash-deny <pattern>` - add a deny rule, same scoping.
-- `/bash-permissions` - list every rule grouped by source (also reports current auto-mode state).
+- `/bash-permissions` - list every rule grouped by source (also reports auto-mode and decision-model state).
 - `/bash-auto [on|off|status]` - toggle auto-allow for the current session. With no argument, flips the current state.
   Intended for "I trust pi for the next few minutes" workflows. The carve-out:
 
@@ -138,8 +188,11 @@ runs.
   `run0`, `pkexec`, `gosu`, `su`) that forces a prompt even under `/bash-auto`. With it set, privilege escalation
   auto-allows under `/bash-auto`, which is risky. An explicit allow rule already bypasses the prompt for a specific
   command without this knob.
+- `PI_DECISION_MODEL_DISABLED=1` - skip the [decision model](#decision-model) layer even when it is configured.
+- `PI_DECISION_MODEL_CONFIG=<path>` - read the decision-model config from `<path>` instead of
+  `~/.pi/agent/decision-model.json`.
 
 ## Hot reload
 
-Rule files are re-read on every tool call, so edits to `bash-permissions.json` take effect immediately. Edits to the
+Rule files and `decision-model.json` are re-read on every tool call, so edits take effect immediately. Edits to the
 extension itself need `/reload`.

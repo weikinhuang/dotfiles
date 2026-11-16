@@ -1,0 +1,39 @@
+// Decision-model gate config, shared shape for both harnesses. Copy to:
+//   pi:       ~/.pi/agent/decision-model.json          (bash-permissions extension)
+//   opencode: ~/.config/opencode/decision-model.json   (decision-gate plugin)
+// User scope only: a project-level copy is never read.
+//
+// Order: your allow / deny rules decide first; commands they would prompt for go to the
+// decision model; anything it is not confident about prompts exactly as before.
+{
+  "enabled": true,
+  "provider": {
+    // Any System One endpoint (POST {baseUrl}/v1/systemone): Jev, Clef, or self-hosted.
+    "baseUrl": "https://api.typesafe.ai",
+    // Full URL override for endpoints that do not use /v1/systemone.
+    // "endpoint": "https://gateway.example.com/custom/path",
+    "model": "jev-latest",
+    // API key: the env var named here wins when it has a value; "apiKey" is the fallback.
+    // A literal key lives in this file, so keep it out of anything you commit or sync.
+    "apiKeyEnv": "TYPESAFE_API_KEY",
+    // "apiKey": "ts-...",
+    // Extra request headers, if the endpoint needs them.
+    // "headers": { "X-Team": "dev" },
+    // No answer within this budget means "ask as usual".
+    "timeoutMs": 3000
+  },
+  // Commands whose state serializes larger than this are not sent (they prompt).
+  "maxStateChars": 4000,
+  // true = <config dir>/decision-model.jsonl, false = off, or a path.
+  "log": true,
+  "shell": {
+    "enabled": true,
+    // Effects that may auto-allow, from:
+    // read_only, workspace_write, outside_write, network_write, destructive, opaque
+    "allowEffects": ["read_only", "workspace_write"],
+    // Combined probability the allowed effects need.
+    "threshold": 0.9,
+    // Highest acceptable probability for the "secrets" and "obfuscated" risk flags.
+    "maxRisk": 0.1
+  }
+}
