@@ -125,9 +125,9 @@ const cases: Case[] = [
   ['coerce: authHeader missing value dropped', () => coerceConfigLayer({ authHeader: { name: 'X' } }), {}],
   ['coerce: authHeader empty name dropped', () => coerceConfigLayer({ authHeader: { name: '', value: 'y' } }), {}],
   [
-    'coerce: preset voice',
-    () => coerceConfigLayer({ voices: { narrator: { kind: 'preset', preset: 'ryan', instruct: 'cheerful' } } }),
-    { voices: { narrator: { kind: 'preset', preset: 'ryan', instruct: 'cheerful' } } },
+    'coerce: preset voice (legacy instruct dropped)',
+    () => coerceConfigLayer({ voices: { narrator: { kind: 'preset', preset: 'narrator', instruct: 'cheerful' } } }),
+    { voices: { narrator: { kind: 'preset', preset: 'narrator' } } },
   ],
   [
     'coerce: clone voice with emotes',
@@ -173,11 +173,47 @@ const cases: Case[] = [
       }),
     { voices: { v: { kind: 'clone', refAudio: '/d.wav', refText: 'd' } } },
   ],
+  ['coerce: stream boolean kept', () => coerceConfigLayer({ stream: true }), { stream: true }],
+  ['coerce: stream non-boolean dropped', () => coerceConfigLayer({ stream: 'yes' }), {}],
+  [
+    'coerce: streamPlayer argv kept',
+    () => coerceConfigLayer({ streamPlayer: ['mpv', '--no-video', '-'] }),
+    { streamPlayer: ['mpv', '--no-video', '-'] },
+  ],
+  ['coerce: streamPlayer string dropped', () => coerceConfigLayer({ streamPlayer: 'ffplay -' }), {}],
+  ['coerce: streamPlayer empty array dropped', () => coerceConfigLayer({ streamPlayer: [] }), {}],
+  ['coerce: streamPlayer non-string element dropped', () => coerceConfigLayer({ streamPlayer: ['ffplay', 1] }), {}],
+  ['coerce: streamPlayer empty binary dropped', () => coerceConfigLayer({ streamPlayer: ['', '-'] }), {}],
   ['coerce: non-object voice dropped', () => coerceConfigLayer({ voices: { v: 'nope' } }), { voices: {} }],
 
   // ── mergeConfigLayers ──────────────────────────────────────────────
   ['merge: no layers -> defaults', () => mergeConfigLayers(), DEFAULT_CONFIG],
   ['merge: scalar replace, lowest-first', () => mergeConfigLayers({ format: 'wav' }, { format: 'mp3' }).format, 'mp3'],
+  [
+    'merge: defaults are wav, model tts, file mode',
+    () => {
+      const c = mergeConfigLayers();
+      return [c.format, c.model, c.stream];
+    },
+    ['wav', 'tts', false],
+  ],
+  ...(['wav', 'pcm', 'mp3', 'opus', 'aac', 'flac'] as const).map((f): Case => [
+    `merge: openai format ${f} accepted`,
+    () => mergeConfigLayers({ format: f }).format,
+    f,
+  ]),
+  ['merge: openai format case-folded', () => mergeConfigLayers({ format: 'MP3' }).format, 'mp3'],
+  ['merge: openai unsupported format -> wav', () => mergeConfigLayers({ format: 'ogg' }).format, 'wav'],
+  [
+    'merge: gpt-sovits format passes through',
+    () => mergeConfigLayers({ api: 'gpt-sovits', format: 'ogg' }).format,
+    'ogg',
+  ],
+  [
+    'merge: streamPlayer replaced wholesale',
+    () => mergeConfigLayers({ streamPlayer: ['a'] }, { streamPlayer: ['mpv', '-'] }).streamPlayer,
+    ['mpv', '-'],
+  ],
   [
     'merge: authHeader replaced wholesale',
     () =>

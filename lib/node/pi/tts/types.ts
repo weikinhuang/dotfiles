@@ -27,32 +27,35 @@ export interface EmoteRef {
 }
 
 /**
- * A named voice in the roster. Either a `preset` (server-registered voice
- * driven via /v1/audio/speech, emotion = an instruct string) or a `clone`
- * (driven via /v1/audio/voice-clone with a reference clip, emotion = the
- * emote-selected clip). `kind` is explicit for clarity; the `clone:` pointer
- * prefix can force the clone path regardless. gpt-sovits weight fields are
- * carried for the legacy engine behind the `api` switch.
+ * A named voice in the roster. Either a `preset` (a server voice-library name
+ * or alias driven via /v1/audio/speech; the library entry fixes the timbre and
+ * language) or a `clone` (driven via /v1/audio/voice-clone with a client-side
+ * reference clip, emotion = the emote-selected clip). `kind` is explicit for
+ * clarity; the `clone:` pointer prefix can force the clone path regardless.
+ * gpt-sovits weight fields are carried for the legacy engine behind the `api`
+ * switch.
  */
 export interface VoiceConfig {
   kind: 'preset' | 'clone';
-  /** Preset voice name on the server (preset kind, /v1/audio/speech `voice`). */
+  /** Server voice-library name or alias (preset kind, /v1/audio/speech `voice`). */
   preset?: string;
-  /** Optional fixed instruct string applied to a preset voice (emotion for presets). */
-  instruct?: string;
   /** Default reference clip (clone kind). */
   refAudio?: string;
   refText?: string;
-  /** Language hint for the reference text / synthesis (defaults applied by the engine). */
+  /**
+   * Language of the reference clip / synthesis for clone voices, sent as
+   * `lang` (a code such as `en` or a name such as `english`). Unused for
+   * preset voices: the server library entry sets their language.
+   */
   promptLang?: string;
   /** Optional mood -> reference-clip map; the avatar emote picks the clip. */
   emotes?: EmoteRef[];
   /**
-   * Optional per-voice server override - the instance that actually hosts this
-   * voice's checkpoint (e.g. a Base instance for a clone, a standard instance
-   * for presets). Falls back to the top-level {@link TtsConfig.baseUrl} when
-   * unset. `${ENV}` interpolation applies. Not overridden by `PI_TTS_URL`
-   * (that only overrides the top-level fallback).
+   * Optional per-voice server override. One llama.cpp instance serves both
+   * clone and preset voices, so this is rarely needed; it remains for pointing
+   * a voice at a different server. Falls back to the top-level
+   * {@link TtsConfig.baseUrl} when unset. `${ENV}` interpolation applies. Not
+   * overridden by `PI_TTS_URL` (that only overrides the top-level fallback).
    */
   baseUrl?: string;
   /**
@@ -66,18 +69,38 @@ export interface VoiceConfig {
   sovitsWeights?: string;
 }
 
+/** Output formats the openai (llama.cpp + audio-proxy) engine accepts. `wav` is the lowest-latency default. */
+export const OPENAI_FORMATS = ['wav', 'pcm', 'mp3', 'opus', 'aac', 'flac'] as const;
+
 /**
  * Fully-resolved extension config (shipped defaults + user + project layers).
  */
 export interface TtsConfig {
-  /** TTS server origin, e.g. `http://127.0.0.1:8880/v1`. Trailing slash stripped on resolve. */
+  /** TTS server origin, e.g. `http://127.0.0.1:4000/v1`. Trailing slash stripped on resolve. */
   baseUrl: string;
-  /** Which engine the shell drives. `openai` is primary; `gpt-sovits` is legacy. */
+  /**
+   * Which engine the shell drives. `openai` is the llama.cpp Qwen3-TTS backend
+   * behind LiteLLM (OpenAI speech route plus the voice-clone pass-through);
+   * `gpt-sovits` is legacy.
+   */
   api: 'openai' | 'gpt-sovits';
   /** Optional auth header sent on every request; value supports `${ENV}`. */
   authHeader?: AuthHeader;
-  /** Audio container requested from the server (e.g. `wav`). */
+  /**
+   * Audio container requested from the server. For the `openai` engine this is
+   * one of {@link OPENAI_FORMATS} (anything else falls back to `wav`); the
+   * legacy `gpt-sovits` engine passes it through as `media_type`.
+   */
   format: string;
+  /**
+   * When `true`, the openai engine streams each cue (`stream_format: "audio"`)
+   * and pipes the audio into {@link TtsConfig.streamPlayer}'s stdin, so
+   * playback starts before synthesis finishes. Default `false` (file mode:
+   * synthesize to a temp file, then run {@link TtsConfig.player} on it).
+   */
+  stream: boolean;
+  /** Player argv for stream mode; must read audio from stdin (e.g. ffplay `-i -`). */
+  streamPlayer: string[];
   /** Hard cap on a single synth request before it is aborted (ms). Generous for cold start. */
   requestTimeoutMs: number;
   /** Audio player binary, spawned detached on the resulting file (e.g. `paplay`). */

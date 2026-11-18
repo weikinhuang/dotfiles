@@ -27,6 +27,7 @@ import { readJsoncOrUndefined } from '../fs-safe.ts';
 import { piAgentPath, piProjectPath } from '../pi-paths.ts';
 import { isFiniteNumber, isNonEmptyString, isRecord } from '../shared.ts';
 
+import { OPENAI_FORMATS } from './types.ts';
 import type { AuthHeader, EmoteRef, Reference, ResolvedVoice, TtsConfig, VoiceConfig } from './types.ts';
 
 /** Pointer prefix that forces a voice down the clone path (plan decision 6). */
@@ -34,15 +35,17 @@ export const CLONE_PREFIX = 'clone:';
 
 /** Shipped defaults used as the lowest config layer. */
 export const DEFAULT_CONFIG: TtsConfig = {
-  baseUrl: 'http://127.0.0.1:8880/v1',
+  baseUrl: 'http://127.0.0.1:4000/v1',
   api: 'openai',
   format: 'wav',
+  stream: false,
+  streamPlayer: ['ffplay', '-nodisp', '-autoexit', '-loglevel', 'error', '-i', '-'],
   requestTimeoutMs: 180000, // generous: survives scale-from-zero cold start
   player: 'paplay',
   maxChunkChars: 240,
   maxNarrationChunks: 40,
   splitSpeakerNarration: false,
-  model: 'qwen3-tts',
+  model: 'tts',
   voices: {},
   rpVoice: '',
   narrationVoice: '',
@@ -89,6 +92,13 @@ function asStringArray(value: unknown): string[] | undefined {
     if (s !== undefined) out.push(s);
   }
   return out.length > 0 ? out : undefined;
+}
+
+/** A non-empty argv whose first element (the binary) is a non-empty string. */
+function asArgv(value: unknown): string[] | undefined {
+  if (!Array.isArray(value) || value.length === 0) return undefined;
+  if (!value.every((v): v is string => typeof v === 'string')) return undefined;
+  return value[0].length > 0 ? [...value] : undefined;
 }
 
 function asAuthHeader(value: unknown): AuthHeader | undefined {
@@ -144,8 +154,6 @@ function asVoiceConfig(value: unknown): VoiceConfig | undefined {
 
   const preset = asNonEmptyString(value.preset);
   if (preset !== undefined) out.preset = preset;
-  const instruct = asString(value.instruct);
-  if (instruct !== undefined) out.instruct = instruct;
   if (refAudio !== undefined) out.refAudio = refAudio;
   const refText = asString(value.refText);
   if (refText !== undefined) out.refText = refText;
@@ -197,6 +205,12 @@ export function coerceConfigLayer(raw: unknown): Partial<TtsConfig> {
   const format = asNonEmptyString(raw.format);
   if (format !== undefined) out.format = format;
 
+  const stream = asBoolean(raw.stream);
+  if (stream !== undefined) out.stream = stream;
+
+  const streamPlayer = asArgv(raw.streamPlayer);
+  if (streamPlayer !== undefined) out.streamPlayer = streamPlayer;
+
   const requestTimeoutMs = asPositiveNumber(raw.requestTimeoutMs);
   if (requestTimeoutMs !== undefined) out.requestTimeoutMs = requestTimeoutMs;
 
@@ -231,6 +245,18 @@ export function coerceConfigLayer(raw: unknown): Partial<TtsConfig> {
 }
 
 /**
+ * Validate the merged `format` against the engine. The openai (llama.cpp)
+ * engine only accepts {@link OPENAI_FORMATS} (case-insensitive); anything else
+ * falls back to `wav` rather than 400-ing every synth. The legacy gpt-sovits
+ * engine has its own `media_type` vocabulary, so its value passes through.
+ */
+export function normalizeFormat(api: TtsConfig['api'], format: string): string {
+  if (api !== 'openai') return format;
+  const lower = format.trim().toLowerCase();
+  return (OPENAI_FORMATS as readonly string[]).includes(lower) ? lower : 'wav';
+}
+
+/**
  * Layer `overrides` over {@link DEFAULT_CONFIG} in priority order (lowest
  * first). Scalars are replaced wholesale; `authHeader` is replaced wholesale
  * by any layer that sets it; `voices` merge by key so a higher layer can add a
@@ -243,6 +269,8 @@ export function mergeConfigLayers(...overrides: Partial<TtsConfig>[]): TtsConfig
     if (layer.baseUrl !== undefined) result.baseUrl = layer.baseUrl;
     if (layer.api !== undefined) result.api = layer.api;
     if (layer.format !== undefined) result.format = layer.format;
+    if (layer.stream !== undefined) result.stream = layer.stream;
+    if (layer.streamPlayer !== undefined) result.streamPlayer = [...layer.streamPlayer];
     if (layer.requestTimeoutMs !== undefined) result.requestTimeoutMs = layer.requestTimeoutMs;
     if (layer.player !== undefined) result.player = layer.player;
     if (layer.maxChunkChars !== undefined) result.maxChunkChars = layer.maxChunkChars;
@@ -255,6 +283,7 @@ export function mergeConfigLayers(...overrides: Partial<TtsConfig>[]): TtsConfig
     if (layer.narrationVoice !== undefined) result.narrationVoice = layer.narrationVoice;
   }
 
+  result.format = normalizeFormat(result.api, result.format);
   return result;
 }
 

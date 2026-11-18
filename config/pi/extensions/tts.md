@@ -1,10 +1,11 @@
 # tts - two-mode TTS narration for pi
 
 Speaks finalized assistant output aloud after each turn, without blocking the turn. The extension is a thin pi shell
-(`tts.ts`) over three pure, unit-tested modules under `tts/` (`config.ts`, `text.ts`, `engine.ts`, plus `types.ts`).
+(`tts.ts`) over pure, unit-tested modules under `lib/node/pi/tts/` (`config.ts`, `text.ts`, `engine.ts`, `status.ts`,
+`wav.ts`, plus `types.ts`).
 
-It drives an OpenAI-compatible `qwen3-tts` server (the
-[groxaxo Qwen3-TTS-Openai-Fastapi](https://github.com/groxaxo/Qwen3-TTS-Openai-Fastapi) backend). It is **never
+It drives Qwen3-TTS (1.7B Base) on stock `llama-server`, reached through LiteLLM and an `audio-proxy` shim that adds a
+server-side voice library, ffmpeg transcoding, and `speed` (see [Server](#server-llamacpp-via-litellm)). It is **never
 load-bearing**: any failure (server down, no audio player, synth error) degrades to a silent no-op and the turn always
 completes.
 
@@ -13,7 +14,7 @@ completes.
 | Mode          | Gate                                                                    | Speaks                   | Voice                                                         |
 | ------------- | ----------------------------------------------------------------------- | ------------------------ | ------------------------------------------------------------- |
 | **RP**        | `PI_RP_TTS=1` (or `/tts on`) **and** an active `roleplay: true` persona | quoted `"dialogue"` only | `rpVoice` (a clone voice with emote-selected reference clips) |
-| **Narration** | `PI_TTS_NARRATE=1` (or `/tts narrate on`) in a **non-RP** session       | assistant prose, chunked | `narrationVoice` (typically a preset voice)                   |
+| **Narration** | `PI_TTS_NARRATE=1` (or `/tts narrate on`) in a **non-RP** session       | assistant prose, chunked | `narrationVoice` (typically a library preset voice)           |
 
 RP **wins** when both gates are active **and narration is off**, in which case RP speaks quoted dialogue only - a single
 synth request per turn. When **both** RP and narration are enabled in a roleplay session, the reply is spoken as
@@ -29,8 +30,7 @@ in-flight playback and any queued synths.
 With **both** `PI_RP_TTS` and `PI_TTS_NARRATE` on in a roleplay session, the reply is segmented in reading order: each
 double-quoted span becomes a `dialogue` cue (spoken in `rpVoice`, the clone, carrying the turn's emote) and the prose
 between/around quotes becomes a `narration` cue (spoken in `narrationVoice`, typically a preset). Cues stream through
-the same queue pipeline so the clone and narrator voices interleave - and, with the dual-instance setup, dialogue hits
-the Base instance while narration hits the CustomVoice instance. If no narration voice resolves, narration cues are
+the same queue pipeline so the clone and narrator voices interleave. If no narration voice resolves, narration cues are
 skipped and it degrades to dialogue-only. Long spans are chunked and the total is capped at `maxNarrationChunks`.
 
 When `rpVoice` and `narrationVoice` are the **same** voice, consecutive same-voice segments are coalesced into one run,
@@ -73,8 +73,11 @@ Voice names autocomplete from the configured roster.
   (synth's long timeout would still ride it out).
 - `UNREACHABLE` - connection refused; the server is down.
 
-It also warns on a **voice/instance mismatch** before it 500s at synth time: a `preset` voice pointed at a Base model,
-or a `clone` voice pointed at a CustomVoice model.
+It also lists the server voice library (`GET /audio/voices`: ids, language, aliases, the default) and warns about:
+
+- a `preset` voice whose name is neither a library id nor an alias (the server silently uses its default voice);
+- a clone reference clip (default or emote) that the client cannot read (every clone synth would fail);
+- a WAV reference clip longer than 30 s (ICL will fall back to the speaker embedding). Non-WAV clips are not measured.
 
 ## Configuration
 
@@ -85,25 +88,27 @@ JSONC config, layered lowest to highest:
 3. `<cwd>/.pi/tts.json` (project layer; applied **only when the project is trusted**)
 
 `PI_TTS_URL` overrides the resolved top-level `baseUrl`. See [`../tts-example.json`](../tts-example.json) for a complete
-starting config (dual-instance clone + preset, emotes, auth header).
+starting config (LiteLLM endpoint with auth, clone + library voice, emotes).
 
 ### Top-level keys
 
-| Key                     | Meaning                                                                                                 |
-| ----------------------- | ------------------------------------------------------------------------------------------------------- |
-| `baseUrl`               | fallback server URL (include the `/v1` suffix). A voice without its own `baseUrl` inherits this.        |
-| `api`                   | engine preset: `openai` (qwen3-tts) or the legacy `gpt-sovits` GET path.                                |
-| `model`                 | model name sent in the speech body (e.g. `qwen3-tts`).                                                  |
-| `format`                | response audio format (`wav`, `mp3`, ...).                                                              |
-| `player`                | local playback command (e.g. `paplay`, `afplay`, `ffplay`).                                             |
-| `requestTimeoutMs`      | synth request timeout. Keep generous (e.g. `180000`) to survive a scale-from-zero cold start.           |
-| `maxChunkChars`         | chunk size per speaker/narrator run: `>0` = max chars/chunk, `0` = split by paragraph, `<0` = no split. |
-| `maxNarrationChunks`    | cap on chunks spoken per turn (the overall audio-segment ceiling).                                      |
-| `splitSpeakerNarration` | keep dialogue and narration in separate cues even when `rpVoice` == `narrationVoice` (default `false`). |
-| `authHeader`            | optional `{ "name": ..., "value": ... }`; `value` supports `${ENV}` interpolation.                      |
-| `voices`                | the voice roster (below).                                                                               |
-| `rpVoice`               | roster name used in RP mode.                                                                            |
-| `narrationVoice`        | roster name used in narration mode.                                                                     |
+| Key                     | Meaning                                                                                                     |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `baseUrl`               | fallback server URL (include the `/v1` suffix). A voice without its own `baseUrl` inherits this.            |
+| `api`                   | engine preset: `openai` (llama.cpp via LiteLLM) or the legacy `gpt-sovits` GET path.                        |
+| `model`                 | model name sent in every body (default `tts`; `qwen3-tts` is a server alias).                               |
+| `format`                | `wav` (default, lowest latency), `pcm`, `mp3`, `opus`, `aac`, or `flac`; anything else falls back to `wav`. |
+| `player`                | file-mode playback command, run as `<player> <file>` (e.g. `paplay`, `afplay`).                             |
+| `stream`                | `true` = stream each cue into `streamPlayer` (playback starts in about 2 s). Default `false`.               |
+| `streamPlayer`          | argv for stream mode; must read audio from stdin. Default `ffplay -nodisp -autoexit -loglevel error -i -`.  |
+| `requestTimeoutMs`      | synth request timeout. Keep generous (e.g. `180000`) to survive a scale-from-zero cold start.               |
+| `maxChunkChars`         | chunk size per speaker/narrator run: `>0` = max chars/chunk, `0` = split by paragraph, `<0` = no split.     |
+| `maxNarrationChunks`    | cap on chunks spoken per turn (the overall audio-segment ceiling).                                          |
+| `splitSpeakerNarration` | keep dialogue and narration in separate cues even when `rpVoice` == `narrationVoice` (default `false`).     |
+| `authHeader`            | optional `{ "name": ..., "value": ... }`; `value` supports `${ENV}` interpolation.                          |
+| `voices`                | the voice roster (below).                                                                                   |
+| `rpVoice`               | roster name used in RP mode.                                                                                |
+| `narrationVoice`        | roster name used in narration mode.                                                                         |
 
 ### Voice entries
 
@@ -111,23 +116,25 @@ starting config (dual-instance clone + preset, emotes, auth header).
 "voices": {
   "exusiai": {
     "kind": "clone",                       // "clone" or "preset"
-    "baseUrl": "http://127.0.0.1:8880/v1", // optional per-voice endpoint override
-    "promptLang": "en",
-    "refAudio": "/abs/path/on/THIS/machine.wav", // read client-side, base64'd
-    "refText": "transcript of the reference clip", // enables ICL (higher quality)
+    "promptLang": "en",                    // sent as `lang` (code or name); unknown values are omitted
+    "refAudio": "/abs/path/on/THIS/machine.wav", // read client-side, base64'd; keep it <= 30 s
+    "refText": "transcript of the reference clip", // sent as speaker_ref_text (ICL, once live)
     "emotes": [                            // optional emote-keyed reference clips
       { "match": ["excited", "cheer"], "refAudio": "...", "refText": "..." }
     ]
   },
   "narrator": {
     "kind": "preset",
-    "preset": "ryan"                       // a voice the server lists
+    "preset": "alloy"                      // a server library name or alias
   }
 }
 ```
 
-- A voice may override `baseUrl` and/or `authHeader`; the endpoint travels with the voice. `PI_TTS_URL` only swaps the
-  shared fallback, never a pinned voice.
+- `preset` names a server voice-library entry or alias (see `/tts status`); an unknown name falls back to the library
+  default. The library entry sets the language, so `promptLang` is unused for presets.
+- A voice may still override `baseUrl` and/or `authHeader` (e.g. to point at another server); the endpoint travels with
+  the voice. One instance serves both kinds, so this is rarely needed. `PI_TTS_URL` only swaps the shared fallback,
+  never a pinned voice.
 - Voice names resolve case-insensitively (exact match first, then lowercase).
 - `clone:Name` as an `rpVoice` / `narrationVoice` value forces clone treatment.
 - `refAudio` is read on the client and base64-encoded, so it must be a path on **this** machine, not the server's
@@ -137,37 +144,43 @@ starting config (dual-instance clone + preset, emotes, auth header).
 - Emotes: the avatar bus emote for the turn selects a matching reference clip; the first `match` array containing the
   emote wins, else the voice's default `refAudio` is used.
 
-## Dual-instance recipe (qwen3-tts)
+## Server (llama.cpp via LiteLLM)
 
-The qwen3-tts checkpoints split capability, so a clone voice and a preset voice cannot share one instance:
+All requests go to one LiteLLM base URL (e.g. `https://llm.<domain>/v1`) with an `Authorization: Bearer <key>` header
+from `authHeader`. Bodies are JSON.
 
-- **Base** checkpoint - zero-shot voice **cloning** only (presets 500 with "does not support generate_custom_voice").
-- **CustomVoice** checkpoint - **preset** voices only (no cloning).
+| Voice / mode   | Route                          | Body                                                                                    |
+| -------------- | ------------------------------ | --------------------------------------------------------------------------------------- |
+| preset, file   | `POST /audio/speech`           | `{ model, input, voice, response_format }`                                              |
+| preset, stream | `POST /audio/speech/stream`    | same plus `stream_format: "audio"` (raw pass-through; the model route drops that field) |
+| clone          | `POST /audio/voice-clone`      | `{ model, input, speaker_ref_b64, speaker_ref_text?, lang?, response_format }`          |
+| clone, stream  | `POST /audio/voice-clone`      | same plus `stream_format: "audio"`                                                      |
+| status         | `GET /models`, `/audio/voices` | reachability probe and the voice library                                                |
 
-Run both and pin each voice to the right one:
+- The CustomVoice preset speakers (`ryan`, `vivian`, `serena`, ...) are gone: llama.cpp only runs the Base model.
+  Presets are now entries in the server's voice library (a clip plus transcript each), with OpenAI names such as `alloy`
+  aliased server-side. To bring back a voice, record or generate a reference clip and add it to the library.
+- The server picks the clone mode: with `speaker_ref_text` it uses ICL (prosody carried from the reference), without it
+  the speaker embedding. ICL needs a clip of 30 s or less and an updated server mmproj; until then the transcript is
+  accepted and ignored, so keep `refText` accurate now and it takes effect without client changes.
+- `mp3`, `opus` (Ogg Opus), `aac`, and `flac` are encoded by the shim, also when streaming. Streamed WAV carries an
+  unknown (`0xFFFFFFFF`) data size, which ffmpeg-based players handle.
+- The backend scales to zero: the first request after idle can take about 60 s, hence `requestTimeoutMs: 180000`.
 
-```jsonc
-{
-  "baseUrl": "http://127.0.0.1:8881/v1",   // CustomVoice (presets) - the fallback
-  "voices": {
-    "exusiai":  { "kind": "clone",  "baseUrl": "http://127.0.0.1:8880/v1", ... }, // Base
-    "narrator": { "kind": "preset", "preset": "ryan" }                            // inherits :8881
-  },
-  "rpVoice": "exusiai",
-  "narrationVoice": "narrator"
-}
-```
+### Streaming playback
 
-Because `rpVoice` and `narrationVoice` resolve their endpoints independently, this also gives per-mode routing for free.
-`/tts status` will flag it if a voice ends up on the wrong checkpoint.
+With `stream: true` each cue's response is piped into `streamPlayer` as it arrives, so playback starts after the first
+audio bytes (about 2 s warm) rather than after the whole clip. The pipeline is unchanged: the next cue's request starts
+while the current one plays and its audio is buffered in memory until its turn. Barge-in kills the player and aborts the
+in-flight requests. `streamPlayer` must read from stdin; `afplay` and `paplay` cannot, while `ffplay` and `mpv -` can.
 
 ## Resilience
 
 - **Cold start:** `requestTimeoutMs` is generous, so a synth fired while a scale-to-zero instance is spinning up waits
   rather than failing.
 - **Bounded retry:** transient failures (network error, or HTTP `429/502/503/504`) are retried up to 3 times with 500 ms
-  -> 1 s backoff. A non-retryable status (`4xx` / `500`, e.g. preset-on-Base) fails fast. The request's own timeout is
-  not retried.
+  -> 1 s backoff. A non-retryable status (`4xx` / `500`, e.g. an unsupported format) fails fast. The request's own
+  timeout is not retried.
 - **Visible failures:** a failed synth carries the HTTP status plus a truncated response-body snippet, surfaced in the
   `PI_TTS_TRACE` trace.
 
@@ -180,8 +193,11 @@ relevant event to that file:
 - `RP branch: dialogueLen=... sample="..."` - whether `extractDialogue` found quoted text.
 - `RP branch: resolved=exusiai/clone` - voice resolution.
 - `RP branch: speaking gen=... emote=...` - reached playback.
-- `playSeq chunk i/n synth=ok|NULL stale=... paused=...` and `playSeq playing chunk i via <player>` - synth + play per
-  chunk.
+- `playSeq cue i/n voice=... synth=file|stream|NULL stale=... paused=...` and `playSeq playing cue i via <player>` -
+  synth + play per cue.
+- `synth stream voice=... server-voice=...` - a streamed cue started; `server-voice` is the library voice the server
+  resolved (`x-tts-voice`), `?` for clones.
+- `playStream pipe ended: ...` - the stream to the player ended early (barge-in or a mid-stream failure).
 - `synth FAILED voice=...: <status>: <body>` - synth threw, with the server's reason.
 
 This makes a silent session diagnosable without a UI: a quick `/tts say hello` (which bypasses gating) isolates

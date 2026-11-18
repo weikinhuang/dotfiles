@@ -30,7 +30,8 @@
  */
 
 import { spawn, type ChildProcess } from 'node:child_process';
-import { unlinkSync } from 'node:fs';
+import { readFileSync, unlinkSync } from 'node:fs';
+import { pipeline } from 'node:stream';
 
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent';
 
@@ -38,10 +39,12 @@ import { loadTtsConfig, resolveVoice, resolveVoiceBaseUrl } from '../../../lib/n
 import {
   setGptSovitsWeights,
   synthesize,
+  synthesizeStream,
   probeReachable,
-  probeCapabilities,
+  probeVoices,
+  type AudioStream,
   type ProbeResult,
-  type CloneCapabilities,
+  type VoiceLibrary,
 } from '../../../lib/node/pi/tts/engine.ts';
 import {
   detectOoc,
@@ -52,7 +55,14 @@ import {
   joinText,
   planSegmentRuns,
 } from '../../../lib/node/pi/tts/text.ts';
-import { capHint, reachText } from '../../../lib/node/pi/tts/status.ts';
+import {
+  libraryHint,
+  libraryLines,
+  reachText,
+  refClipHints,
+  type ClipDuration,
+} from '../../../lib/node/pi/tts/status.ts';
+import { wavDurationSeconds } from '../../../lib/node/pi/tts/wav.ts';
 import type { ResolvedVoice, TtsConfig } from '../../../lib/node/pi/tts/types.ts';
 import { TTS_USAGE } from '../../../lib/node/pi/tts/usage.ts';
 
@@ -188,6 +198,21 @@ function safeUnlink(file: string | null | undefined): void {
   }
 }
 
+/** Synthesized audio for one cue: a finished temp file, or a live stream. */
+type Clip = { kind: 'file'; path: string } | { kind: 'stream'; audio: AudioStream };
+
+/** Release a clip that will not (or no longer) play: delete the file / abort the stream. */
+function discardClip(clip: Clip | null): void {
+  if (!clip) return;
+  if (clip.kind === 'file') safeUnlink(clip.path);
+  else clip.audio.cancel();
+}
+
+/** True when cues should stream into `streamPlayer` instead of going through a temp file. */
+function streaming(cfg: TtsConfig): boolean {
+  return cfg.stream && cfg.api === 'openai';
+}
+
 /** One unit of speech: text spoken in a specific voice, with an optional emote. */
 interface Cue {
   resolved: ResolvedVoice;
@@ -196,18 +221,24 @@ interface Cue {
 }
 
 /**
- * Synthesize one cue; returns the temp file path, or null on failure. For the
- * gpt-sovits legacy engine it lazily re-points the server at the cue's voice
- * weights when they differ from the last set (so a mixed-voice sequence still
- * works); the openai engine has no such call.
+ * Synthesize one cue; returns the clip, or null on failure. In stream mode the
+ * clip resolves as soon as the server answers and keeps downloading in the
+ * background. For the gpt-sovits legacy engine it lazily re-points the server
+ * at the cue's voice weights when they differ from the last set (so a
+ * mixed-voice sequence still works); the openai engine has no such call.
  */
-async function synthCue(st: TtsState, cfg: TtsConfig, cue: Cue): Promise<string | null> {
+async function synthCue(st: TtsState, cfg: TtsConfig, cue: Cue): Promise<Clip | null> {
   try {
     if (cfg.api === 'gpt-sovits' && st.weightsSetFor !== cue.resolved.name) {
       await setGptSovitsWeights(cfg, cue.resolved.voice);
       st.weightsSetFor = cue.resolved.name;
     }
-    return await synthesize(cfg, cue.resolved, cue.text, cue.emote);
+    if (streaming(cfg)) {
+      const audio = await synthesizeStream(cfg, cue.resolved, cue.text, cue.emote);
+      dlog(`synth stream voice=${cue.resolved.name} server-voice=${audio.serverVoice ?? '?'}`);
+      return { kind: 'stream', audio };
+    }
+    return { kind: 'file', path: await synthesize(cfg, cue.resolved, cue.text, cue.emote) };
   } catch (e) {
     // Server down / synth error / weights miss -> reset so we retry next time.
     st.weightsSetFor = null;
@@ -259,6 +290,33 @@ function playFile(st: TtsState, cfg: TtsConfig, file: string): Promise<void> {
 }
 
 /**
+ * Pipe a streamed clip into `streamPlayer`'s stdin; resolve when the player
+ * exits (or fails to spawn). A mid-stream failure closes stdin so the player
+ * plays what arrived and exits; a killed player (barge-in) aborts the request.
+ */
+function playStream(st: TtsState, cfg: TtsConfig, audio: AudioStream): Promise<void> {
+  return new Promise((resolve) => {
+    const [bin, ...args] = cfg.streamPlayer;
+    const child = spawn(bin, args, { detached: true, stdio: ['pipe', 'ignore', 'ignore'] });
+    st.player = child;
+    pipeline(audio.readable, child.stdin, (err) => {
+      if (err) dlog(`playStream pipe ended: ${err.message}`);
+    });
+    const finish = (): void => {
+      audio.cancel();
+      resolve();
+    };
+    child.on('exit', finish);
+    child.on('error', finish); // player missing -> silent no-op
+  });
+}
+
+function playClip(st: TtsState, cfg: TtsConfig, clip: Clip): Promise<void> {
+  if (clip.kind === 'stream') return playStream(st, cfg, clip.audio);
+  return playFile(st, cfg, clip.path).then(() => safeUnlink(clip.path));
+}
+
+/**
  * Synthesize `cues` in order and play them sequentially, overlapping the synth
  * of cue N+1 with the playback of cue N (one synth in flight + the single
  * shared player). Each cue carries its own voice + emote, so a mixed-voice
@@ -266,12 +324,13 @@ function playFile(st: TtsState, cfg: TtsConfig, file: string): Promise<void> {
  * narrator voice, possibly on different instances) interleaves in reading
  * order. A barge-in (genId bump) or pause flushes the queue and the in-flight
  * synth file, deleting temp files as it goes. RP-only and narration are the
- * single-voice cases of this one path.
+ * single-voice cases of this one path. Stream mode is the same pipeline with
+ * clips that start playing as soon as the server answers.
  */
 async function playSequence(st: TtsState, cfg: TtsConfig, cues: Cue[], genId: number): Promise<void> {
   if (cues.length === 0) return;
   const stale = (): boolean => genId !== st.genId;
-  const drain = async (p: Promise<string | null>): Promise<void> => safeUnlink(await p.catch(() => null));
+  const drain = async (p: Promise<Clip | null>): Promise<void> => discardClip(await p.catch(() => null));
   if (stale()) return;
 
   // Synth the first cue, then keep exactly one synth in flight ahead of the
@@ -279,22 +338,21 @@ async function playSequence(st: TtsState, cfg: TtsConfig, cues: Cue[], genId: nu
   let pending = synthCue(st, cfg, cues[0]);
   // oxlint-disable no-await-in-loop -- ordered playback: each cue must finish before the next plays
   for (let i = 0; i < cues.length; i++) {
-    const file = await pending;
+    const clip = await pending;
     pending = i + 1 < cues.length ? synthCue(st, cfg, cues[i + 1]) : Promise.resolve(null);
     dlog(
-      `playSeq cue ${i}/${cues.length} voice=${cues[i].resolved.name} synth=${file ? 'ok' : 'NULL'} stale=${stale()} paused=${st.paused}`,
+      `playSeq cue ${i}/${cues.length} voice=${cues[i].resolved.name} synth=${clip ? clip.kind : 'NULL'} stale=${stale()} paused=${st.paused}`,
     );
 
     if (stale() || st.paused) {
-      safeUnlink(file);
+      discardClip(clip);
       await drain(pending);
       return;
     }
-    if (file) {
+    if (clip) {
       killPlayer(st);
-      dlog(`playSeq playing cue ${i} via ${cfg.player}`);
-      await playFile(st, cfg, file);
-      safeUnlink(file);
+      dlog(`playSeq playing cue ${i} via ${clip.kind === 'stream' ? cfg.streamPlayer[0] : cfg.player}`);
+      await playClip(st, cfg, clip);
     }
     if (stale()) {
       await drain(pending);
@@ -302,6 +360,37 @@ async function playSequence(st: TtsState, cfg: TtsConfig, cues: Cue[], genId: nu
     }
   }
   // oxlint-enable no-await-in-loop
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// /tts status helpers (live probes + file reads; formatting lives in status.ts)
+// ──────────────────────────────────────────────────────────────────────
+
+/** Read a reference clip's duration from its WAV header (undefined for non-WAV). */
+function clipDuration(path: string): ClipDuration {
+  try {
+    return wavDurationSeconds(readFileSync(path));
+  } catch {
+    return 'missing';
+  }
+}
+
+/** The openai server's voice library, probed only when the server answered. */
+async function libraryFor(
+  cfg: TtsConfig,
+  status: ProbeResult,
+  voice?: ResolvedVoice['voice'],
+): Promise<VoiceLibrary | undefined> {
+  if (cfg.api !== 'openai' || status.status === undefined) return undefined;
+  return probeVoices(cfg, voice);
+}
+
+/** Warnings for one resolved voice: unknown library name, or a bad reference clip. */
+function voiceHints(cfg: TtsConfig, resolved: ResolvedVoice, library: VoiceLibrary | undefined): string[] {
+  if (cfg.api !== 'openai') return [];
+  const hint = libraryHint(resolved, library);
+  const clips = resolved.kind === 'clone' ? refClipHints(resolved.voice, clipDuration) : [];
+  return [...(hint ? [hint] : []), ...clips];
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -558,63 +647,64 @@ export default function ttsExtension(pi: ExtensionAPI): void {
                 ? `inherited (${cfg.authHeader.name})`
                 : 'off';
             const status = await probeReachable(cfg, rv.voice);
-            const reach = reachText(status);
-            const cap = status.status === undefined ? undefined : await probeCapabilities(cfg, rv.voice);
-            const hint = capHint(rv, cap);
+            const library = await libraryFor(cfg, status, rv.voice);
+            const hints = voiceHints(cfg, rv, library);
             ctx.ui.notify(
               [
                 `voice ${rv.name} (${rv.kind})`,
-                `url: ${url} [${reach}] (${source})`,
+                `url: ${url} [${reachText(status)}] (${source})`,
                 `auth: ${auth}`,
-                ...(hint ? [hint] : []),
+                ...hints,
+                ...(cfg.api === 'openai' ? libraryLines(library) : []),
               ].join('\n'),
-              status.status === undefined || hint ? 'warning' : 'info',
+              status.status === undefined || hints.length > 0 ? 'warning' : 'info',
             );
             break;
           }
 
-          // General status: probe the resolved rp + narration voices, which may
-          // live on two different instances.
+          // General status: probe the resolved rp + narration voices (each may
+          // pin its own endpoint) and list the fallback server's voice library.
           const rpName = st.rpVoiceOverride ?? cfg.rpVoice;
           const narrName = st.narrationVoiceOverride ?? cfg.narrationVoice;
           const rpResolved = resolveVoice(cfg, rpName);
           const narrResolved = resolveVoice(cfg, narrName);
           const rpStatus = rpResolved ? await probeReachable(cfg, rpResolved.voice) : undefined;
           const narrStatus = narrResolved ? await probeReachable(cfg, narrResolved.voice) : undefined;
-          const rpCap =
-            rpResolved && rpStatus?.status !== undefined ? await probeCapabilities(cfg, rpResolved.voice) : undefined;
-          const narrCap =
-            narrResolved && narrStatus?.status !== undefined
-              ? await probeCapabilities(cfg, narrResolved.voice)
-              : undefined;
+          const fallbackStatus = await probeReachable(cfg);
+          const library = await libraryFor(cfg, fallbackStatus);
           const voiceLine = (
             label: string,
             name: string,
             resolved: ResolvedVoice | undefined,
             status: ProbeResult | undefined,
-            cap: CloneCapabilities | undefined,
-          ): string => {
-            if (!name) return `${label}: (unset)`;
-            if (!resolved) return `${label}: ${name} (unresolved)`;
+          ): string[] => {
+            if (!name) return [`${label}: (unset)`];
+            if (!resolved) return [`${label}: ${name} (unresolved)`];
             const url = resolveVoiceBaseUrl(cfg, resolved.voice);
-            const hint = capHint(resolved, cap);
-            return `${label}: ${name} (${resolved.kind}) @ ${url} [${status ? reachText(status) : 'UNREACHABLE'}]${hint ? `\n${hint}` : ''}`;
+            return [
+              `${label}: ${name} (${resolved.kind}) @ ${url} [${status ? reachText(status) : 'UNREACHABLE'}]`,
+              ...voiceHints(cfg, resolved, resolved.voice.baseUrl ? undefined : library),
+            ];
           };
+          const lines = [
+            ...voiceLine('rpVoice', rpName, rpResolved, rpStatus),
+            ...voiceLine('narrationVoice', narrName, narrResolved, narrStatus),
+          ];
           const anyDown =
             (rpResolved !== undefined && rpStatus?.status === undefined) ||
             (narrResolved !== undefined && narrStatus?.status === undefined);
-          const anyMismatch =
-            (rpResolved !== undefined && capHint(rpResolved, rpCap) !== '') ||
-            (narrResolved !== undefined && capHint(narrResolved, narrCap) !== '');
+          const anyHint = lines.some((l) => l.startsWith('  !'));
+          const playback = streaming(cfg) ? `stream via ${cfg.streamPlayer.join(' ')}` : `file via ${cfg.player}`;
           ctx.ui.notify(
             [
               `tts: rp=${st.rpEnabled ? 'on' : 'off'} narrate=${st.narrateEnabled ? 'on' : 'off'}${st.paused ? ' (paused)' : ''}`,
               `persona: ${persona}`,
-              `engine: ${cfg.api} (fallback url ${cfg.baseUrl})`,
-              voiceLine('rpVoice', rpName, rpResolved, rpStatus, rpCap),
-              voiceLine('narrationVoice', narrName, narrResolved, narrStatus, narrCap),
+              `engine: ${cfg.api} model=${cfg.model} format=${cfg.format} (fallback url ${cfg.baseUrl} [${reachText(fallbackStatus)}])`,
+              `playback: ${playback}`,
+              ...lines,
+              ...(cfg.api === 'openai' ? libraryLines(library) : []),
             ].join('\n'),
-            anyDown || anyMismatch ? 'warning' : 'info',
+            anyDown || anyHint ? 'warning' : 'info',
           );
           break;
         }
