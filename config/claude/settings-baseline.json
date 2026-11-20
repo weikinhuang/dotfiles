@@ -215,7 +215,7 @@
   },
   "autoMemoryEnabled": true,
   "cleanupPeriodDays": 9999,
-  "effortLevel": "high",
+  "effortLevel": "medium",
   "plansDirectory": "./plans",
   "prefersReducedMotion": false,
   "promptSuggestionEnabled": true,
