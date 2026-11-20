@@ -521,6 +521,14 @@ EOF
   assert_success
   assert_output "3d"
 
+  run fmt_time_until $((NOW_OVERRIDE + 7 * 3600 + 5 * 60 + 30))
+  assert_success
+  assert_output "7h5m"
+
+  run fmt_time_until $((NOW_OVERRIDE + 2 * 86400 + 4 * 3600 + 59 * 60))
+  assert_success
+  assert_output "2d4h"
+
   # Past timestamps clamp to 0s so countdowns don't dip negative near the reset boundary.
   run fmt_time_until $((NOW_OVERRIDE - 120))
   assert_success

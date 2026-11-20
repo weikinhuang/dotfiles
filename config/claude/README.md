@@ -38,7 +38,8 @@ Two-line status line in the dotfiles PS1 style. Claude Code invokes it after eve
 - **`⎇ <name>`** - linked worktree indicator. Only shown when `workspace.git_worktree` is set.
 - **`N% left`** - context-window remaining.
 - **`$N.NNN`** - session cost in USD.
-- **`5h:N%·<time>` and `7d:N%·<time>`** - Pro/Max rate-limit windows: percent used and countdown to reset.
+- **`5h:N%·<time>` and `7d:N%·<time>`** - Pro/Max rate-limit windows: percent used and countdown to reset (two units,
+  e.g. `7h5m`, `2d4h`; a zero trailing unit is dropped).
 - **`§xxxxxxxx`** - first 8 chars of the session UUID. Use as a prefix for `session-usage.ts session <id>`.
 - **`<model>`** - model display name.
 

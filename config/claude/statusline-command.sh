@@ -133,7 +133,7 @@ fmt_si() {
   fi
 }
 
-# Humanize a future epoch timestamp into a short "in N unit" form (e.g. 2h, 3d, 45m).
+# Humanize a future epoch timestamp into a short countdown (e.g. 3d2h, 7h5m, 45m, 30s).
 # Uses ${NOW_OVERRIDE} as the reference time when set, which keeps tests deterministic.
 fmt_time_until() {
   local target="$1"
@@ -143,12 +143,16 @@ fmt_time_until() {
   delta=$((target - now))
   ((delta < 0)) && delta=0
 
-  if ((delta >= 86400)); then
-    printf '%dd' $((delta / 86400))
+  # Two units of precision (e.g. 2d4h, 7h5m); a zero trailing unit is omitted.
+  local d=$((delta / 86400)) h=$((delta % 86400 / 3600)) m=$((delta % 3600 / 60))
+  if ((d > 0)); then
+    printf '%dd' "${d}"
+    if ((h > 0)); then printf '%dh' "${h}"; fi
   elif ((delta >= 3600)); then
-    printf '%dh' $((delta / 3600))
+    printf '%dh' "${h}"
+    if ((m > 0)); then printf '%dm' "${m}"; fi
   elif ((delta >= 60)); then
-    printf '%dm' $((delta / 60))
+    printf '%dm' "${m}"
   else
     printf '%ds' "${delta}"
   fi
