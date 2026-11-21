@@ -54,7 +54,7 @@ async function withQuestionnaire(
   await tool!.execute('test', { questions, allowChat: true }, undefined, undefined, ctx as never);
 }
 
-function assertBounded(screen: Screen, tui: TUI, width: number): string[] {
+function assertBounded(screen: Screen, tui: TUI, width: number): readonly string[] {
   const lines = screen.render(width);
   expect(lines.length).toBeLessThanOrEqual(tui.terminal.rows - 2);
   expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);

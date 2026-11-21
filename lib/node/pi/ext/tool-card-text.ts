@@ -10,7 +10,7 @@ export class ToolCardText extends Text {
     super(text, 0, 0);
   }
 
-  override render(width: number): string[] {
+  override render(width: number): readonly string[] {
     const lines = super.render(width);
     const limit = Math.max(1, Math.floor(this.maxLines));
     if (lines.length <= limit) return lines;

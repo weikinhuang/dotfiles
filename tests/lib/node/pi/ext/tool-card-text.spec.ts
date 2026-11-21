@@ -3,7 +3,7 @@ import { describe, expect, test } from 'vitest';
 
 import { ToolCardText, toolCardSection } from '../../../../../lib/node/pi/ext/tool-card-text.ts';
 
-function clean(lines: string[]): string[] {
+function clean(lines: readonly string[]): string[] {
   return lines.map((line) => line.trimEnd());
 }
 
